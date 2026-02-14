@@ -10,6 +10,7 @@ use teloxide::utils::command::BotCommands;
 use crate::blocking;
 use crate::database;
 use crate::mini_overlay;
+use crate::overlay;
 
 /// Shutdown signal for graceful termination
 pub static BOT_SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -39,6 +40,10 @@ enum Command {
     Resume,
     #[command(description = "Show today's pause activity")]
     History,
+    #[command(description = "Show a message on screen (e.g., /msg Do your homework!)")]
+    Msg(String),
+    #[command(description = "Lock the screen")]
+    Lock,
     #[command(description = "Get your chat ID for setup")]
     Chatid,
     #[command(description = "Show this help message")]
@@ -210,6 +215,8 @@ async fn handle_command(
         Command::Pause => cmd_pause(),
         Command::Resume => cmd_resume(),
         Command::History => cmd_history(),
+        Command::Msg(text) => cmd_msg(&text),
+        Command::Lock => cmd_lock(),
         Command::Chatid => unreachable!(), // Handled above
         Command::Help => Command::descriptions().to_string(),
     };
@@ -376,6 +383,28 @@ fn cmd_history() -> String {
     }
 
     response
+}
+
+fn cmd_msg(text: &str) -> String {
+    if text.is_empty() {
+        return "Please provide a message, e.g. /msg Do your homework!".to_string();
+    }
+
+    unsafe {
+        overlay::show_overlay(text, 10);
+    }
+
+    format!("📢 Message shown: \"{}\"", text)
+}
+
+fn cmd_lock() -> String {
+    let message = database::get_blocking_message();
+
+    unsafe {
+        blocking::show_blocking_overlay(&message);
+    }
+
+    "🔒 Screen locked".to_string()
 }
 
 /// Format pause blocked reason for display
