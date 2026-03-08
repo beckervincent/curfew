@@ -16,7 +16,6 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppUpdatesURL=https://github.com/beckervincent/Screen-Time-Manager-for-Windows/releases
-; Default to Program Files but let the user change it
 DefaultDirName={autopf}\ScreenTimeManager
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -28,7 +27,6 @@ SolidCompression=yes
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
-; Close the app if running before overwriting files
 CloseApplications=yes
 CloseApplicationsFilter={#MyAppExeName}
 RestartApplications=no
@@ -42,70 +40,126 @@ Source: "screen-time-manager.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "nssm.exe";                DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-; Start Menu entries
-Name: "{commonprograms}\{#MyAppName}\Settings";   Filename: "{app}\{#MyAppExeName}"; Parameters: "--settings"; Comment: "Open Screen Time Manager settings"
-Name: "{commonprograms}\{#MyAppName}\Uninstall";  Filename: "{uninstallexe}";        Comment: "Uninstall Screen Time Manager"
+Name: "{commonprograms}\{#MyAppName}\Settings";  Filename: "{app}\{#MyAppExeName}"; Parameters: "--settings"; Comment: "Open Screen Time Manager settings"
+Name: "{commonprograms}\{#MyAppName}\Uninstall"; Filename: "{uninstallexe}";        Comment: "Uninstall Screen Time Manager"
 
 [Run]
-; ── 1. Remove any existing service installation ──────────────────────────────
-Filename: "{app}\nssm.exe"; Parameters: "stop {#ServiceName}"; \
-    Flags: runhidden waituntilterminated; StatusMsg: "Stopping existing service..."
-Filename: "{app}\nssm.exe"; Parameters: "remove {#ServiceName} confirm"; \
-    Flags: runhidden waituntilterminated; StatusMsg: "Removing existing service..."
-Filename: "taskkill.exe"; Parameters: "/f /im {#MyAppExeName}"; \
-    Flags: runhidden waituntilterminated
-
-; ── 2. First-run setup wizard (PIN + settings) ───────────────────────────────
+; Run the first-run setup wizard (PIN creation + settings) before installing the service
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup"; \
     Flags: waituntilterminated; StatusMsg: "Running initial setup..."
-
-; ── 3. Install and configure the NSSM service ────────────────────────────────
-Filename: "{app}\nssm.exe"; \
-    Parameters: "install {#ServiceName} ""{app}\{#MyAppExeName}"" --service"; \
-    Flags: runhidden waituntilterminated; StatusMsg: "Installing service..."
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppDirectory ""{app}"""; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} ObjectName LocalSystem"; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; \
-    Parameters: "set {#ServiceName} DisplayName ""Screen Time Manager"""; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; \
-    Parameters: "set {#ServiceName} Description ""Screen Time Manager - Manages daily computer time limits"""; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} Start SERVICE_AUTO_START"; \
-    Flags: runhidden waituntilterminated
-
-; Configure log rotation
-Filename: "cmd.exe"; Parameters: "/c mkdir ""{app}\logs"" 2>nul"; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; \
-    Parameters: "set {#ServiceName} AppStdout ""{app}\logs\stdout.log"""; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; \
-    Parameters: "set {#ServiceName} AppStderr ""{app}\logs\stderr.log"""; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppRotateFiles 1"; \
-    Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppRotateSeconds 86400"; \
-    Flags: runhidden waituntilterminated
-
-; ── 4. Lock down directories ─────────────────────────────────────────────────
-Filename: "powershell.exe"; \
-    Parameters: "-NonInteractive -Command ""$acl=Get-Acl '{app}';$acl.SetAccessRuleProtection($true,$false);$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')));$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')));$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')));Set-Acl '{app}' $acl"""; \
-    Flags: runhidden waituntilterminated; StatusMsg: "Applying security settings..."
-Filename: "powershell.exe"; \
-    Parameters: "-NonInteractive -Command ""$d=Join-Path $env:ProgramData 'ScreenTimeManager';New-Item -ItemType Directory -Path $d -Force|Out-Null;$acl=Get-Acl $d;$acl.SetAccessRuleProtection($true,$false);$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')));$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')));Set-Acl $d $acl"""; \
-    Flags: runhidden waituntilterminated
-
-; ── 5. Start the service ─────────────────────────────────────────────────────
-Filename: "{app}\nssm.exe"; Parameters: "start {#ServiceName}"; \
-    Flags: runhidden waituntilterminated; StatusMsg: "Starting service..."
 
 [Code]
 
 var
   ShouldDeleteData: Boolean;
+
+{ Write a string to a file, return true on success }
+function WriteScript(const Path, Content: String): Boolean;
+var
+  Lines: TArrayOfString;
+begin
+  SetArrayLength(Lines, 1);
+  Lines[0] := Content;
+  Result := SaveStringsToFile(Path, Lines, False);
+end;
+
+{ Run a PowerShell script file and return the exit code }
+function RunPS(const ScriptPath: String): Integer;
+var
+  ResultCode: Integer;
+begin
+  Exec('powershell.exe',
+    '-NonInteractive -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := ResultCode;
+end;
+
+procedure InstallService();
+var
+  ScriptPath: String;
+  AppDir, NssmExe, AppExe, LogDir: String;
+  Script: String;
+  ResultCode: Integer;
+begin
+  AppDir  := ExpandConstant('{app}');
+  NssmExe := AppDir + '\nssm.exe';
+  AppExe  := AppDir + '\screen-time-manager.exe';
+  LogDir  := AppDir + '\logs';
+  ScriptPath := ExpandConstant('{tmp}\stm_install_svc.ps1');
+
+  Script :=
+    '$svc   = "ScreenTimeManager"' + #13#10 +
+    '$nssm  = "' + NssmExe + '"' + #13#10 +
+    '$app   = "' + AppExe  + '"' + #13#10 +
+    '$dir   = "' + AppDir  + '"' + #13#10 +
+    '$logs  = "' + LogDir  + '"' + #13#10 +
+    '' + #13#10 +
+    '# Thorough cleanup of any existing installation' + #13#10 +
+    'Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue' + #13#10 +
+    '& $nssm stop   $svc 2>$null' + #13#10 +
+    '& $nssm remove $svc confirm 2>$null' + #13#10 +
+    'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
+    'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
+    'Start-Sleep -Seconds 2' + #13#10 +
+    '' + #13#10 +
+    '# Kill any stray processes' + #13#10 +
+    'Get-Process -Name "screen-time-manager" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
+    'Start-Sleep -Milliseconds 500' + #13#10 +
+    '' + #13#10 +
+    '# Install via NSSM' + #13#10 +
+    '& $nssm install $svc $app "--service"' + #13#10 +
+    '& $nssm set $svc AppDirectory  $dir' + #13#10 +
+    '& $nssm set $svc ObjectName    "LocalSystem"' + #13#10 +
+    '& $nssm set $svc DisplayName   "Screen Time Manager"' + #13#10 +
+    '& $nssm set $svc Description   "Screen Time Manager - Manages daily computer time limits"' + #13#10 +
+    '& $nssm set $svc Start         SERVICE_AUTO_START' + #13#10 +
+    '' + #13#10 +
+    '# Log rotation' + #13#10 +
+    'New-Item -ItemType Directory -Path $logs -Force | Out-Null' + #13#10 +
+    '& $nssm set $svc AppStdout       "$logs\stdout.log"' + #13#10 +
+    '& $nssm set $svc AppStderr       "$logs\stderr.log"' + #13#10 +
+    '& $nssm set $svc AppRotateFiles  1' + #13#10 +
+    '& $nssm set $svc AppRotateSeconds 86400' + #13#10 +
+    '' + #13#10 +
+    '# Lock down install directory' + #13#10 +
+    '$acl = Get-Acl $dir' + #13#10 +
+    '$acl.SetAccessRuleProtection($true, $false)' + #13#10 +
+    '$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
+    '$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
+    '$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Users","ReadAndExecute","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
+    'Set-Acl $dir $acl' + #13#10 +
+    '' + #13#10 +
+    '# Lock down ProgramData DB directory' + #13#10 +
+    '$dbDir = Join-Path $env:ProgramData "ScreenTimeManager"' + #13#10 +
+    'New-Item -ItemType Directory -Path $dbDir -Force | Out-Null' + #13#10 +
+    '$dbAcl = Get-Acl $dbDir' + #13#10 +
+    '$dbAcl.SetAccessRuleProtection($true, $false)' + #13#10 +
+    '$dbAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
+    '$dbAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
+    'Set-Acl $dbDir $dbAcl' + #13#10 +
+    '' + #13#10 +
+    '# Start the service' + #13#10 +
+    '& $nssm start $svc' + #13#10;
+
+  if not WriteScript(ScriptPath, Script) then
+  begin
+    MsgBox('Failed to write service install script.', mbError, MB_OK);
+    Exit;
+  end;
+
+  ResultCode := RunPS(ScriptPath);
+  if ResultCode <> 0 then
+    MsgBox('Service installation completed with warnings (code ' + IntToStr(ResultCode) + '). ' +
+           'The application may need to be started manually from Services.', mbInformation, MB_OK);
+
+  DeleteFile(ScriptPath);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    InstallService();
+end;
 
 function InitializeUninstall(): Boolean;
 var
@@ -139,6 +193,9 @@ begin
         Exec(NssmExe, 'remove {#ServiceName} confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
         Sleep(1000);
       end;
+      { Fallback: sc.exe in case NSSM didn't clean up }
+      Exec('sc.exe', 'stop {#ServiceName}',   '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec('sc.exe', 'delete {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       Exec('taskkill.exe', '/f /im {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       Sleep(500);
     end;

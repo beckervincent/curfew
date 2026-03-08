@@ -6,10 +6,14 @@ use windows::{
     core::{w, PCWSTR},
     Win32::{
         Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
-        Graphics::Gdi::{
-            BeginPaint, CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DeleteObject,
-            DrawTextW, EndPaint, FillRect, InvalidateRect, SelectObject, SetBkMode, SetTextColor,
-            SetWindowRgn, DT_CENTER, DT_SINGLELINE, FW_BOLD, FW_NORMAL, PAINTSTRUCT, TRANSPARENT,
+        Graphics::{
+            Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE},
+            Gdi::{
+                BeginPaint, CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DeleteObject,
+                DrawTextW, EndPaint, FillRect, HDC, InvalidateRect, SelectObject, SetBkColor,
+                SetBkMode, SetTextColor, SetWindowRgn, DT_CENTER, DT_SINGLELINE, FW_BOLD,
+                FW_NORMAL, PAINTSTRUCT, TRANSPARENT,
+            },
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::{
@@ -24,6 +28,9 @@ use crate::constants::*;
 use crate::database::{get_passcode, get_setting, set_setting, WEEKDAY_KEYS, WEEKDAY_NAMES, get_pause_used_today, get_pause_config, get_pause_log_today, is_pause_enabled, is_idle_enabled, get_idle_timeout_minutes};
 use crate::dpi::scale;
 use windows::Win32::Graphics::Gdi::DT_WORDBREAK;
+// Dark mode colors
+const DARK_BG: u32 = 0x001E1E2E;
+const DARK_EDIT_BG: u32 = 0x00282840;
 
 // Control IDs for settings dialog
 const ID_SETTINGS_BASE: i32 = 2000;
@@ -87,7 +94,7 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                     WINDOW_EX_STYLE(0),
                     w!("EDIT"),
                     w!(""),
-                    WS_CHILD | WS_VISIBLE | WS_BORDER
+                    WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP
                         | WINDOW_STYLE(ES_CENTER as u32 | ES_PASSWORD as u32 | ES_NUMBER as u32),
                     scale(100), scale(95), scale(150), scale(45),
                     hwnd,
@@ -115,7 +122,7 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                     WINDOW_EX_STYLE(0),
                     w!("BUTTON"),
                     w!("OK"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(70), scale(200), scale(100), scale(40),
                     hwnd,
                     HMENU(1 as _),
@@ -128,7 +135,7 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                     WINDOW_EX_STYLE(0),
                     w!("BUTTON"),
                     w!("Cancel"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(180), scale(200), scale(100), scale(40),
                     hwnd,
                     HMENU(2 as _),
@@ -145,7 +152,7 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                 let mut rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut rect).ok();
 
-                let bg_brush = CreateSolidBrush(COLORREF(0x00F0F0F0));
+                let bg_brush = CreateSolidBrush(COLORREF(DARK_BG));
                 FillRect(hdc, &rect, bg_brush);
                 let _ = DeleteObject(bg_brush);
 
@@ -156,7 +163,7 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                     w!("Segoe UI"),
                 );
                 let old_font = SelectObject(hdc, title_font);
-                SetTextColor(hdc, COLORREF(0x00333333));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 SetBkMode(hdc, TRANSPARENT);
 
                 let mut title_rect = RECT { left: 0, top: scale(25), right: rect.right, bottom: scale(55) };
@@ -174,7 +181,7 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                     w!("Segoe UI"),
                 );
                 SelectObject(hdc, sub_font);
-                SetTextColor(hdc, COLORREF(0x00666666));
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
 
                 let mut sub_rect = RECT { left: 0, top: scale(55), right: rect.right, bottom: scale(80) };
                 DrawTextW(
@@ -241,6 +248,12 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                 }
                 LRESULT(0)
             }
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+                let hdc = HDC(wparam.0 as _);
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
+                SetBkColor(hdc, COLORREF(DARK_EDIT_BG));
+                LRESULT(CreateSolidBrush(COLORREF(DARK_EDIT_BG)).0 as isize)
+            }
             WM_CLOSE => {
                 DIALOG_RESULT = Some(false);
                 DestroyWindow(hwnd).ok();
@@ -259,7 +272,7 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
         lpfnWndProc: Some(dialog_proc),
         hInstance: hinstance.into(),
         lpszClassName: dialog_class,
-        hbrBackground: CreateSolidBrush(COLORREF(0x00F0F0F0)),
+        hbrBackground: CreateSolidBrush(COLORREF(DARK_BG)),
         hCursor: LoadCursorW(None, IDC_ARROW).ok().unwrap_or_default(),
         ..zeroed()
     };
@@ -292,6 +305,14 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
         let _ = ShowWindow(dlg, SW_SHOW);
         let _ = SetForegroundWindow(dlg);
 
+        let dark: i32 = 1;
+        let _ = DwmSetWindowAttribute(
+            dlg,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const i32 as *const std::ffi::c_void,
+            4,
+        );
+
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             // Forward Enter key from the edit control to the OK button
@@ -299,8 +320,10 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
                 SendMessageW(dlg, WM_COMMAND, WPARAM(1), LPARAM(0));
                 continue;
             }
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            if !IsDialogMessageW(dlg, &msg).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
     }
 
@@ -665,21 +688,21 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
 
                 let save_btn = CreateWindowExW(
                     WINDOW_EX_STYLE(0), w!("BUTTON"), w!("Save"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(100), y_pos, scale(90), scale(30), hwnd, HMENU(ID_SETTINGS_SAVE as _), hinstance, None,
                 );
                 if let Ok(h) = save_btn { SendMessageW(h, WM_SETFONT, WPARAM(btn_font.0 as usize), LPARAM(1)); }
 
                 let cancel_btn = CreateWindowExW(
                     WINDOW_EX_STYLE(0), w!("BUTTON"), w!("Cancel"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(200), y_pos, scale(90), scale(30), hwnd, HMENU(ID_SETTINGS_CANCEL as _), hinstance, None,
                 );
                 if let Ok(h) = cancel_btn { SendMessageW(h, WM_SETFONT, WPARAM(btn_font.0 as usize), LPARAM(1)); }
 
                 let uninstall_btn = CreateWindowExW(
                     WINDOW_EX_STYLE(0), w!("BUTTON"), w!("Uninstall Application..."),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(95), y_pos + scale(40), scale(210), scale(28),
                     hwnd, HMENU(ID_SETTINGS_UNINSTALL as _), hinstance, None,
                 );
@@ -857,6 +880,12 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
 
                 LRESULT(0)
             }
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+                let hdc = HDC(wparam.0 as _);
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
+                SetBkColor(hdc, COLORREF(DARK_EDIT_BG));
+                LRESULT(CreateSolidBrush(COLORREF(DARK_EDIT_BG)).0 as isize)
+            }
             WM_CLOSE => {
                 DestroyWindow(hwnd).ok();
                 LRESULT(0)
@@ -876,7 +905,7 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
         lpfnWndProc: Some(settings_dialog_proc),
         hInstance: hinstance.into(),
         lpszClassName: dialog_class,
-        hbrBackground: CreateSolidBrush(COLORREF(0x00F5F5F5)),
+        hbrBackground: CreateSolidBrush(COLORREF(DARK_BG)),
         hCursor: LoadCursorW(None, IDC_ARROW).ok().unwrap_or_default(),
         ..zeroed()
     };
@@ -909,10 +938,20 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
         let _ = ShowWindow(dlg, SW_SHOW);
         let _ = SetForegroundWindow(dlg);
 
+        let dark: i32 = 1;
+        let _ = DwmSetWindowAttribute(
+            dlg,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const i32 as *const std::ffi::c_void,
+            4,
+        );
+
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            if !IsDialogMessageW(dlg, &msg).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
     }
 
@@ -956,7 +995,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 // Reset Timer button
                 let reset_btn = CreateWindowExW(
                     WINDOW_EX_STYLE(0), w!("BUTTON"), w!("Reset Timer"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(50), scale(310), scale(120), scale(35), hwnd, HMENU(ID_RESET_TIMER as _), hinstance, None,
                 );
                 if let Ok(h) = reset_btn { SendMessageW(h, WM_SETFONT, WPARAM(btn_font.0 as usize), LPARAM(1)); }
@@ -964,7 +1003,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 // Close button
                 let close_btn = CreateWindowExW(
                     WINDOW_EX_STYLE(0), w!("BUTTON"), w!("Close"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(190), scale(310), scale(100), scale(35), hwnd, HMENU(ID_CLOSE as _), hinstance, None,
                 );
                 if let Ok(h) = close_btn { SendMessageW(h, WM_SETFONT, WPARAM(btn_font.0 as usize), LPARAM(1)); }
@@ -978,7 +1017,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 let mut rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut rect).ok();
 
-                let bg_brush = CreateSolidBrush(COLORREF(0x00F5F5F5));
+                let bg_brush = CreateSolidBrush(COLORREF(DARK_BG));
                 FillRect(hdc, &rect, bg_brush);
                 let _ = DeleteObject(bg_brush);
 
@@ -1040,7 +1079,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 );
 
                 let old_font = SelectObject(hdc, title_font);
-                SetTextColor(hdc, COLORREF(0x00333333));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 SetBkMode(hdc, TRANSPARENT);
 
                 // Title
@@ -1059,12 +1098,12 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                 // Day
                 SelectObject(hdc, label_font);
-                SetTextColor(hdc, COLORREF(0x00666666));
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
                 let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
                 DrawTextW(hdc, &mut "Day:".encode_utf16().collect::<Vec<_>>(), &mut label_rect, DT_SINGLELINE);
 
                 SelectObject(hdc, value_font);
-                SetTextColor(hdc, COLORREF(0x00333333));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 let day_str = weekday_name.to_string();
                 let mut value_rect = RECT { left: value_x, top: y, right: rect.right - scale(15), bottom: y + scale(22) };
                 DrawTextW(hdc, &mut day_str.encode_utf16().collect::<Vec<_>>(), &mut value_rect, DT_SINGLELINE);
@@ -1072,12 +1111,12 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                 // Daily limit
                 SelectObject(hdc, label_font);
-                SetTextColor(hdc, COLORREF(0x00666666));
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
                 let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
                 DrawTextW(hdc, &mut "Daily Limit:".encode_utf16().collect::<Vec<_>>(), &mut label_rect, DT_SINGLELINE);
 
                 SelectObject(hdc, value_font);
-                SetTextColor(hdc, COLORREF(0x00333333));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 let limit_str = format!("{} min", daily_limit_minutes);
                 let mut value_rect = RECT { left: value_x, top: y, right: rect.right - scale(15), bottom: y + scale(22) };
                 DrawTextW(hdc, &mut limit_str.encode_utf16().collect::<Vec<_>>(), &mut value_rect, DT_SINGLELINE);
@@ -1085,12 +1124,12 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                 // Time used
                 SelectObject(hdc, label_font);
-                SetTextColor(hdc, COLORREF(0x00666666));
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
                 let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
                 DrawTextW(hdc, &mut "Time Used:".encode_utf16().collect::<Vec<_>>(), &mut label_rect, DT_SINGLELINE);
 
                 SelectObject(hdc, value_font);
-                SetTextColor(hdc, COLORREF(0x00333333));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 let used_str = format_duration(used_seconds.max(0));
                 let mut value_rect = RECT { left: value_x, top: y, right: rect.right - scale(15), bottom: y + scale(22) };
                 DrawTextW(hdc, &mut used_str.encode_utf16().collect::<Vec<_>>(), &mut value_rect, DT_SINGLELINE);
@@ -1098,7 +1137,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                 // Time remaining
                 SelectObject(hdc, label_font);
-                SetTextColor(hdc, COLORREF(0x00666666));
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
                 let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
                 DrawTextW(hdc, &mut "Time Remaining:".encode_utf16().collect::<Vec<_>>(), &mut label_rect, DT_SINGLELINE);
 
@@ -1118,7 +1157,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                 // ===== Pause Section =====
                 SelectObject(hdc, section_font);
-                SetTextColor(hdc, COLORREF(0x00333333));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 let mut section_rect = RECT { left: left_margin, top: y, right: rect.right - scale(15), bottom: y + scale(20) };
                 DrawTextW(hdc, &mut "Pause Mode".encode_utf16().collect::<Vec<_>>(), &mut section_rect, DT_SINGLELINE);
                 y += scale(22);
@@ -1126,12 +1165,12 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 if pause_enabled {
                     // Pause budget used
                     SelectObject(hdc, label_font);
-                    SetTextColor(hdc, COLORREF(0x00666666));
+                    SetTextColor(hdc, COLORREF(0x00BBBBBB));
                     let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
                     DrawTextW(hdc, &mut "Pause Used:".encode_utf16().collect::<Vec<_>>(), &mut label_rect, DT_SINGLELINE);
 
                     SelectObject(hdc, value_font);
-                    SetTextColor(hdc, COLORREF(0x00333333));
+                    SetTextColor(hdc, COLORREF(0x00FFFFFF));
                     let pause_used_str = format!("{} / {} min", pause_used_seconds / 60, pause_config.daily_budget_minutes);
                     let mut value_rect = RECT { left: value_x, top: y, right: rect.right - scale(15), bottom: y + scale(22) };
                     DrawTextW(hdc, &mut pause_used_str.encode_utf16().collect::<Vec<_>>(), &mut value_rect, DT_SINGLELINE);
@@ -1139,7 +1178,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                     // Pause remaining
                     SelectObject(hdc, label_font);
-                    SetTextColor(hdc, COLORREF(0x00666666));
+                    SetTextColor(hdc, COLORREF(0x00BBBBBB));
                     let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
                     DrawTextW(hdc, &mut "Pause Remaining:".encode_utf16().collect::<Vec<_>>(), &mut label_rect, DT_SINGLELINE);
 
@@ -1158,12 +1197,12 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                     // Pause count
                     SelectObject(hdc, label_font);
-                    SetTextColor(hdc, COLORREF(0x00666666));
+                    SetTextColor(hdc, COLORREF(0x00BBBBBB));
                     let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
                     DrawTextW(hdc, &mut "Pauses Today:".encode_utf16().collect::<Vec<_>>(), &mut label_rect, DT_SINGLELINE);
 
                     SelectObject(hdc, value_font);
-                    SetTextColor(hdc, COLORREF(0x00333333));
+                    SetTextColor(hdc, COLORREF(0x00FFFFFF));
                     let pause_count_str = format!("{}", pause_log.len());
                     let mut value_rect = RECT { left: value_x, top: y, right: rect.right - scale(15), bottom: y + scale(22) };
                     DrawTextW(hdc, &mut pause_count_str.encode_utf16().collect::<Vec<_>>(), &mut value_rect, DT_SINGLELINE);
@@ -1215,6 +1254,12 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                 LRESULT(0)
             }
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+                let hdc = HDC(wparam.0 as _);
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
+                SetBkColor(hdc, COLORREF(DARK_EDIT_BG));
+                LRESULT(CreateSolidBrush(COLORREF(DARK_EDIT_BG)).0 as isize)
+            }
             WM_CLOSE => {
                 DestroyWindow(hwnd).ok();
                 LRESULT(0)
@@ -1233,7 +1278,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
         lpfnWndProc: Some(stats_dialog_proc),
         hInstance: hinstance.into(),
         lpszClassName: dialog_class,
-        hbrBackground: CreateSolidBrush(COLORREF(0x00F5F5F5)),
+        hbrBackground: CreateSolidBrush(COLORREF(DARK_BG)),
         hCursor: LoadCursorW(None, IDC_ARROW).ok().unwrap_or_default(),
         ..zeroed()
     };
@@ -1266,10 +1311,20 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
         let _ = ShowWindow(dlg, SW_SHOW);
         let _ = SetForegroundWindow(dlg);
 
+        let dark: i32 = 1;
+        let _ = DwmSetWindowAttribute(
+            dlg,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const i32 as *const std::ffi::c_void,
+            4,
+        );
+
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            if !IsDialogMessageW(dlg, &msg).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
     }
 
@@ -1317,7 +1372,7 @@ pub unsafe fn show_setup_wizard() {
                     WINDOW_EX_STYLE(0),
                     w!("EDIT"),
                     w!(""),
-                    WS_CHILD | WS_VISIBLE | WS_BORDER
+                    WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP
                         | WINDOW_STYLE(ES_CENTER as u32 | ES_PASSWORD as u32 | ES_NUMBER as u32),
                     scale(100), scale(120), scale(200), scale(45),
                     hwnd, HMENU(ID_SETUP_PIN as _), hinstance, None,
@@ -1333,7 +1388,7 @@ pub unsafe fn show_setup_wizard() {
                     WINDOW_EX_STYLE(0),
                     w!("EDIT"),
                     w!(""),
-                    WS_CHILD | WS_VISIBLE | WS_BORDER
+                    WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP
                         | WINDOW_STYLE(ES_CENTER as u32 | ES_PASSWORD as u32 | ES_NUMBER as u32),
                     scale(100), scale(220), scale(200), scale(45),
                     hwnd, HMENU(ID_SETUP_CONFIRM as _), hinstance, None,
@@ -1348,7 +1403,7 @@ pub unsafe fn show_setup_wizard() {
                     WINDOW_EX_STYLE(0),
                     w!("BUTTON"),
                     w!("Continue"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                     scale(125), scale(300), scale(150), scale(36),
                     hwnd, HMENU(ID_SETUP_CONTINUE as _), hinstance, None,
                 );
@@ -1364,7 +1419,7 @@ pub unsafe fn show_setup_wizard() {
                 let mut rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut rect).ok();
 
-                let bg = CreateSolidBrush(COLORREF(0x00F5F5F5));
+                let bg = CreateSolidBrush(COLORREF(DARK_BG));
                 FillRect(hdc, &rect, bg);
                 let _ = DeleteObject(bg);
 
@@ -1378,16 +1433,16 @@ pub unsafe fn show_setup_wizard() {
                 );
                 let old_font = SelectObject(hdc, title_font);
 
-                SetTextColor(hdc, COLORREF(0x00222222));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 let mut r = RECT { left: 0, top: scale(20), right: rect.right, bottom: scale(55) };
                 DrawTextW(hdc, &mut "Set Up Screen Time Manager".encode_utf16().collect::<Vec<_>>(), &mut r, DT_CENTER | DT_SINGLELINE);
 
                 SelectObject(hdc, label_font);
-                SetTextColor(hdc, COLORREF(0x00555555));
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
                 let mut r2 = RECT { left: scale(20), top: scale(58), right: rect.right - scale(20), bottom: scale(95) };
                 DrawTextW(hdc, &mut "Create a 4-digit administrator PIN to protect your settings and time limits.".encode_utf16().collect::<Vec<_>>(), &mut r2, DT_CENTER | DT_WORDBREAK);
 
-                SetTextColor(hdc, COLORREF(0x00333333));
+                SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 let mut r3 = RECT { left: 0, top: scale(98), right: rect.right, bottom: scale(116) };
                 DrawTextW(hdc, &mut "Enter PIN:".encode_utf16().collect::<Vec<_>>(), &mut r3, DT_CENTER | DT_SINGLELINE);
 
@@ -1448,6 +1503,12 @@ pub unsafe fn show_setup_wizard() {
                 }
                 LRESULT(0)
             }
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+                let hdc = HDC(wparam.0 as _);
+                SetTextColor(hdc, COLORREF(0x00BBBBBB));
+                SetBkColor(hdc, COLORREF(DARK_EDIT_BG));
+                LRESULT(CreateSolidBrush(COLORREF(DARK_EDIT_BG)).0 as isize)
+            }
             WM_CLOSE => {
                 DestroyWindow(hwnd).ok();
                 LRESULT(0)
@@ -1465,7 +1526,7 @@ pub unsafe fn show_setup_wizard() {
         lpfnWndProc: Some(setup_proc),
         hInstance: hinstance.into(),
         lpszClassName: dialog_class,
-        hbrBackground: CreateSolidBrush(COLORREF(0x00F5F5F5)),
+        hbrBackground: CreateSolidBrush(COLORREF(DARK_BG)),
         hCursor: LoadCursorW(None, IDC_ARROW).ok().unwrap_or_default(),
         ..zeroed()
     };
@@ -1497,10 +1558,20 @@ pub unsafe fn show_setup_wizard() {
         let _ = ShowWindow(w, SW_SHOW);
         let _ = SetForegroundWindow(w);
 
+        let dark: i32 = 1;
+        let _ = DwmSetWindowAttribute(
+            w,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const i32 as *const std::ffi::c_void,
+            4,
+        );
+
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            if !IsDialogMessageW(w, &msg).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
 
         if SETUP_COMPLETE {
