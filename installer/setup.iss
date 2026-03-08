@@ -43,11 +43,6 @@ Source: "nssm.exe";                DestDir: "{app}"; Flags: ignoreversion
 Name: "{commonprograms}\{#MyAppName}\Settings";  Filename: "{app}\{#MyAppExeName}"; Parameters: "--settings"; Comment: "Open Screen Time Manager settings"
 Name: "{commonprograms}\{#MyAppName}\Uninstall"; Filename: "{uninstallexe}";        Comment: "Uninstall Screen Time Manager"
 
-[Run]
-; Run the first-run setup wizard (PIN creation + settings) before installing the service
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup"; \
-    Flags: waituntilterminated; StatusMsg: "Running initial setup..."
-
 [Code]
 
 var
@@ -156,9 +151,20 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  AppExe: String;
+  ResultCode: Integer;
 begin
-  if CurStep = ssPostInstall then
-    InstallService();
+  case CurStep of
+    ssPostInstall:
+      InstallService();
+    ssDone:
+    begin
+      { Launch setup wizard on the user desktop after installer closes }
+      AppExe := ExpandConstant('{app}\{#MyAppExeName}');
+      ShellExec('runas', AppExe, '--setup', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    end;
+  end;
 end;
 
 function InitializeUninstall(): Boolean;
