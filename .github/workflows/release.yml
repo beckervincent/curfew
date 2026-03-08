@@ -52,13 +52,6 @@ jobs:
           echo "HASH=$hash" >> $env:GITHUB_OUTPUT
           echo "Commit: $hash"
 
-      - name: Download NSSM
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile nssm.zip
-          Expand-Archive -Path nssm.zip -DestinationPath nssm-tmp -Force
-          Copy-Item "nssm-tmp\nssm-2.24\win64\nssm.exe" -Destination "nssm.exe"
-
       - name: Stage installer source files
         shell: pwsh
         run: |
