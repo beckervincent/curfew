@@ -70,41 +70,83 @@ begin
   Result := ResultCode;
 end;
 
-{ Stops and removes any existing service installation so files are not locked }
-procedure StopExistingService();
+{ Stop and remove the service using NSSM (primary) then sc.exe (fallback),
+  reset ACLs on the install dir and ProgramData dir so files can be deleted,
+  and kill any remaining processes. }
+procedure RunCleanupScript(const AppDir: String);
 var
-  NssmExe: String;
-  ResultCode: Integer;
+  NssmExe, ScriptPath, Script: String;
 begin
-  { Try NSSM from the current install dir first }
-  NssmExe := ExpandConstant('{app}\nssm.exe');
-  if FileExists(NssmExe) then
+  NssmExe    := AppDir + '\nssm.exe';
+  ScriptPath := ExpandConstant('{tmp}\stm_cleanup.ps1');
+
+  Script :=
+    '$svc  = "ScreenTimeManager"' + #13#10 +
+    '$nssm = "' + NssmExe + '"' + #13#10 +
+    '$dir  = "' + AppDir  + '"' + #13#10 +
+    '' + #13#10 +
+    '# Stop and remove service via NSSM first' + #13#10 +
+    'if (Test-Path $nssm) {' + #13#10 +
+    '    & $nssm stop   $svc 2>$null' + #13#10 +
+    '    Start-Sleep -Seconds 2' + #13#10 +
+    '    & $nssm remove $svc confirm 2>$null' + #13#10 +
+    '    Start-Sleep -Seconds 1' + #13#10 +
+    '}' + #13#10 +
+    '' + #13#10 +
+    '# sc.exe fallback' + #13#10 +
+    'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
+    'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
+    '' + #13#10 +
+    '# Kill any remaining processes' + #13#10 +
+    'Get-Process -Name "screen-time-manager" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
+    'Start-Sleep -Milliseconds 500' + #13#10 +
+    '' + #13#10 +
+    '# Reset ACLs on install dir so Inno Setup can delete files' + #13#10 +
+    'if (Test-Path $dir) {' + #13#10 +
+    '    $acl = Get-Acl $dir' + #13#10 +
+    '    $acl.SetAccessRuleProtection($false, $true)' + #13#10 +
+    '    Set-Acl $dir $acl' + #13#10 +
+    '}' + #13#10 +
+    '' + #13#10 +
+    '# Reset ACLs on ProgramData dir so it can be deleted if needed' + #13#10 +
+    '$dbDir = Join-Path $env:ProgramData "ScreenTimeManager"' + #13#10 +
+    'if (Test-Path $dbDir) {' + #13#10 +
+    '    $dbAcl = Get-Acl $dbDir' + #13#10 +
+    '    $dbAcl.SetAccessRuleProtection($false, $true)' + #13#10 +
+    '    Set-Acl $dbDir $dbAcl' + #13#10 +
+    '}' + #13#10;
+
+  if WriteScript(ScriptPath, Script) then
   begin
-    Exec(NssmExe, 'stop {#ServiceName}',          '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Sleep(1500);
-    Exec(NssmExe, 'remove {#ServiceName} confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Sleep(500);
+    RunPS(ScriptPath);
+    DeleteFile(ScriptPath);
   end;
-  { sc.exe fallback — handles cases where NSSM wasn't present }
-  Exec('sc.exe', 'stop {#ServiceName}',   '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('sc.exe', 'delete {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/f /im {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(1000);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExistingVersion: String;
+  AppDir, DbDir: String;
 begin
   Result := '';
   IsReinstall := False;
-  { Check whether a previous installation exists in the registry }
+
   if RegQueryStringValue(HKLM,
       'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1',
-      'DisplayVersion', ExistingVersion) then
+      'InstallLocation', AppDir) then
   begin
     IsReinstall := True;
-    StopExistingService();
+    { Strip trailing backslash if present }
+    if (Length(AppDir) > 0) and (AppDir[Length(AppDir)] = '\') then
+      AppDir := Copy(AppDir, 1, Length(AppDir) - 1);
+
+    { Stop service, reset ACLs }
+    RunCleanupScript(AppDir);
+
+    { Wipe existing settings/database so install starts clean }
+    DbDir := ExpandConstant('{commonappdata}\ScreenTimeManager');
+    if DirExists(DbDir) then
+      DelTree(DbDir, True, True, True);
   end;
 end;
 
@@ -128,17 +170,11 @@ begin
     '$dir   = "' + AppDir  + '"' + #13#10 +
     '$logs  = "' + LogDir  + '"' + #13#10 +
     '' + #13#10 +
-    '# Thorough cleanup of any existing installation' + #13#10 +
-    'Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue' + #13#10 +
+    '# Ensure no stale service entry exists' + #13#10 +
     '& $nssm stop   $svc 2>$null' + #13#10 +
     '& $nssm remove $svc confirm 2>$null' + #13#10 +
-    'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
     'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
-    'Start-Sleep -Seconds 2' + #13#10 +
-    '' + #13#10 +
-    '# Kill any stray processes' + #13#10 +
-    'Get-Process -Name "screen-time-manager" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
-    'Start-Sleep -Milliseconds 500' + #13#10 +
+    'Start-Sleep -Seconds 1' + #13#10 +
     '' + #13#10 +
     '# Install via NSSM' + #13#10 +
     '& $nssm install $svc $app "--service"' + #13#10 +
@@ -201,10 +237,8 @@ begin
     begin
       AppExe := ExpandConstant('{app}\{#MyAppExeName}');
       if IsReinstall then
-        { Upgrade: skip setup wizard, open settings directly }
         ShellExec('runas', AppExe, '--settings', '', SW_SHOWNORMAL, ewNoWait, ResultCode)
       else
-        { Fresh install: run PIN setup + initial settings }
         ShellExec('runas', AppExe, '--setup', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
     end;
   end;
@@ -227,26 +261,13 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  ResultCode: Integer;
-  NssmExe: String;
   DataDir: String;
 begin
   case CurUninstallStep of
     usUninstall:
     begin
-      NssmExe := ExpandConstant('{app}\nssm.exe');
-      if FileExists(NssmExe) then
-      begin
-        Exec(NssmExe, 'stop {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-        Sleep(2000);
-        Exec(NssmExe, 'remove {#ServiceName} confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-        Sleep(1000);
-      end;
-      { Fallback: sc.exe in case NSSM didn't clean up }
-      Exec('sc.exe', 'stop {#ServiceName}',   '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Exec('sc.exe', 'delete {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Exec('taskkill.exe', '/f /im {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Sleep(500);
+      { Reset ACLs, stop service, kill processes — must run before Inno Setup deletes files }
+      RunCleanupScript(ExpandConstant('{app}'));
     end;
 
     usPostUninstall:
@@ -257,6 +278,9 @@ begin
         if DirExists(DataDir) then
           DelTree(DataDir, True, True, True);
       end;
+      { Remove the install directory itself if it still exists }
+      if DirExists(ExpandConstant('{app}')) then
+        DelTree(ExpandConstant('{app}'), True, True, True);
     end;
   end;
 end;
