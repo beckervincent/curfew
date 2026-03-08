@@ -6,6 +6,7 @@
 #![windows_subsystem = "windows"]
 
 mod blocking;
+mod cli_install;
 mod constants;
 mod database;
 mod dialogs;
@@ -39,6 +40,16 @@ use std::sync::atomic::Ordering;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--install") {
+        cli_install::run_install(&args);
+        return;
+    }
+
+    if args.iter().any(|a| a == "--uninstall") {
+        cli_install::run_uninstall(&args);
+        return;
+    }
 
     if args.iter().any(|a| a == "--service") {
         unsafe { service::run_service_mode(); }

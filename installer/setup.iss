@@ -93,9 +93,11 @@ begin
     '    Start-Sleep -Seconds 1' + #13#10 +
     '}' + #13#10 +
     '' + #13#10 +
-    '# sc.exe fallback' + #13#10 +
-    'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
-    'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
+    '# fallback in case nssm.exe was missing' + #13#10 +
+    'if (-not (Test-Path $nssm)) {' + #13#10 +
+    '    & (Join-Path $env:windir "System32\nssm.exe") stop   $svc 2>$null' + #13#10 +
+    '    & (Join-Path $env:windir "System32\nssm.exe") remove $svc confirm 2>$null' + #13#10 +
+    '}' + #13#10 +
     '' + #13#10 +
     '# Kill any remaining processes' + #13#10 +
     'Get-Process -Name "screen-time-manager" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
@@ -173,7 +175,6 @@ begin
     '# Ensure no stale service entry exists' + #13#10 +
     '& $nssm stop   $svc 2>$null' + #13#10 +
     '& $nssm remove $svc confirm 2>$null' + #13#10 +
-    'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Seconds 1' + #13#10 +
     '' + #13#10 +
     '# Install via NSSM' + #13#10 +
