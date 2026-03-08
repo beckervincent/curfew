@@ -89,18 +89,6 @@ Right-click the tray icon and select "Today's Stats..." to see:
 
 ---
 
-## Making It Start Automatically
-
-To have Screen Time Manager start when Windows boots:
-
-1. Press `Win + R` on your keyboard
-2. Type `shell:startup` and press Enter
-3. Copy the Screen Time Manager app into this folder (or create a shortcut to it)
-
-Now it will start automatically every time the computer turns on.
-
----
-
 ## Requirements
 
 - Windows 10 or Windows 11
