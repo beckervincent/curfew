@@ -18,6 +18,17 @@ use windows::{
 };
 
 use crate::blocking::{extend_time, hide_blocking_overlay, show_blocking_overlay, BLOCKING_HWND};
+
+/// Encode a null-terminated string literal as UTF-16. The caller must ensure the
+/// input ends with '\0'.
+fn encode_static(s: &str) -> Vec<u16> {
+    s.encode_utf16().collect()
+}
+
+/// Encode a dynamic String as a null-terminated UTF-16 Vec.
+fn encode_dynamic(s: String) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
 use crate::constants::*;
 use crate::database::{get_blocking_message, get_warning_config, is_pause_enabled};
 use crate::dialogs::{show_settings_dialog, show_stats_dialog, verify_passcode_for_quit};
@@ -96,57 +107,52 @@ pub unsafe fn show_context_menu(hwnd: HWND) {
     let paused = is_paused();
     let pause_enabled = is_pause_enabled();
 
-    let (pause_text, pause_flags) = if paused {
-        // Currently manually paused - show resume option (always available)
-        ("Resume Timer", MF_BYPOSITION | MF_STRING)
+    // Build pause label and flags. Dynamic strings are kept alive in `_dyn_wide`
+    // until show_context_menu_with_pause returns (TrackPopupMenu is synchronous).
+    let mut _dyn_wide: Option<Vec<u16>> = None;
+
+    let (pause_ptr, pause_flags) = if paused {
+        (PCWSTR(encode_static("Resume Timer\0").as_ptr()), MF_BYPOSITION | MF_STRING)
     } else if is_idle_paused() {
-        // Currently idle-paused - grey out manual pause (already paused via idle)
-        ("Pause (Idle paused)", MF_BYPOSITION | MF_STRING | MF_GRAYED)
+        (PCWSTR(encode_static("Pause (Idle paused)\0").as_ptr()), MF_BYPOSITION | MF_STRING | MF_GRAYED)
     } else if !pause_enabled {
-        // Pause feature disabled
-        ("Pause (Disabled)", MF_BYPOSITION | MF_STRING | MF_GRAYED)
+        (PCWSTR(encode_static("Pause (Disabled)\0").as_ptr()), MF_BYPOSITION | MF_STRING | MF_GRAYED)
     } else {
-        // Check if pause is available
         match can_pause() {
             Ok(()) => {
                 let budget_mins = get_remaining_pause_budget() / 60;
-                let text = format!("Pause Timer ({}m left)", budget_mins);
-                // Need to leak the string for the menu (will be cleaned up with menu)
-                let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-                let ptr = wide.as_ptr();
-                std::mem::forget(wide);
-                return show_context_menu_with_pause(hwnd, hmenu, PCWSTR(ptr), MF_BYPOSITION | MF_STRING);
+                let wide = encode_dynamic(format!("Pause Timer ({}m left)", budget_mins));
+                let ptr = PCWSTR(wide.as_ptr());
+                _dyn_wide = Some(wide);
+                (ptr, MF_BYPOSITION | MF_STRING)
             }
             Err(PauseBlockedReason::BudgetExhausted) => {
-                ("Pause (Budget used)", MF_BYPOSITION | MF_STRING | MF_GRAYED)
+                (PCWSTR(encode_static("Pause (Budget used)\0").as_ptr()), MF_BYPOSITION | MF_STRING | MF_GRAYED)
             }
             Err(PauseBlockedReason::CooldownActive { seconds_remaining }) => {
-                let mins = (seconds_remaining + 59) / 60; // Round up
-                let text = format!("Pause ({}m cooldown)", mins);
-                let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-                let ptr = wide.as_ptr();
-                std::mem::forget(wide);
-                return show_context_menu_with_pause(hwnd, hmenu, PCWSTR(ptr), MF_BYPOSITION | MF_STRING | MF_GRAYED);
+                let mins = (seconds_remaining + 59) / 60;
+                let wide = encode_dynamic(format!("Pause ({}m cooldown)", mins));
+                let ptr = PCWSTR(wide.as_ptr());
+                _dyn_wide = Some(wide);
+                (ptr, MF_BYPOSITION | MF_STRING | MF_GRAYED)
             }
             Err(PauseBlockedReason::MinActiveTimeNotMet { seconds_remaining }) => {
                 let mins = (seconds_remaining + 59) / 60;
-                let text = format!("Pause (wait {}m)", mins);
-                let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-                let ptr = wide.as_ptr();
-                std::mem::forget(wide);
-                return show_context_menu_with_pause(hwnd, hmenu, PCWSTR(ptr), MF_BYPOSITION | MF_STRING | MF_GRAYED);
+                let wide = encode_dynamic(format!("Pause (wait {}m)", mins));
+                let ptr = PCWSTR(wide.as_ptr());
+                _dyn_wide = Some(wide);
+                (ptr, MF_BYPOSITION | MF_STRING | MF_GRAYED)
             }
             Err(PauseBlockedReason::TimeTooLow) => {
-                ("Pause (Time too low)", MF_BYPOSITION | MF_STRING | MF_GRAYED)
+                (PCWSTR(encode_static("Pause (Time too low)\0").as_ptr()), MF_BYPOSITION | MF_STRING | MF_GRAYED)
             }
             Err(PauseBlockedReason::Disabled) => {
-                ("Pause (Disabled)", MF_BYPOSITION | MF_STRING | MF_GRAYED)
+                (PCWSTR(encode_static("Pause (Disabled)\0").as_ptr()), MF_BYPOSITION | MF_STRING | MF_GRAYED)
             }
         }
     };
 
-    let pause_wide: Vec<u16> = pause_text.encode_utf16().chain(std::iter::once(0)).collect();
-    show_context_menu_with_pause(hwnd, hmenu, PCWSTR(pause_wide.as_ptr()), pause_flags);
+    show_context_menu_with_pause(hwnd, hmenu, pause_ptr, pause_flags);
 }
 
 /// Helper to show context menu with pause item

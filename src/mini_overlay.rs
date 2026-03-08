@@ -431,10 +431,10 @@ pub unsafe extern "system" fn mini_overlay_proc(
             SetTextColor(hdc, COLORREF(color));
             SetBkMode(hdc, TRANSPARENT);
 
-            let wide_text: Vec<u16> = display_text.encode_utf16().collect();
+            let mut wide_text: Vec<u16> = display_text.encode_utf16().collect();
             DrawTextW(
                 hdc,
-                &mut wide_text.clone(),
+                &mut wide_text,
                 &mut text_rect,
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE,
             );

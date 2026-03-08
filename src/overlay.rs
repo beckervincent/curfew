@@ -112,7 +112,7 @@ pub unsafe extern "system" fn overlay_window_proc(
             let mut rect: RECT = zeroed();
             GetClientRect(hwnd, &mut rect).ok();
 
-            let bg_brush = CreateSolidBrush(COLORREF(0x00003366));
+            let bg_brush = CreateSolidBrush(COLORREF(COLOR_OVERLAY_BANNER));
             FillRect(hdc, &rect, bg_brush);
             let _ = DeleteObject(bg_brush);
 
@@ -129,10 +129,10 @@ pub unsafe extern "system" fn overlay_window_proc(
                 SetTextColor(hdc, COLORREF(COLOR_TEXT_WHITE));
                 SetBkMode(hdc, TRANSPARENT);
 
-                let wide_text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+                let mut wide_text: Vec<u16> = text.encode_utf16().collect();
                 DrawTextW(
                     hdc,
-                    &mut wide_text[..wide_text.len() - 1].to_vec(),
+                    &mut wide_text,
                     &mut rect,
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE,
                 );

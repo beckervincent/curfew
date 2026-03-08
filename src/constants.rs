@@ -25,3 +25,5 @@ pub const COLOR_ACCENT: u32 = 0x00756CE0;          // Soft red accent (RGB 224,1
 pub const COLOR_TEXT_WHITE: u32 = 0x00FFFFFF;
 pub const COLOR_TEXT_LIGHT: u32 = 0x00BBBBBB;
 pub const COLOR_ERROR: u32 = 0x004444FF;           // Red (BGR)
+pub const COLOR_SHUTDOWN_WARN: u32 = 0x000000FF;   // Bright red for imminent shutdown (BGR)
+pub const COLOR_OVERLAY_BANNER: u32 = 0x00663300;  // Dark orange-navy banner background (BGR)

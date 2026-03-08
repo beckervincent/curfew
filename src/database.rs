@@ -109,20 +109,6 @@ pub fn get_passcode() -> Option<String> {
     ).ok()
 }
 
-/// Set the passcode in the database
-#[allow(dead_code)]
-pub fn set_passcode(code: &str) -> bool {
-    if let Ok(guard) = DB_CONNECTION.lock() {
-        if let Some(conn) = guard.as_ref() {
-            return conn.execute(
-                "UPDATE settings SET value = ?1 WHERE key = 'passcode'",
-                params![code],
-            ).is_ok();
-        }
-    }
-    false
-}
-
 /// Get a setting value from the database
 pub fn get_setting(key: &str) -> Option<String> {
     let guard = DB_CONNECTION.lock().ok()?;
@@ -147,7 +133,6 @@ pub fn set_setting(key: &str, value: &str) -> bool {
 }
 
 /// Get daily limit for a specific weekday (0 = Monday, 6 = Sunday)
-#[allow(dead_code)]
 pub fn get_daily_limit(weekday: u32) -> u32 {
     let key = match weekday {
         0 => "limit_monday",
@@ -165,7 +150,6 @@ pub fn get_daily_limit(weekday: u32) -> u32 {
 }
 
 /// Get warning configuration
-#[allow(dead_code)]
 pub fn get_warning_config(warning_num: u32) -> (u32, String) {
     let minutes_key = format!("warning{}_minutes", warning_num);
     let message_key = format!("warning{}_message", warning_num);
@@ -180,7 +164,6 @@ pub fn get_warning_config(warning_num: u32) -> (u32, String) {
 }
 
 /// Get blocking message
-#[allow(dead_code)]
 pub fn get_blocking_message() -> String {
     get_setting("blocking_message")
         .unwrap_or_else(|| "Your screen time limit has been reached.".to_string())
@@ -203,7 +186,6 @@ pub fn save_remaining_time(seconds: i32) {
 }
 
 /// Load remaining time from database for today
-#[allow(dead_code)]
 pub fn load_remaining_time() -> Option<i32> {
     let date = get_today_date();
     let key = format!("remaining_time_{}", date);
@@ -211,7 +193,6 @@ pub fn load_remaining_time() -> Option<i32> {
 }
 
 /// Get the current weekday (0 = Monday, 6 = Sunday)
-#[allow(dead_code)]
 pub fn get_current_weekday() -> u32 {
     use windows::Win32::System::SystemInformation::GetLocalTime;
 
@@ -303,19 +284,10 @@ pub fn save_last_pause_end(timestamp: i64) {
 
 /// Get current Unix timestamp
 pub fn get_current_timestamp() -> i64 {
-    use windows::Win32::System::SystemInformation::GetLocalTime;
-
-    let st = unsafe { GetLocalTime() };
-
-    // Simple conversion - just need relative timestamps for cooldown
-    // This is approximate but sufficient for our purposes
-    let days_since_epoch = (st.wYear as i64 - 1970) * 365
-        + (st.wMonth as i64 - 1) * 30
-        + st.wDay as i64;
-    days_since_epoch * 86400
-        + st.wHour as i64 * 3600
-        + st.wMinute as i64 * 60
-        + st.wSecond as i64
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Get the session start time used today (in seconds) - tracks when timer started today

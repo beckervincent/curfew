@@ -1,6 +1,6 @@
 [package]
 name = "screen-time-manager"
-version = "1.0.34"
+version = "2.0.0"
 edition = "2021"
 description = "A screen time management application that runs in the system tray"
 authors = ["Shadow"]
@@ -32,9 +32,6 @@ windows = { version = "0.58", features = [
 
 # SQLite database
 rusqlite = { version = "0.32", features = ["bundled"] }
-
-# For finding app data directories
-dirs = "5.0"
 
 
 [build-dependencies]

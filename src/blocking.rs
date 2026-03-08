@@ -131,12 +131,6 @@ unsafe extern "system" fn low_level_keyboard_proc(
     CallNextHookEx(None, code, wparam, lparam)
 }
 
-/// Get remaining time in seconds
-#[allow(dead_code)]
-pub fn get_remaining_seconds() -> i32 {
-    REMAINING_SECONDS.load(Ordering::SeqCst)
-}
-
 /// Timer IDs
 pub const TIMER_REASSERT_TOPMOST: usize = 2;
 pub const TIMER_COUNTDOWN: usize = 3;
@@ -252,16 +246,6 @@ pub fn extend_time(minutes: i32) {
         // Add to existing time
         REMAINING_SECONDS.store(current + additional_seconds, Ordering::SeqCst);
     }
-}
-
-/// Reduce the remaining time by the specified minutes
-#[allow(dead_code)]
-pub fn reduce_time(minutes: i32) {
-    let current = REMAINING_SECONDS.load(Ordering::SeqCst);
-    let reduction_seconds = minutes * 60;
-
-    let new_time = (current - reduction_seconds).max(0);
-    REMAINING_SECONDS.store(new_time, Ordering::SeqCst);
 }
 
 /// Format seconds into a human-readable string (e.g., "1h 30m 45s")
@@ -571,7 +555,7 @@ pub unsafe extern "system" fn blocking_overlay_proc(
             // Show shutdown countdown - red when <= 60 seconds remain
             let time_str = if shutdown_countdown >= 0 {
                 if shutdown_countdown <= 60 {
-                    SetTextColor(hdc, COLORREF(0x0000FF)); // Red (BGR format)
+                    SetTextColor(hdc, COLORREF(COLOR_SHUTDOWN_WARN));
                     format!("SHUTDOWN IN: {}s", shutdown_countdown)
                 } else {
                     SetTextColor(hdc, COLORREF(COLOR_ACCENT));
@@ -587,10 +571,10 @@ pub unsafe extern "system" fn blocking_overlay_proc(
                 right: panel_x + panel_width,
                 bottom: panel_y + scale(120),
             };
-            let wide_time: Vec<u16> = time_str.encode_utf16().collect();
+            let mut wide_time: Vec<u16> = time_str.encode_utf16().collect();
             DrawTextW(
                 hdc,
-                &mut wide_time.clone(),
+                &mut wide_time,
                 &mut time_rect,
                 DT_CENTER | DT_SINGLELINE,
             );
@@ -613,10 +597,10 @@ pub unsafe extern "system" fn blocking_overlay_proc(
                 right: panel_x + panel_width - scale(30),
                 bottom: panel_y + scale(160),
             };
-            let wide_msg: Vec<u16> = message.encode_utf16().collect();
+            let mut wide_msg: Vec<u16> = message.encode_utf16().collect();
             DrawTextW(
                 hdc,
-                &mut wide_msg.clone(),
+                &mut wide_msg,
                 &mut msg_rect,
                 DT_CENTER | DT_WORDBREAK,
             );
