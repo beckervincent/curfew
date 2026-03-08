@@ -16,12 +16,12 @@ pub const IDM_EXTEND_15: u16 = 1008;
 pub const IDM_EXTEND_45: u16 = 1009;
 
 // Mutex name for single instance
-pub const MUTEX_NAME: &str = "Global\\ScreenTimeManager_SingleInstance_7F3A9B2E";
+pub const MUTEX_NAME: &str = "Local\\ScreenTimeManager_SingleInstance_7F3A9B2E";
 
-// Colors (BGR format)
-pub const COLOR_OVERLAY_BG: u32 = 0x00331a00;      // Dark blue-ish
-pub const COLOR_PANEL_BG: u32 = 0x00442200;        // Slightly lighter
-pub const COLOR_ACCENT: u32 = 0x00ff9933;          // Orange accent
+// Colors (COLORREF / BGR format: 0x00BBGGRR)
+pub const COLOR_OVERLAY_BG: u32 = 0x002E1E1E;      // Deep navy (RGB 30,30,46)
+pub const COLOR_PANEL_BG: u32 = 0x00402828;        // Medium navy panel (RGB 40,40,64)
+pub const COLOR_ACCENT: u32 = 0x00756CE0;          // Soft red accent (RGB 224,108,117)
 pub const COLOR_TEXT_WHITE: u32 = 0x00FFFFFF;
-pub const COLOR_TEXT_LIGHT: u32 = 0x00CCCCCC;
+pub const COLOR_TEXT_LIGHT: u32 = 0x00BBBBBB;
 pub const COLOR_ERROR: u32 = 0x004444FF;           // Red (BGR)

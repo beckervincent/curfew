@@ -106,7 +106,7 @@ jobs:
           ### Uninstalling
 
           1. Run ``uninstall.bat`` (or ``uninstall.ps1`` in PowerShell)
-          2. Optionally delete the folder and ``%APPDATA%\ScreenTimeManager``
+          2. Optionally delete ``%ProgramData%\ScreenTimeManager`` to remove all data
 
           ### Manual Start (No Auto-Start)
 

@@ -1,7 +1,9 @@
 //! Blocking overlay module
 //! Full-screen overlay that requires passcode to dismiss
 
+use std::ffi::c_void;
 use std::mem::zeroed;
+use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering};
 use std::sync::Mutex;
 use windows::{
@@ -10,9 +12,9 @@ use windows::{
         Foundation::{BOOL, COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM, CloseHandle},
         Graphics::Gdi::{
             BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW,
-            EndPaint, EnumDisplayMonitors, FillRect, InvalidateRect, RoundRect, SelectObject,
-            SetBkMode, SetTextColor, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FW_BOLD, FW_NORMAL,
-            HDC, HMONITOR, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
+            EndPaint, EnumDisplayMonitors, FillRect, InvalidateRect, LineTo, MoveToEx, RoundRect,
+            SelectObject, SetBkMode, SetTextColor, DT_CENTER, DT_SINGLELINE, DT_VCENTER,
+            DT_WORDBREAK, FW_BOLD, FW_NORMAL, HDC, HMONITOR, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
         },
         Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC},
         System::LibraryLoader::GetModuleHandleW,
@@ -24,7 +26,10 @@ use windows::{
         },
         UI::{
             Controls::*,
-            Input::KeyboardAndMouse::{SetFocus, VK_RETURN},
+            Input::KeyboardAndMouse::{
+                GetAsyncKeyState, SetFocus, VIRTUAL_KEY, VK_D, VK_ESCAPE, VK_F4, VK_LWIN, VK_M,
+                VK_MENU, VK_RETURN, VK_RWIN, VK_TAB,
+            },
             WindowsAndMessaging::*,
         },
     },
@@ -54,7 +59,7 @@ unsafe fn initiate_shutdown() -> bool {
     }
 
     // Enable the privilege
-    let mut tp = TOKEN_PRIVILEGES {
+    let tp = TOKEN_PRIVILEGES {
         PrivilegeCount: 1,
         Privileges: [windows::Win32::Security::LUID_AND_ATTRIBUTES {
             Luid: luid,
@@ -62,7 +67,7 @@ unsafe fn initiate_shutdown() -> bool {
         }],
     };
 
-    if AdjustTokenPrivileges(token_handle, false, Some(&mut tp), 0, None, None).is_err() {
+    if AdjustTokenPrivileges(token_handle, false, Some(&tp), 0, None, None).is_err() {
         let _ = CloseHandle(token_handle);
         return false;
     }
@@ -94,7 +99,40 @@ pub static REMAINING_SECONDS: AtomicI32 = AtomicI32::new(-1);
 /// Shutdown countdown in seconds (negative means inactive)
 pub static SHUTDOWN_COUNTDOWN_SECONDS: AtomicI32 = AtomicI32::new(-1);
 
+/// Handle to the low-level keyboard hook (null when not installed)
+static KEYBOARD_HOOK: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+
+/// Low-level keyboard hook that suppresses escape keys while the overlay is shown
+unsafe extern "system" fn low_level_keyboard_proc(
+    code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if code >= 0 {
+        let kbs = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        let alt_down = (GetAsyncKeyState(VK_MENU.0 as i32) as u16) & 0x8000 != 0;
+        let win_down = ((GetAsyncKeyState(VK_LWIN.0 as i32) as u16)
+            | (GetAsyncKeyState(VK_RWIN.0 as i32) as u16))
+            & 0x8000
+            != 0;
+        let block = match VIRTUAL_KEY(kbs.vkCode as u16) {
+            VK_F4 if alt_down => true,
+            VK_TAB if alt_down => true,
+            VK_ESCAPE => true,
+            VK_LWIN | VK_RWIN => true,
+            VK_D if win_down => true,
+            VK_M if win_down => true,
+            _ => false,
+        };
+        if block {
+            return LRESULT(1);
+        }
+    }
+    CallNextHookEx(None, code, wparam, lparam)
+}
+
 /// Get remaining time in seconds
+#[allow(dead_code)]
 pub fn get_remaining_seconds() -> i32 {
     REMAINING_SECONDS.load(Ordering::SeqCst)
 }
@@ -191,6 +229,13 @@ pub unsafe fn show_blocking_overlay_with_time(text: &str, remaining_seconds: i32
     // Start countdown timer (updates every second)
     let _ = SetTimer(hwnd, TIMER_COUNTDOWN, 1000, None);
 
+    // Install low-level keyboard hook to block escape shortcuts
+    if KEYBOARD_HOOK.load(Ordering::SeqCst).is_null() {
+        if let Ok(hook) = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), None, 0) {
+            KEYBOARD_HOOK.store(hook.0, Ordering::SeqCst);
+        }
+    }
+
     // Show secondary monitor overlays (blanks other monitors)
     show_secondary_overlays();
 }
@@ -210,6 +255,7 @@ pub fn extend_time(minutes: i32) {
 }
 
 /// Reduce the remaining time by the specified minutes
+#[allow(dead_code)]
 pub fn reduce_time(minutes: i32) {
     let current = REMAINING_SECONDS.load(Ordering::SeqCst);
     let reduction_seconds = minutes * 60;
@@ -247,6 +293,12 @@ pub unsafe fn hide_blocking_overlay() {
     let _ = KillTimer(hwnd, TIMER_REASSERT_TOPMOST);
     let _ = KillTimer(hwnd, TIMER_COUNTDOWN);
     let _ = ShowWindow(hwnd, SW_HIDE);
+
+    // Remove the low-level keyboard hook
+    let hook_ptr = KEYBOARD_HOOK.swap(null_mut(), Ordering::SeqCst);
+    if !hook_ptr.is_null() {
+        let _ = UnhookWindowsHookEx(HHOOK(hook_ptr));
+    }
     *BLOCKING_TEXT.lock().unwrap() = None;
 
     // Reset shutdown countdown
@@ -296,9 +348,7 @@ pub unsafe extern "system" fn blocking_overlay_proc(
             let screen_height = GetSystemMetrics(SM_CYSCREEN);
 
             // Expanded panel dimensions (DPI scaled)
-            let panel_width = scale(500);
-            let panel_height = scale(530);
-            let _panel_x = (screen_width - panel_width) / 2;
+            let panel_height = scale(580);
             let panel_y = (screen_height - panel_height) / 2;
 
             // Button font for extend buttons (DPI scaled)
@@ -435,7 +485,7 @@ pub unsafe extern "system" fn blocking_overlay_proc(
             let shutdown_btn = CreateWindowExW(
                 WINDOW_EX_STYLE(0),
                 w!("BUTTON"),
-                w!("Shut Down"),
+                w!("Shut Down Computer"),
                 WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
                 btn_x,
                 shutdown_btn_y,
@@ -468,7 +518,7 @@ pub unsafe extern "system" fn blocking_overlay_proc(
 
             // Expanded panel with more margin (DPI scaled)
             let panel_width = scale(500);
-            let panel_height = scale(530);
+            let panel_height = scale(580);
             let panel_x = (screen_width - panel_width) / 2;
             let panel_y = (screen_height - panel_height) / 2;
 
@@ -568,7 +618,7 @@ pub unsafe extern "system" fn blocking_overlay_proc(
                 hdc,
                 &mut wide_msg.clone(),
                 &mut msg_rect,
-                DT_CENTER | DT_SINGLELINE,
+                DT_CENTER | DT_WORDBREAK,
             );
             drop(blocking_text_guard);
 
@@ -594,6 +644,15 @@ pub unsafe extern "system" fn blocking_overlay_proc(
                 &mut extend_label_rect,
                 DT_CENTER | DT_SINGLELINE,
             );
+
+            // Separator line between extend-time section and passcode section
+            let sep_pen = CreatePen(PS_SOLID, 1, COLORREF(COLOR_TEXT_LIGHT & 0x00555555));
+            let old_sep_pen = SelectObject(hdc, sep_pen);
+            let sep_y = panel_y + scale(250);
+            let _ = MoveToEx(hdc, panel_x + scale(20), sep_y, None);
+            let _ = LineTo(hdc, panel_x + panel_width - scale(20), sep_y);
+            SelectObject(hdc, old_sep_pen);
+            let _ = DeleteObject(sep_pen);
 
             // "Enter passcode to unlock:" label
             let mut passcode_label_rect = RECT {
@@ -639,7 +698,7 @@ pub unsafe extern "system" fn blocking_overlay_proc(
             let id = (wparam.0 & 0xFFFF) as i32;
             let notification = ((wparam.0 >> 16) & 0xFFFF) as u32;
 
-            if notification == BN_CLICKED as u32 {
+            if notification == BN_CLICKED {
                 match id {
                     ID_UNLOCK_BUTTON => {
                         if check_blocking_passcode() {
@@ -737,6 +796,32 @@ pub unsafe extern "system" fn blocking_overlay_proc(
         WM_ERASEBKGND => {
             // Return non-zero to indicate we handle background erasing (prevents flickering)
             LRESULT(1)
+        }
+        WM_SYSCOMMAND => {
+            // Block Alt+F4 (SC_CLOSE), minimize, move, resize, menu
+            let cmd = (wparam.0 & 0xFFF0) as u32;
+            if matches!(cmd, SC_CLOSE | SC_MINIMIZE | SC_MOVE | SC_SIZE | SC_KEYMENU) {
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_SYSKEYDOWN => {
+            // Absorb all system key events (Alt+F4, Alt+Tab, etc.)
+            LRESULT(0)
+        }
+        WM_SHOWWINDOW => {
+            // If the window is being hidden, immediately re-show it
+            if wparam.0 == 0 {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE).ok();
+            }
+            LRESULT(0)
+        }
+        WM_WINDOWPOSCHANGING => {
+            let pos = &mut *(lparam.0 as *mut WINDOWPOS);
+            pos.hwndInsertAfter = HWND_TOPMOST;
+            pos.flags |= SWP_NOMOVE | SWP_NOSIZE;
+            LRESULT(0)
         }
         WM_CLOSE => {
             LRESULT(0)
@@ -848,6 +933,27 @@ pub unsafe extern "system" fn secondary_overlay_proc(
             LRESULT(0)
         }
         WM_ERASEBKGND => LRESULT(1),
+        WM_SYSCOMMAND => {
+            let cmd = (wparam.0 & 0xFFF0) as u32;
+            if matches!(cmd, SC_CLOSE | SC_MINIMIZE | SC_MOVE | SC_SIZE | SC_KEYMENU) {
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_SYSKEYDOWN => LRESULT(0),
+        WM_SHOWWINDOW => {
+            if wparam.0 == 0 {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE).ok();
+            }
+            LRESULT(0)
+        }
+        WM_WINDOWPOSCHANGING => {
+            let pos = &mut *(lparam.0 as *mut WINDOWPOS);
+            pos.hwndInsertAfter = HWND_TOPMOST;
+            pos.flags |= SWP_NOMOVE | SWP_NOSIZE;
+            LRESULT(0)
+        }
         WM_CLOSE => LRESULT(0), // Prevent closing
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }

@@ -23,17 +23,26 @@ use crate::database::{get_blocking_message, get_warning_config, is_pause_enabled
 use crate::dialogs::{show_settings_dialog, show_stats_dialog, verify_passcode_for_quit};
 use crate::mini_overlay::{is_paused, is_idle_paused, can_pause, toggle_pause, PauseBlockedReason, get_remaining_pause_budget};
 use crate::overlay::{show_overlay, OVERLAY_HWND};
-use crate::telegram;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Message ID for TaskbarCreated — sent by the shell when the taskbar is (re)created.
+/// We use this to re-register the tray icon if Explorer restarts.
+static TASKBAR_CREATED_MSG: AtomicU32 = AtomicU32::new(0);
 
 /// Global state for the notification icon data
 pub static mut NOTIFY_ICON_DATA: Option<NOTIFYICONDATAW> = None;
 
 /// Add the system tray icon
 pub unsafe fn add_tray_icon(hwnd: HWND) {
+    // Register the TaskbarCreated message once so we can re-add the icon if Explorer restarts.
+    let msg_id = RegisterWindowMessageW(w!("TaskbarCreated"));
+    TASKBAR_CREATED_MSG.store(msg_id, Ordering::SeqCst);
+
     let hinstance = GetModuleHandleW(None).expect("Failed to get module handle");
 
-    let hicon = LoadIconW(hinstance, PCWSTR(1 as *const u16))
+    // MAKEINTRESOURCE(1) — load the first icon resource embedded in the exe
+    #[allow(clippy::manual_dangling_ptr)]
+    let hicon = LoadIconW(hinstance, PCWSTR(1usize as *const u16))
         .or_else(|_| LoadIconW(None, IDI_APPLICATION))
         .expect("Failed to load icon");
 
@@ -53,8 +62,19 @@ pub unsafe fn add_tray_icon(hwnd: HWND) {
     nid.hIcon = hicon;
     nid.szTip = tip_buffer;
 
-    if !Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
-        panic!("Failed to add tray icon");
+    // Retry NIM_ADD — the taskbar may not be ready immediately at login
+    let mut attempts = 0u32;
+    loop {
+        if Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
+            break;
+        }
+        attempts += 1;
+        if attempts >= 10 {
+            // Give up after 10 attempts (~5 s); TaskbarCreated will retry later
+            eprintln!("Failed to add tray icon after {} attempts", attempts);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     NOTIFY_ICON_DATA = Some(nid);
@@ -272,9 +292,6 @@ pub unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_DESTROY => {
-            // Signal Telegram bot to shut down (sends shutdown notification)
-            telegram::signal_shutdown();
-
             let overlay_hwnd = HWND(OVERLAY_HWND.load(Ordering::SeqCst));
             if !overlay_hwnd.0.is_null() {
                 DestroyWindow(overlay_hwnd).ok();
@@ -288,6 +305,19 @@ pub unsafe extern "system" fn window_proc(
             PostQuitMessage(0);
             LRESULT(0)
         }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        _ => {
+            // Re-add the tray icon when Explorer/taskbar restarts
+            let taskbar_msg = TASKBAR_CREATED_MSG.load(Ordering::SeqCst);
+            if taskbar_msg != 0 && msg == taskbar_msg {
+                // Remove stale entry first, then re-add
+                if let Some(ref nid) = NOTIFY_ICON_DATA {
+                    let _ = Shell_NotifyIconW(NIM_DELETE, nid);
+                    NOTIFY_ICON_DATA = None;
+                }
+                add_tray_icon(hwnd);
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
     }
 }

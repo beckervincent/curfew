@@ -1,42 +1,58 @@
 # Screen Time Manager - Uninstall Script
 
-$ErrorActionPreference = "Stop"
-$TaskName = "ScreenTimeManager"
+$ServiceName = "ScreenTimeManager"
+$ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$InstallDir  = Join-Path $env:ProgramFiles "ScreenTimeManager"
+$NssmExe     = Join-Path $InstallDir "nssm.exe"
+# Fall back to script directory nssm if install dir doesn't exist yet
+if (-not (Test-Path $NssmExe)) {
+    $NssmExe = Join-Path $ScriptDir "nssm.exe"
+}
 
 Write-Host "Screen Time Manager - Uninstallation" -ForegroundColor Cyan
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check if task exists
-$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if (-not $existingTask) {
-    Write-Host "Screen Time Manager is not installed (no scheduled task found)." -ForegroundColor Yellow
-    Write-Host ""
+$svc     = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+$oldTask = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+
+if (-not $svc -and -not $oldTask) {
+    Write-Host "Screen Time Manager is not installed." -ForegroundColor Yellow
     exit 0
 }
 
-# Stop if running
-Write-Host "Stopping Screen Time Manager if running..." -ForegroundColor White
-Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($oldTask) {
+    Write-Host "Removing legacy scheduled task..." -ForegroundColor Yellow
+    Stop-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false
+}
 
-# Also kill the process if it's running
-$process = Get-Process -Name "screen-time-manager" -ErrorAction SilentlyContinue
-if ($process) {
-    Write-Host "Terminating running process..." -ForegroundColor White
-    Stop-Process -Name "screen-time-manager" -Force -ErrorAction SilentlyContinue
+if ($svc) {
+    Write-Host "Stopping service..." -ForegroundColor White
+    & $NssmExe stop $ServiceName 2>&1 | Out-Null
+    Start-Sleep -Seconds 2
+    Write-Host "Removing NSSM service..." -ForegroundColor White
+    & $NssmExe remove $ServiceName confirm 2>&1 | Out-Null
     Start-Sleep -Seconds 1
 }
 
-# Remove the scheduled task
-Write-Host "Removing scheduled task..." -ForegroundColor White
-Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+# Kill ALL running instances (service + tray apps in all user sessions)
+$procs = Get-Process -Name "screen-time-manager" -ErrorAction SilentlyContinue
+if ($procs) {
+    Write-Host "Terminating all running instances..." -ForegroundColor White
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
+
+# Remove install directory
+if (Test-Path $InstallDir) {
+    Write-Host "Removing install directory: $InstallDir" -ForegroundColor White
+    Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host ""
 Write-Host "Uninstallation complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Screen Time Manager will no longer start automatically." -ForegroundColor White
-Write-Host ""
-Write-Host "Note: The executable and database files have not been deleted." -ForegroundColor Yellow
-Write-Host "To completely remove all data, delete the following folder:" -ForegroundColor Yellow
-Write-Host "  $env:APPDATA\ScreenTimeManager" -ForegroundColor Cyan
+Write-Host "Database is kept at: $env:ProgramData\ScreenTimeManager" -ForegroundColor Yellow
+Write-Host "Delete that folder to remove all data." -ForegroundColor Yellow
 Write-Host ""

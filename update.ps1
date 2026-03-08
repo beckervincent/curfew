@@ -1,138 +1,71 @@
 # Screen Time Manager - Update Script
-# Updates the executable and restarts the service
+# Stops the service, replaces the exe, restarts the service.
+# Run build.bat first to produce a fresh screen-time-manager.exe.
 
-param(
-    [string]$NewExePath = ""
-)
-
-$ErrorActionPreference = "Stop"
-$TaskName = "ScreenTimeManager"
+$ServiceName = "ScreenTimeManager"
+$ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$InstallDir  = Join-Path $env:ProgramFiles "ScreenTimeManager"
+$SrcExe      = Join-Path $ScriptDir "screen-time-manager.exe"
+$ExePath     = Join-Path $InstallDir "screen-time-manager.exe"
+$NssmExe     = Join-Path $InstallDir "nssm.exe"
 
 Write-Host "Screen Time Manager - Update" -ForegroundColor Cyan
 Write-Host "============================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check if task exists to get current exe path
-$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if (-not $existingTask) {
-    Write-Host "ERROR: Screen Time Manager is not installed." -ForegroundColor Red
-    Write-Host "Please run install.ps1 first." -ForegroundColor Yellow
-    Write-Host ""
+if (-not (Test-Path $SrcExe)) {
+    Write-Host "ERROR: screen-time-manager.exe not found in $ScriptDir" -ForegroundColor Red
+    Write-Host "Run build.bat first to produce the executable." -ForegroundColor Yellow
     exit 1
 }
 
-# Get current executable path from the scheduled task
-$taskInfo = Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo
-$currentExePath = (Get-ScheduledTask -TaskName $TaskName).Actions[0].Execute
-
-Write-Host "Current installation: $currentExePath" -ForegroundColor White
-Write-Host ""
-
-# Find new executable
-if ($NewExePath -eq "") {
-    # Try to find it in the same directory as this script
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    $possiblePaths = @(
-        (Join-Path $scriptDir "screen-time-manager.exe")
-    )
-
-    foreach ($path in $possiblePaths) {
-        if (Test-Path $path) {
-            $NewExePath = $path
-            break
-        }
-    }
-}
-
-if ($NewExePath -eq "" -or -not (Test-Path $NewExePath)) {
-    Write-Host "ERROR: Could not find new screen-time-manager.exe" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Usage: .\update.ps1 -NewExePath 'C:\path\to\new\screen-time-manager.exe'" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Or place the new screen-time-manager.exe in the same folder as this script." -ForegroundColor Yellow
-    Write-Host ""
+if (-not (Test-Path $InstallDir)) {
+    Write-Host "ERROR: Install directory not found: $InstallDir" -ForegroundColor Red
+    Write-Host "Run install.bat first." -ForegroundColor Yellow
     exit 1
 }
 
-$NewExePath = (Resolve-Path $NewExePath).Path
-Write-Host "New executable: $NewExePath" -ForegroundColor Green
-Write-Host ""
-
-# Check if updating in place (same path)
-$updateInPlace = $currentExePath -eq $NewExePath
-if ($updateInPlace) {
-    Write-Host "Note: Updating in place (same location)" -ForegroundColor Yellow
-    Write-Host ""
-}
-
-# Stop the scheduled task
-Write-Host "Stopping Screen Time Manager..." -ForegroundColor White
-Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-
-# Kill the process if running
-$process = Get-Process -Name "screen-time-manager" -ErrorAction SilentlyContinue
-if ($process) {
-    Write-Host "Terminating running process..." -ForegroundColor White
-    Stop-Process -Name "screen-time-manager" -Force -ErrorAction SilentlyContinue
-    # Wait for process to fully terminate
+# --- 1. Stop service ---
+$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($svc) {
+    Write-Host "Stopping service..." -ForegroundColor White
+    & $NssmExe stop $ServiceName 2>&1 | Out-Null
     Start-Sleep -Seconds 2
-}
-
-# Double-check process is gone
-$retries = 5
-while ($retries -gt 0) {
-    $process = Get-Process -Name "screen-time-manager" -ErrorAction SilentlyContinue
-    if (-not $process) {
-        break
-    }
-    Write-Host "Waiting for process to terminate..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 1
-    $retries--
-}
-
-if ($process) {
-    Write-Host "ERROR: Could not terminate the running process." -ForegroundColor Red
-    Write-Host "Please close Screen Time Manager manually and try again." -ForegroundColor Yellow
+} else {
+    Write-Host "Service not installed. Run install.bat first." -ForegroundColor Yellow
     exit 1
 }
 
-# Copy new executable if different location
-if (-not $updateInPlace) {
-    Write-Host "Copying new executable to: $currentExePath" -ForegroundColor White
-
-    # Backup old executable
-    $backupPath = "$currentExePath.backup"
-    if (Test-Path $currentExePath) {
-        Copy-Item -Path $currentExePath -Destination $backupPath -Force
-        Write-Host "Backed up old version to: $backupPath" -ForegroundColor Gray
+# --- 2. Kill ALL running instances (service + tray apps in every user session) ---
+Write-Host "Terminating all running instances..." -ForegroundColor White
+$procs = Get-Process -Name "screen-time-manager" -ErrorAction SilentlyContinue
+if ($procs) {
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Process -Name "screen-time-manager" -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
     }
-
-    # Copy new executable
-    try {
-        Copy-Item -Path $NewExePath -Destination $currentExePath -Force
-    } catch {
-        Write-Host "ERROR: Failed to copy new executable." -ForegroundColor Red
-        Write-Host $_.Exception.Message -ForegroundColor Red
-
-        # Restore backup
-        if (Test-Path $backupPath) {
-            Write-Host "Restoring backup..." -ForegroundColor Yellow
-            Copy-Item -Path $backupPath -Destination $currentExePath -Force
-        }
-        exit 1
+    $remaining = Get-Process -Name "screen-time-manager" -ErrorAction SilentlyContinue
+    if ($remaining) {
+        Write-Host "WARNING: Could not terminate all instances." -ForegroundColor Yellow
     }
 }
 
-Write-Host ""
-Write-Host "Update complete!" -ForegroundColor Green
-Write-Host ""
+# --- 3. Copy updated exe to install directory ---
+Write-Host "Copying updated executable to $InstallDir..." -ForegroundColor White
+Copy-Item -Path $SrcExe -Destination $ExePath -Force
 
-# Start the service again
-$response = Read-Host "Do you want to start Screen Time Manager now? (Y/n)"
-if ($response -eq "" -or $response -match "^[Yy]") {
-    Write-Host "Starting Screen Time Manager..." -ForegroundColor White
-    Start-ScheduledTask -TaskName $TaskName
-    Write-Host "Started!" -ForegroundColor Green
+# --- 4. Start updated service ---
+Write-Host "Starting service..." -ForegroundColor White
+& $NssmExe start $ServiceName 2>&1 | Out-Null
+Start-Sleep -Seconds 2
+
+$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -eq "Running") {
+    Write-Host ""
+    Write-Host "Update complete! Service is running." -ForegroundColor Green
+} else {
+    Write-Host ""
+    Write-Host "WARNING: Service may not have started. Check $InstallDir\logs\stderr.log" -ForegroundColor Yellow
 }
-
 Write-Host ""

@@ -12,7 +12,7 @@ mod dialogs;
 mod dpi;
 mod mini_overlay;
 mod overlay;
-mod telegram;
+mod service;
 mod tray;
 
 use std::mem::zeroed;
@@ -38,19 +38,21 @@ use tray::{add_tray_icon, remove_tray_icon, window_proc};
 use std::sync::atomic::Ordering;
 
 fn main() {
+    // If started with --service, enter service/session-monitor mode (no GUI).
+    // This is used when running as a SYSTEM service via NSSM.
+    if std::env::args().any(|a| a == "--service") {
+        unsafe { service::run_service_mode(); }
+        return;
+    }
+
     unsafe {
         // Set DPI awareness before creating any windows
         let _ = SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
         dpi::init_dpi();
 
-        // Check for single instance
+        // Check for single instance — silently exit if already running.
+        // (Showing a dialog here would be disruptive when the service retries spawning.)
         if !ensure_single_instance() {
-            MessageBoxW(
-                None,
-                w!("Screen Time Manager is already running."),
-                w!("Already Running"),
-                MB_OK | MB_ICONWARNING,
-            );
             return;
         }
 
@@ -136,9 +138,6 @@ fn main() {
 
         // Add the system tray icon
         add_tray_icon(hwnd);
-
-        // Start Telegram bot in background thread (if configured)
-        telegram::start_bot_thread();
 
         // Message loop
         let mut msg: MSG = zeroed();

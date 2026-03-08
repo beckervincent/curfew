@@ -21,7 +21,7 @@ use windows::{
 };
 
 use crate::constants::*;
-use crate::database::{get_passcode, get_setting, set_setting, set_telegram_config, get_telegram_config, WEEKDAY_KEYS, WEEKDAY_NAMES, get_pause_used_today, get_pause_config, get_pause_log_today, is_pause_enabled, is_idle_enabled, get_idle_timeout_minutes};
+use crate::database::{get_passcode, get_setting, set_setting, WEEKDAY_KEYS, WEEKDAY_NAMES, get_pause_used_today, get_pause_config, get_pause_log_today, is_pause_enabled, is_idle_enabled, get_idle_timeout_minutes};
 use crate::dpi::scale;
 
 // Control IDs for settings dialog
@@ -45,10 +45,6 @@ struct SettingsEditHandles {
     current_passcode: HWND,
     new_passcode: HWND,
     confirm_passcode: HWND,
-    // Telegram settings
-    telegram_token: HWND,
-    telegram_chat_id: HWND,
-    telegram_enabled: HWND,
     // Lock screen timeout
     lock_screen_timeout: HWND,
     // Idle detection settings
@@ -296,6 +292,11 @@ pub unsafe fn verify_passcode_for_quit(parent_hwnd: HWND) -> bool {
 
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            // Forward Enter key from the edit control to the OK button
+            if msg.message == WM_KEYDOWN && msg.wParam.0 == VK_RETURN.0 as usize {
+                SendMessageW(dlg, WM_COMMAND, WPARAM(1), LPARAM(0));
+                continue;
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -579,78 +580,6 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
                 }
                 y_pos += scale(24);
 
-                // ===== Telegram Bot Section =====
-                let title6 = CreateWindowExW(
-                    WINDOW_EX_STYLE(0), w!("STATIC"), w!("Telegram Bot"),
-                    WS_CHILD | WS_VISIBLE, scale(15), y_pos, scale(360), scale(20), hwnd, HMENU::default(), hinstance, None,
-                );
-                if let Ok(h) = title6 { SendMessageW(h, WM_SETFONT, WPARAM(title_font.0 as usize), LPARAM(1)); }
-                y_pos += scale(20);
-
-                // Enable checkbox
-                let telegram_enabled_chk = CreateWindowExW(
-                    WINDOW_EX_STYLE(0), w!("BUTTON"), w!("Enable Telegram Bot"),
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
-                    scale(25), y_pos, scale(200), scale(20), hwnd, HMENU::default(), hinstance, None,
-                );
-                let mut telegram_enabled_hwnd = HWND::default();
-                if let Ok(h) = telegram_enabled_chk {
-                    SendMessageW(h, WM_SETFONT, WPARAM(label_font.0 as usize), LPARAM(1));
-                    let config = get_telegram_config();
-                    if config.enabled {
-                        SendMessageW(h, BM_SETCHECK, WPARAM(1), LPARAM(0));
-                    }
-                    telegram_enabled_hwnd = h;
-                }
-                y_pos += scale(22);
-
-                // Bot Token
-                let _ = CreateWindowExW(
-                    WINDOW_EX_STYLE(0), w!("STATIC"), w!("Bot Token:"),
-                    WS_CHILD | WS_VISIBLE, scale(25), y_pos + scale(2), scale(70), scale(20), hwnd, HMENU::default(), hinstance, None,
-                );
-                let telegram_token = CreateWindowExW(
-                    WINDOW_EX_STYLE(0x200), w!("EDIT"), w!(""),
-                    WS_CHILD | WS_VISIBLE | WS_BORDER | WINDOW_STYLE(ES_PASSWORD as u32 | ES_AUTOHSCROLL as u32),
-                    scale(100), y_pos, scale(265), scale(22), hwnd, HMENU::default(), hinstance, None,
-                );
-                let mut telegram_token_hwnd = HWND::default();
-                if let Ok(h) = telegram_token {
-                    SendMessageW(h, WM_SETFONT, WPARAM(edit_font.0 as usize), LPARAM(1));
-                    // Allow long bot tokens (up to 200 chars)
-                    SendMessageW(h, EM_SETLIMITTEXT, WPARAM(200), LPARAM(0));
-                    let config = get_telegram_config();
-                    if let Some(token) = config.bot_token {
-                        let wide: Vec<u16> = token.encode_utf16().chain(std::iter::once(0)).collect();
-                        SetWindowTextW(h, PCWSTR(wide.as_ptr())).ok();
-                    }
-                    telegram_token_hwnd = h;
-                }
-                y_pos += scale(24);
-
-                // Admin Chat ID
-                let _ = CreateWindowExW(
-                    WINDOW_EX_STYLE(0), w!("STATIC"), w!("Chat ID:"),
-                    WS_CHILD | WS_VISIBLE, scale(25), y_pos + scale(2), scale(70), scale(20), hwnd, HMENU::default(), hinstance, None,
-                );
-                let telegram_chat_id = CreateWindowExW(
-                    WINDOW_EX_STYLE(0x200), w!("EDIT"), w!(""),
-                    WS_CHILD | WS_VISIBLE | WS_BORDER | WINDOW_STYLE(ES_NUMBER as u32),
-                    scale(100), y_pos, scale(120), scale(22), hwnd, HMENU::default(), hinstance, None,
-                );
-                let mut telegram_chat_id_hwnd = HWND::default();
-                if let Ok(h) = telegram_chat_id {
-                    SendMessageW(h, WM_SETFONT, WPARAM(edit_font.0 as usize), LPARAM(1));
-                    let config = get_telegram_config();
-                    if let Some(chat_id) = config.admin_chat_id {
-                        let value = chat_id.to_string();
-                        let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
-                        SetWindowTextW(h, PCWSTR(wide.as_ptr())).ok();
-                    }
-                    telegram_chat_id_hwnd = h;
-                }
-                y_pos += scale(24);
-
                 // ===== Lock Screen Timeout =====
                 let title7 = CreateWindowExW(
                     WINDOW_EX_STYLE(0), w!("STATIC"), w!("Lock Screen"),
@@ -756,9 +685,6 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
                     current_passcode: curr_pass_hwnd,
                     new_passcode: new_pass_hwnd,
                     confirm_passcode: confirm_pass_hwnd,
-                    telegram_token: telegram_token_hwnd,
-                    telegram_chat_id: telegram_chat_id_hwnd,
-                    telegram_enabled: telegram_enabled_hwnd,
                     lock_screen_timeout: lock_timeout_hwnd,
                     idle_enabled: idle_enabled_hwnd,
                     idle_timeout_minutes: idle_timeout_hwnd,
@@ -859,32 +785,6 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
                             let value = String::from_utf16_lossy(&buffer[..len as usize]);
                             set_setting("blocking_message", &value);
                         }
-
-                        // Save Telegram settings
-                        let mut telegram_token = String::new();
-                        let mut telegram_chat_id = String::new();
-                        let telegram_enabled;
-
-                        if !handles.telegram_token.0.is_null() {
-                            let mut buffer = [0u16; 512];
-                            let len = GetWindowTextW(handles.telegram_token, &mut buffer);
-                            telegram_token = String::from_utf16_lossy(&buffer[..len as usize]);
-                        }
-
-                        if !handles.telegram_chat_id.0.is_null() {
-                            let mut buffer = [0u16; 64];
-                            let len = GetWindowTextW(handles.telegram_chat_id, &mut buffer);
-                            telegram_chat_id = String::from_utf16_lossy(&buffer[..len as usize]);
-                        }
-
-                        if !handles.telegram_enabled.0.is_null() {
-                            let checked = SendMessageW(handles.telegram_enabled, BM_GETCHECK, WPARAM(0), LPARAM(0));
-                            telegram_enabled = checked.0 == 1;
-                        } else {
-                            telegram_enabled = false;
-                        }
-
-                        set_telegram_config(&telegram_token, &telegram_chat_id, telegram_enabled);
 
                         // Save lock screen timeout (convert minutes to seconds)
                         if !handles.lock_screen_timeout.0.is_null() {
@@ -1129,7 +1029,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
 
                 SelectObject(hdc, value_font);
                 SetTextColor(hdc, COLORREF(0x00333333));
-                let day_str = format!("{}", weekday_name);
+                let day_str = weekday_name.to_string();
                 let mut value_rect = RECT { left: value_x, top: y, right: rect.right - scale(15), bottom: y + scale(22) };
                 DrawTextW(hdc, &mut day_str.encode_utf16().collect::<Vec<_>>(), &mut value_rect, DT_SINGLELINE);
                 y += scale(24);

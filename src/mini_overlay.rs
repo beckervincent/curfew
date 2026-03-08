@@ -13,7 +13,7 @@ use windows::{
             DT_CENTER, DT_SINGLELINE, DT_VCENTER, FW_BOLD, PAINTSTRUCT, TRANSPARENT,
         },
         System::SystemInformation::GetTickCount,
-        UI::Input::GetLastInputInfo,
+        UI::Input::KeyboardAndMouse::GetLastInputInfo,
         UI::WindowsAndMessaging::*,
     },
 };
@@ -40,8 +40,8 @@ pub static IS_IDLE_PAUSED: AtomicBool = AtomicBool::new(false);
 pub const TIMER_MINI_UPDATE: usize = 10;
 
 /// Mini overlay base dimensions (at 96 DPI / 100% scaling)
-const MINI_WIDTH_BASE: i32 = 140;
-const MINI_HEIGHT_BASE: i32 = 36;
+const MINI_WIDTH_BASE: i32 = 148;
+const MINI_HEIGHT_BASE: i32 = 40;
 const MINI_MARGIN_BASE: i32 = 10;
 
 /// Create the mini overlay window
@@ -316,8 +316,8 @@ fn force_resume() {
 /// Get the number of seconds since the last user input (mouse/keyboard)
 fn get_idle_seconds() -> u32 {
     unsafe {
-        let mut lii: windows::Win32::UI::Input::LASTINPUTINFO = zeroed();
-        lii.cbSize = std::mem::size_of::<windows::Win32::UI::Input::LASTINPUTINFO>() as u32;
+        let mut lii: windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO = zeroed();
+        lii.cbSize = std::mem::size_of::<windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO>() as u32;
         if GetLastInputInfo(&mut lii).as_bool() {
             let now = GetTickCount();
             now.wrapping_sub(lii.dwTime) / 1000
@@ -358,10 +358,6 @@ pub fn is_idle_paused() -> bool {
     IS_IDLE_PAUSED.load(Ordering::SeqCst)
 }
 
-/// Check if timer is effectively paused (manual OR idle)
-pub fn is_effectively_paused() -> bool {
-    IS_PAUSED.load(Ordering::SeqCst) || IS_IDLE_PAUSED.load(Ordering::SeqCst)
-}
 
 /// Window procedure for the mini overlay
 pub unsafe extern "system" fn mini_overlay_proc(
@@ -416,9 +412,16 @@ pub unsafe extern "system" fn mini_overlay_proc(
                 (time_str, color)
             };
 
-            // Draw time (scaled font)
+            // Draw time (scaled font) with 2px padding to avoid clipping on high-DPI
+            let pad = scale(2);
+            let mut text_rect = RECT {
+                left: rect.left + pad,
+                top: rect.top + pad,
+                right: rect.right - pad,
+                bottom: rect.bottom - pad,
+            };
             let hfont = CreateFontW(
-                scale(22), 0, 0, 0,
+                scale(24), 0, 0, 0,
                 FW_BOLD.0 as i32,
                 0, 0, 0, 0, 0, 0, 0, 0,
                 w!("Consolas"),
@@ -432,7 +435,7 @@ pub unsafe extern "system" fn mini_overlay_proc(
             DrawTextW(
                 hdc,
                 &mut wide_text.clone(),
-                &mut rect,
+                &mut text_rect,
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE,
             );
 

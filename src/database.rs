@@ -4,7 +4,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 use rusqlite::{Connection, params};
-use windows::core::PCWSTR;
 
 /// Global database connection (thread-safe)
 pub static DB_CONNECTION: Mutex<Option<Connection>> = Mutex::new(None);
@@ -20,29 +19,16 @@ pub const WEEKDAY_NAMES: [&str; 7] = [
     "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
 ];
 
-/// Get the path to the database file in a hidden location
+/// Get the path to the database file under ProgramData (system-wide, admin-writable)
 pub fn get_database_path() -> PathBuf {
-    let data_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".screen-time-manager");
+    let base = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".into());
+    let db_dir = PathBuf::from(base).join("ScreenTimeManager");
 
-    if !data_dir.exists() {
-        let _ = std::fs::create_dir_all(&data_dir);
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::ffi::OsStrExt;
-            let path: Vec<u16> = data_dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-            unsafe {
-                let _ = windows::Win32::Storage::FileSystem::SetFileAttributesW(
-                    PCWSTR(path.as_ptr()),
-                    windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN,
-                );
-            }
-        }
+    if !db_dir.exists() {
+        let _ = std::fs::create_dir_all(&db_dir);
     }
 
-    data_dir.join("data.db")
+    db_dir.join("data.db")
 }
 
 /// Initialize the SQLite database
@@ -322,11 +308,10 @@ pub fn get_current_timestamp() -> i64 {
     let days_since_epoch = (st.wYear as i64 - 1970) * 365
         + (st.wMonth as i64 - 1) * 30
         + st.wDay as i64;
-    let seconds = days_since_epoch * 86400
+    days_since_epoch * 86400
         + st.wHour as i64 * 3600
         + st.wMinute as i64 * 60
-        + st.wSecond as i64;
-    seconds
+        + st.wSecond as i64
 }
 
 /// Get the session start time used today (in seconds) - tracks when timer started today
@@ -396,37 +381,3 @@ pub fn get_idle_timeout_minutes() -> u32 {
         .max(1)
 }
 
-// ============================================================================
-// Telegram Bot Configuration
-// ============================================================================
-
-/// Settings keys for Telegram bot
-const TELEGRAM_BOT_TOKEN: &str = "telegram_bot_token";
-const TELEGRAM_ADMIN_CHAT_ID: &str = "telegram_admin_chat_id";
-const TELEGRAM_ENABLED: &str = "telegram_enabled";
-
-/// Telegram bot configuration
-pub struct TelegramConfig {
-    pub bot_token: Option<String>,
-    pub admin_chat_id: Option<i64>,
-    pub enabled: bool,
-}
-
-/// Get Telegram bot configuration
-pub fn get_telegram_config() -> TelegramConfig {
-    TelegramConfig {
-        bot_token: get_setting(TELEGRAM_BOT_TOKEN),
-        admin_chat_id: get_setting(TELEGRAM_ADMIN_CHAT_ID)
-            .and_then(|s| s.parse::<i64>().ok()),
-        enabled: get_setting(TELEGRAM_ENABLED)
-            .map(|s| s == "true")
-            .unwrap_or(false),
-    }
-}
-
-/// Save Telegram bot configuration
-pub fn set_telegram_config(token: &str, chat_id: &str, enabled: bool) {
-    set_setting(TELEGRAM_BOT_TOKEN, token);
-    set_setting(TELEGRAM_ADMIN_CHAT_ID, chat_id);
-    set_setting(TELEGRAM_ENABLED, if enabled { "true" } else { "false" });
-}
