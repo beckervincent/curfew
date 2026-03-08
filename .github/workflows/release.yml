@@ -52,30 +52,26 @@ jobs:
           echo "HASH=$hash" >> $env:GITHUB_OUTPUT
           echo "Commit: $hash"
 
-      - name: Create release archive
+      - name: Download NSSM
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile nssm.zip
+          Expand-Archive -Path nssm.zip -DestinationPath nssm-tmp -Force
+          Copy-Item "nssm-tmp\nssm-2.24\win64\nssm.exe" -Destination "nssm.exe"
+
+      - name: Stage installer source files
+        shell: pwsh
+        run: |
+          Copy-Item "target\release\screen-time-manager.exe" -Destination "installer\screen-time-manager.exe"
+          Copy-Item "nssm.exe" -Destination "installer\nssm.exe"
+
+      - name: Build installer
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
-          $archiveName = "screen-time-manager-v$version-windows-x64.zip"
-
-          # Create a temporary directory for the release contents
-          $releaseDir = "release-package"
-          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
-
-          # Copy executable
-          Copy-Item "target/release/screen-time-manager.exe" -Destination $releaseDir
-
-          # Copy install/uninstall/update scripts
-          Copy-Item "install.ps1" -Destination $releaseDir
-          Copy-Item "install.bat" -Destination $releaseDir
-          Copy-Item "uninstall.ps1" -Destination $releaseDir
-          Copy-Item "uninstall.bat" -Destination $releaseDir
-          Copy-Item "update.ps1" -Destination $releaseDir
-          Copy-Item "update.bat" -Destination $releaseDir
-
-          # Create the archive
-          Compress-Archive -Path "$releaseDir\*" -DestinationPath $archiveName
-          echo "ARCHIVE_NAME=$archiveName" >> $env:GITHUB_ENV
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc /DMyAppVersion="$version" "installer\setup.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
       - name: Generate release notes
         id: notes
@@ -84,6 +80,7 @@ jobs:
           $version = "${{ steps.version.outputs.VERSION }}"
           $hash = "${{ steps.commit.outputs.HASH }}"
           $date = Get-Date -Format "yyyy-MM-dd"
+          $installerName = "screen-time-manager-setup-v$version.exe"
 
           $notes = @"
           ## Screen Time Manager v$version
@@ -93,33 +90,24 @@ jobs:
 
           ### Installation
 
-          1. Download ``screen-time-manager-v$version-windows-x64.zip``
-          2. Extract all files to a folder of your choice (e.g., ``C:\Program Files\ScreenTimeManager``)
-          3. Run ``install.bat`` (or ``install.ps1`` in PowerShell)
-          4. The app will start automatically on login
-
-          ### Updating
-
-          1. Download the new version and extract to the same folder
-          2. Run ``update.bat`` (or ``update.ps1`` in PowerShell)
+          1. Download ``$installerName``
+          2. Run it as Administrator
+          3. Follow the setup wizard — the service installs and starts automatically
 
           ### Uninstalling
 
-          1. Run ``uninstall.bat`` (or ``uninstall.ps1`` in PowerShell)
-          2. Optionally delete ``%ProgramData%\ScreenTimeManager`` to remove all data
-
-          ### Manual Start (No Auto-Start)
-
-          If you prefer not to use auto-start, just run ``screen-time-manager.exe`` directly.
+          Run the uninstaller from *Settings → Apps* or *Control Panel → Programs*.
+          You will be asked whether to delete all stored data (time limits, passcode, history).
 
           ### Requirements
 
           - Windows 10 or later (64-bit)
-          - No additional dependencies required
+          - Administrator rights during install/uninstall
           "@
 
-          # Write to file for the release action
           $notes | Out-File -FilePath "RELEASE_NOTES.md" -Encoding utf8
+          $installerFile = "screen-time-manager-setup-v$version.exe"
+          echo "INSTALLER_FILE=$installerFile" >> $env:GITHUB_ENV
 
       - name: Check if release exists
         id: check_release
@@ -129,16 +117,12 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           $tagName = "v$version"
-
           $releases = gh release list --json tagName | ConvertFrom-Json
           $exists = $releases | Where-Object { $_.tagName -eq $tagName }
-
           if ($exists) {
             echo "EXISTS=true" >> $env:GITHUB_OUTPUT
-            echo "Release $tagName already exists"
           } else {
             echo "EXISTS=false" >> $env:GITHUB_OUTPUT
-            echo "Release $tagName does not exist"
           }
 
       - name: Create GitHub Release
@@ -149,12 +133,10 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           $tagName = "v$version"
-          $archiveName = $env:ARCHIVE_NAME
-
           gh release create $tagName `
             --title "Screen Time Manager v$version" `
             --notes-file "RELEASE_NOTES.md" `
-            $archiveName
+            $env:INSTALLER_FILE
 
       - name: Update existing release
         if: steps.check_release.outputs.EXISTS == 'true'
@@ -164,15 +146,11 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           $tagName = "v$version"
-          $archiveName = $env:ARCHIVE_NAME
-
-          # Delete old asset if exists
+          $installerFile = $env:INSTALLER_FILE
           $assets = gh release view $tagName --json assets | ConvertFrom-Json
           foreach ($asset in $assets.assets) {
-            if ($asset.name -eq $archiveName) {
+            if ($asset.name -eq $installerFile) {
               gh release delete-asset $tagName $asset.name --yes
             }
           }
-
-          # Upload new asset
-          gh release upload $tagName $archiveName --clobber
+          gh release upload $tagName $installerFile --clobber
