@@ -23,11 +23,13 @@ use windows::{
 use crate::constants::*;
 use crate::database::{get_passcode, get_setting, set_setting, WEEKDAY_KEYS, WEEKDAY_NAMES, get_pause_used_today, get_pause_config, get_pause_log_today, is_pause_enabled, is_idle_enabled, get_idle_timeout_minutes};
 use crate::dpi::scale;
+use windows::Win32::Graphics::Gdi::DT_WORDBREAK;
 
 // Control IDs for settings dialog
 const ID_SETTINGS_BASE: i32 = 2000;
 const ID_SETTINGS_SAVE: i32 = 2100;
 const ID_SETTINGS_CANCEL: i32 = 2101;
+const ID_SETTINGS_UNINSTALL: i32 = 2102;
 const ID_CURRENT_PASSCODE: i32 = 2110;
 const ID_NEW_PASSCODE: i32 = 2111;
 const ID_CONFIRM_PASSCODE: i32 = 2112;
@@ -675,6 +677,14 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
                 );
                 if let Ok(h) = cancel_btn { SendMessageW(h, WM_SETFONT, WPARAM(btn_font.0 as usize), LPARAM(1)); }
 
+                let uninstall_btn = CreateWindowExW(
+                    WINDOW_EX_STYLE(0), w!("BUTTON"), w!("Uninstall Application..."),
+                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    scale(95), y_pos + scale(40), scale(210), scale(28),
+                    hwnd, HMENU(ID_SETTINGS_UNINSTALL as _), hinstance, None,
+                );
+                if let Ok(h) = uninstall_btn { SendMessageW(h, WM_SETFONT, WPARAM(btn_font.0 as usize), LPARAM(1)); }
+
                 SETTINGS_EDIT_HANDLES = Some(SettingsEditHandles {
                     daily_limits: daily_handles,
                     warning1_minutes: w1_min_hwnd,
@@ -817,6 +827,32 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
                     DestroyWindow(hwnd).ok();
                 } else if id == ID_SETTINGS_CANCEL {
                     DestroyWindow(hwnd).ok();
+                } else if id == ID_SETTINGS_UNINSTALL {
+                    let result = MessageBoxW(
+                        hwnd,
+                        w!("This will uninstall Screen Time Manager.\n\nContinue?"),
+                        w!("Uninstall"),
+                        MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
+                    );
+                    if result == IDYES {
+                        let uninstaller = std::env::current_exe()
+                            .ok()
+                            .and_then(|p| p.parent().map(|d| d.join("unins000.exe")));
+                        match uninstaller {
+                            Some(path) if path.exists() => {
+                                let _ = std::process::Command::new(&path).spawn();
+                                DestroyWindow(hwnd).ok();
+                            }
+                            _ => {
+                                MessageBoxW(
+                                    hwnd,
+                                    w!("Uninstaller not found. Use Add/Remove Programs in Windows Settings."),
+                                    w!("Uninstall"),
+                                    MB_OK | MB_ICONWARNING,
+                                );
+                            }
+                        }
+                    }
                 }
 
                 LRESULT(0)
@@ -849,7 +885,7 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
     let screen_width = GetSystemMetrics(SM_CXSCREEN);
     let screen_height = GetSystemMetrics(SM_CYSCREEN);
     let dialog_width = scale(400);
-    let dialog_height = scale(670);
+    let dialog_height = scale(720);
 
     let dialog_hwnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
@@ -1238,4 +1274,237 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
     }
 
     STATS_DIALOG_OPEN = false;
+}
+
+/// Show the first-run setup wizard: PIN creation followed by the settings dialog.
+/// Called when the executable is launched with `--setup`.
+pub unsafe fn show_setup_wizard() {
+    let dialog_class = w!("ScreenTimeSetupWizard");
+    let hinstance = GetModuleHandleW(None).expect("Failed to get module handle");
+
+    static mut SETUP_PIN_EDIT: Option<HWND> = None;
+    static mut SETUP_CONFIRM_EDIT: Option<HWND> = None;
+    static mut SETUP_ERROR: bool = false;
+    static mut SETUP_COMPLETE: bool = false;
+
+    SETUP_PIN_EDIT = None;
+    SETUP_CONFIRM_EDIT = None;
+    SETUP_ERROR = false;
+    SETUP_COMPLETE = false;
+
+    const ID_SETUP_CONTINUE: usize = 1;
+    const ID_SETUP_PIN: usize = 2;
+    const ID_SETUP_CONFIRM: usize = 3;
+
+    unsafe extern "system" fn setup_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        match msg {
+            WM_CREATE => {
+                let hinstance = GetModuleHandleW(None).unwrap();
+
+                let edit_font = CreateFontW(
+                    scale(28), 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"),
+                );
+                let btn_font = CreateFontW(
+                    scale(16), 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"),
+                );
+
+                let pin_edit = CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("EDIT"),
+                    w!(""),
+                    WS_CHILD | WS_VISIBLE | WS_BORDER
+                        | WINDOW_STYLE(ES_CENTER as u32 | ES_PASSWORD as u32 | ES_NUMBER as u32),
+                    scale(100), scale(120), scale(200), scale(45),
+                    hwnd, HMENU(ID_SETUP_PIN as _), hinstance, None,
+                ).ok();
+                if let Some(e) = pin_edit {
+                    SETUP_PIN_EDIT = Some(e);
+                    SendMessageW(e, EM_SETLIMITTEXT, WPARAM(4), LPARAM(0));
+                    SendMessageW(e, WM_SETFONT, WPARAM(edit_font.0 as usize), LPARAM(1));
+                    let _ = SetFocus(e);
+                }
+
+                let confirm_edit = CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("EDIT"),
+                    w!(""),
+                    WS_CHILD | WS_VISIBLE | WS_BORDER
+                        | WINDOW_STYLE(ES_CENTER as u32 | ES_PASSWORD as u32 | ES_NUMBER as u32),
+                    scale(100), scale(220), scale(200), scale(45),
+                    hwnd, HMENU(ID_SETUP_CONFIRM as _), hinstance, None,
+                ).ok();
+                if let Some(e) = confirm_edit {
+                    SETUP_CONFIRM_EDIT = Some(e);
+                    SendMessageW(e, EM_SETLIMITTEXT, WPARAM(4), LPARAM(0));
+                    SendMessageW(e, WM_SETFONT, WPARAM(edit_font.0 as usize), LPARAM(1));
+                }
+
+                let continue_btn = CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("BUTTON"),
+                    w!("Continue"),
+                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+                    scale(125), scale(300), scale(150), scale(36),
+                    hwnd, HMENU(ID_SETUP_CONTINUE as _), hinstance, None,
+                );
+                if let Ok(h) = continue_btn {
+                    SendMessageW(h, WM_SETFONT, WPARAM(btn_font.0 as usize), LPARAM(1));
+                }
+
+                LRESULT(0)
+            }
+            WM_PAINT => {
+                let mut ps: PAINTSTRUCT = zeroed();
+                let hdc = BeginPaint(hwnd, &mut ps);
+                let mut rect: RECT = zeroed();
+                GetClientRect(hwnd, &mut rect).ok();
+
+                let bg = CreateSolidBrush(COLORREF(0x00F5F5F5));
+                FillRect(hdc, &rect, bg);
+                let _ = DeleteObject(bg);
+
+                SetBkMode(hdc, TRANSPARENT);
+
+                let title_font = CreateFontW(
+                    scale(22), 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"),
+                );
+                let label_font = CreateFontW(
+                    scale(14), 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"),
+                );
+                let old_font = SelectObject(hdc, title_font);
+
+                SetTextColor(hdc, COLORREF(0x00222222));
+                let mut r = RECT { left: 0, top: scale(20), right: rect.right, bottom: scale(55) };
+                DrawTextW(hdc, &mut "Set Up Screen Time Manager".encode_utf16().collect::<Vec<_>>(), &mut r, DT_CENTER | DT_SINGLELINE);
+
+                SelectObject(hdc, label_font);
+                SetTextColor(hdc, COLORREF(0x00555555));
+                let mut r2 = RECT { left: scale(20), top: scale(58), right: rect.right - scale(20), bottom: scale(95) };
+                DrawTextW(hdc, &mut "Create a 4-digit administrator PIN to protect your settings and time limits.".encode_utf16().collect::<Vec<_>>(), &mut r2, DT_CENTER | DT_WORDBREAK);
+
+                SetTextColor(hdc, COLORREF(0x00333333));
+                let mut r3 = RECT { left: 0, top: scale(98), right: rect.right, bottom: scale(116) };
+                DrawTextW(hdc, &mut "Enter PIN:".encode_utf16().collect::<Vec<_>>(), &mut r3, DT_CENTER | DT_SINGLELINE);
+
+                let mut r4 = RECT { left: 0, top: scale(198), right: rect.right, bottom: scale(216) };
+                DrawTextW(hdc, &mut "Confirm PIN:".encode_utf16().collect::<Vec<_>>(), &mut r4, DT_CENTER | DT_SINGLELINE);
+
+                if SETUP_ERROR {
+                    let err_font = CreateFontW(
+                        scale(14), 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"),
+                    );
+                    SelectObject(hdc, err_font);
+                    SetTextColor(hdc, COLORREF(COLOR_ERROR));
+                    let mut r5 = RECT { left: 0, top: scale(270), right: rect.right, bottom: scale(292) };
+                    DrawTextW(hdc, &mut "PINs must be 4 digits and match.".encode_utf16().collect::<Vec<_>>(), &mut r5, DT_CENTER | DT_SINGLELINE);
+                    let _ = DeleteObject(err_font);
+                }
+
+                SelectObject(hdc, old_font);
+                let _ = DeleteObject(title_font);
+                let _ = DeleteObject(label_font);
+                let _ = EndPaint(hwnd, &ps);
+                LRESULT(0)
+            }
+            WM_COMMAND => {
+                let id = wparam.0 & 0xFFFF;
+                if id == ID_SETUP_CONTINUE {
+                    let pin = SETUP_PIN_EDIT.and_then(|e| {
+                        let mut buf = [0u16; 8];
+                        let len = GetWindowTextW(e, &mut buf) as usize;
+                        if len == 4 { Some(String::from_utf16_lossy(&buf[..len])) } else { None }
+                    });
+                    let confirm = SETUP_CONFIRM_EDIT.and_then(|e| {
+                        let mut buf = [0u16; 8];
+                        let len = GetWindowTextW(e, &mut buf) as usize;
+                        if len == 4 { Some(String::from_utf16_lossy(&buf[..len])) } else { None }
+                    });
+
+                    match (pin, confirm) {
+                        (Some(p), Some(c)) if p == c => {
+                            crate::database::set_setting("passcode", &p);
+                            SETUP_COMPLETE = true;
+                            DestroyWindow(hwnd).ok();
+                        }
+                        _ => {
+                            SETUP_ERROR = true;
+                            let _ = InvalidateRect(hwnd, None, true);
+                            if let Some(e) = SETUP_PIN_EDIT { SetWindowTextW(e, w!("")).ok(); }
+                            if let Some(e) = SETUP_CONFIRM_EDIT { SetWindowTextW(e, w!("")).ok(); }
+                            if let Some(e) = SETUP_PIN_EDIT { let _ = SetFocus(e); }
+                        }
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_KEYDOWN => {
+                if wparam.0 == VK_RETURN.0 as usize {
+                    SendMessageW(hwnd, WM_COMMAND, WPARAM(ID_SETUP_CONTINUE), LPARAM(0));
+                }
+                LRESULT(0)
+            }
+            WM_CLOSE => {
+                DestroyWindow(hwnd).ok();
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+
+    let wnd_class = WNDCLASSW {
+        style: CS_HREDRAW | CS_VREDRAW,
+        lpfnWndProc: Some(setup_proc),
+        hInstance: hinstance.into(),
+        lpszClassName: dialog_class,
+        hbrBackground: CreateSolidBrush(COLORREF(0x00F5F5F5)),
+        hCursor: LoadCursorW(None, IDC_ARROW).ok().unwrap_or_default(),
+        ..zeroed()
+    };
+    RegisterClassW(&wnd_class);
+
+    let screen_width = GetSystemMetrics(SM_CXSCREEN);
+    let screen_height = GetSystemMetrics(SM_CYSCREEN);
+    let dlg_w = scale(400);
+    let dlg_h = scale(360);
+
+    let dlg = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        dialog_class,
+        w!("Screen Time Manager Setup"),
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        (screen_width - dlg_w) / 2,
+        (screen_height - dlg_h) / 2,
+        dlg_w,
+        dlg_h,
+        None,
+        HMENU::default(),
+        hinstance,
+        None,
+    );
+
+    if let Ok(w) = dlg {
+        let rgn = CreateRoundRectRgn(0, 0, dlg_w, dlg_h, scale(10), scale(10));
+        SetWindowRgn(w, rgn, true);
+        let _ = ShowWindow(w, SW_SHOW);
+        let _ = SetForegroundWindow(w);
+
+        let mut msg: MSG = zeroed();
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+
+        if SETUP_COMPLETE {
+            show_settings_dialog(HWND::default());
+        }
+    }
 }

@@ -16,6 +16,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppUpdatesURL=https://github.com/beckervincent/Screen-Time-Manager-for-Windows/releases
+; Default to Program Files but let the user change it
 DefaultDirName={autopf}\ScreenTimeManager
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -27,8 +28,9 @@ SolidCompression=yes
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+; Close the app if running before overwriting files
 CloseApplications=yes
-CloseApplicationsFilter=screen-time-manager.exe
+CloseApplicationsFilter={#MyAppExeName}
 RestartApplications=no
 MinVersion=10.0
 
@@ -39,18 +41,25 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "screen-time-manager.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "nssm.exe";                DestDir: "{app}"; Flags: ignoreversion
 
+[Icons]
+; Start Menu entries
+Name: "{commonprograms}\{#MyAppName}\Settings";   Filename: "{app}\{#MyAppExeName}"; Parameters: "--settings"; Comment: "Open Screen Time Manager settings"
+Name: "{commonprograms}\{#MyAppName}\Uninstall";  Filename: "{uninstallexe}";        Comment: "Uninstall Screen Time Manager"
+
 [Run]
-; Stop any existing service instance
+; ── 1. Remove any existing service installation ──────────────────────────────
 Filename: "{app}\nssm.exe"; Parameters: "stop {#ServiceName}"; \
     Flags: runhidden waituntilterminated; StatusMsg: "Stopping existing service..."
-; Remove existing service registration
 Filename: "{app}\nssm.exe"; Parameters: "remove {#ServiceName} confirm"; \
     Flags: runhidden waituntilterminated; StatusMsg: "Removing existing service..."
-; Kill any lingering processes
 Filename: "taskkill.exe"; Parameters: "/f /im {#MyAppExeName}"; \
     Flags: runhidden waituntilterminated
 
-; Install and configure the NSSM service
+; ── 2. First-run setup wizard (PIN + settings) ───────────────────────────────
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup"; \
+    Flags: waituntilterminated; StatusMsg: "Running initial setup..."
+
+; ── 3. Install and configure the NSSM service ────────────────────────────────
 Filename: "{app}\nssm.exe"; \
     Parameters: "install {#ServiceName} ""{app}\{#MyAppExeName}"" --service"; \
     Flags: runhidden waituntilterminated; StatusMsg: "Installing service..."
@@ -58,7 +67,8 @@ Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppDirectory ""{app}
     Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} ObjectName LocalSystem"; \
     Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} DisplayName ""Screen Time Manager"""; \
+Filename: "{app}\nssm.exe"; \
+    Parameters: "set {#ServiceName} DisplayName ""Screen Time Manager"""; \
     Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; \
     Parameters: "set {#ServiceName} Description ""Screen Time Manager - Manages daily computer time limits"""; \
@@ -69,26 +79,26 @@ Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} Start SERVICE_AUTO_S
 ; Configure log rotation
 Filename: "cmd.exe"; Parameters: "/c mkdir ""{app}\logs"" 2>nul"; \
     Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppStdout ""{app}\logs\stdout.log"""; \
+Filename: "{app}\nssm.exe"; \
+    Parameters: "set {#ServiceName} AppStdout ""{app}\logs\stdout.log"""; \
     Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppStderr ""{app}\logs\stderr.log"""; \
+Filename: "{app}\nssm.exe"; \
+    Parameters: "set {#ServiceName} AppStderr ""{app}\logs\stderr.log"""; \
     Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppRotateFiles 1"; \
     Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "set {#ServiceName} AppRotateSeconds 86400"; \
     Flags: runhidden waituntilterminated
 
-; Lock down install directory: Admins+SYSTEM full control, Users read-execute only
+; ── 4. Lock down directories ─────────────────────────────────────────────────
 Filename: "powershell.exe"; \
-    Parameters: "-NonInteractive -Command ""$acl = Get-Acl '{app}'; $acl.SetAccessRuleProtection($true, $false); $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow'))); $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow'))); $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))); Set-Acl '{app}' $acl"""; \
+    Parameters: "-NonInteractive -Command ""$acl=Get-Acl '{app}';$acl.SetAccessRuleProtection($true,$false);$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')));$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')));$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')));Set-Acl '{app}' $acl"""; \
     Flags: runhidden waituntilterminated; StatusMsg: "Applying security settings..."
-
-; Create and lock down the ProgramData database directory: Admins+SYSTEM only
 Filename: "powershell.exe"; \
-    Parameters: "-NonInteractive -Command ""$d = Join-Path $env:ProgramData 'ScreenTimeManager'; New-Item -ItemType Directory -Path $d -Force | Out-Null; $acl = Get-Acl $d; $acl.SetAccessRuleProtection($true, $false); $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow'))); $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow'))); Set-Acl $d $acl"""; \
+    Parameters: "-NonInteractive -Command ""$d=Join-Path $env:ProgramData 'ScreenTimeManager';New-Item -ItemType Directory -Path $d -Force|Out-Null;$acl=Get-Acl $d;$acl.SetAccessRuleProtection($true,$false);$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')));$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')));Set-Acl $d $acl"""; \
     Flags: runhidden waituntilterminated
 
-; Start the service
+; ── 5. Start the service ─────────────────────────────────────────────────────
 Filename: "{app}\nssm.exe"; Parameters: "start {#ServiceName}"; \
     Flags: runhidden waituntilterminated; StatusMsg: "Starting service..."
 

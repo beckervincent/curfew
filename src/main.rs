@@ -38,10 +38,34 @@ use tray::{add_tray_icon, remove_tray_icon, window_proc};
 use std::sync::atomic::Ordering;
 
 fn main() {
-    // If started with --service, enter service/session-monitor mode (no GUI).
-    // This is used when running as a SYSTEM service via NSSM.
-    if std::env::args().any(|a| a == "--service") {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--service") {
         unsafe { service::run_service_mode(); }
+        return;
+    }
+
+    // --setup: first-run wizard launched by the installer (PIN setup + settings)
+    if args.iter().any(|a| a == "--setup") {
+        unsafe {
+            let _ = SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+            dpi::init_dpi();
+            if init_database().is_ok() {
+                dialogs::show_setup_wizard();
+            }
+        }
+        return;
+    }
+
+    // --settings: open settings dialog directly (Start Menu shortcut)
+    if args.iter().any(|a| a == "--settings") {
+        unsafe {
+            let _ = SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+            dpi::init_dpi();
+            if init_database().is_ok() {
+                dialogs::show_settings_dialog(windows::Win32::Foundation::HWND::default());
+            }
+        }
         return;
     }
 
