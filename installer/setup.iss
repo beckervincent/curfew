@@ -47,6 +47,7 @@ Name: "{commonprograms}\{#MyAppName}\Uninstall"; Filename: "{uninstallexe}";    
 
 var
   ShouldDeleteData: Boolean;
+  IsReinstall: Boolean;
 
 { Write a string to a file, return true on success }
 function WriteScript(const Path, Content: String): Boolean;
@@ -67,6 +68,44 @@ begin
     '-NonInteractive -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := ResultCode;
+end;
+
+{ Stops and removes any existing service installation so files are not locked }
+procedure StopExistingService();
+var
+  NssmExe: String;
+  ResultCode: Integer;
+begin
+  { Try NSSM from the current install dir first }
+  NssmExe := ExpandConstant('{app}\nssm.exe');
+  if FileExists(NssmExe) then
+  begin
+    Exec(NssmExe, 'stop {#ServiceName}',          '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1500);
+    Exec(NssmExe, 'remove {#ServiceName} confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(500);
+  end;
+  { sc.exe fallback — handles cases where NSSM wasn't present }
+  Exec('sc.exe', 'stop {#ServiceName}',   '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('sc.exe', 'delete {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/f /im {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1000);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ExistingVersion: String;
+begin
+  Result := '';
+  IsReinstall := False;
+  { Check whether a previous installation exists in the registry }
+  if RegQueryStringValue(HKLM,
+      'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1',
+      'DisplayVersion', ExistingVersion) then
+  begin
+    IsReinstall := True;
+    StopExistingService();
+  end;
 end;
 
 procedure InstallService();
@@ -160,9 +199,13 @@ begin
       InstallService();
     ssDone:
     begin
-      { Launch setup wizard on the user desktop after installer closes }
       AppExe := ExpandConstant('{app}\{#MyAppExeName}');
-      ShellExec('runas', AppExe, '--setup', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+      if IsReinstall then
+        { Upgrade: skip setup wizard, open settings directly }
+        ShellExec('runas', AppExe, '--settings', '', SW_SHOWNORMAL, ewNoWait, ResultCode)
+      else
+        { Fresh install: run PIN setup + initial settings }
+        ShellExec('runas', AppExe, '--setup', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
     end;
   end;
 end;
