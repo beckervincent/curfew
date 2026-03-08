@@ -55,11 +55,13 @@ jobs:
       - name: Download NSSM
         shell: pwsh
         env:
-          NSSM_TOKEN: ${{ secrets.NSSM_DOWNLOAD_TOKEN }}
+          GH_TOKEN: ${{ secrets.NSSM_DOWNLOAD_TOKEN }}
         run: |
-          $headers = @{ Authorization = "Bearer $env:NSSM_TOKEN" }
-          $url = "https://github.com/beckervincent/nssm/releases/download/v2.25/nssm-win64.exe"
-          Invoke-WebRequest -Uri $url -Headers $headers -OutFile "nssm.exe"
+          # Find the latest release tag in the nssm repo
+          $latestTag = gh release list --repo beckervincent/nssm --limit 1 --json tagName |
+            ConvertFrom-Json | Select-Object -ExpandProperty tagName
+          Write-Host "Downloading NSSM $latestTag"
+          gh release download $latestTag --repo beckervincent/nssm --pattern "nssm-win64.exe" --output nssm.exe
           if (-not (Test-Path "nssm.exe") -or (Get-Item "nssm.exe").Length -eq 0) {
             throw "Failed to download nssm.exe"
           }
