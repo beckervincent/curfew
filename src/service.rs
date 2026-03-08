@@ -10,8 +10,9 @@ use windows::{
         System::{
             LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
             RemoteDesktop::{
-                WTSActive, WTSEnumerateSessionsW, WTSFreeMemory, WTSQueryUserToken,
-                WTSRegisterSessionNotification, WTSUnRegisterSessionNotification,
+                WTSActive, WTSDisconnected, WTSEnumerateSessionsW, WTSFreeMemory,
+                WTSQueryUserToken, WTSRegisterSessionNotification,
+                WTSUnRegisterSessionNotification,
             },
             Threading::{
                 CreateProcessAsUserW, PROCESS_INFORMATION, STARTUPINFOW,
@@ -25,9 +26,10 @@ use windows::{
 
 const NOTIFY_FOR_ALL_SESSIONS: u32 = 1;
 const WM_WTSSESSION_CHANGE: u32 = 0x02B1;
-const WTS_CONSOLE_CONNECT: usize = 0x1;
-const WTS_SESSION_LOGON:   usize = 0x5;
-const WTS_SESSION_UNLOCK:  usize = 0x8;
+const WTS_CONSOLE_CONNECT:  usize = 0x1;
+const WTS_REMOTE_CONNECT:   usize = 0x3;
+const WTS_SESSION_LOGON:    usize = 0x5;
+const WTS_SESSION_UNLOCK:   usize = 0x8;
 
 /// Timer ID used to retry spawning after boot (in case the shell wasn't ready yet)
 const TIMER_BOOT_RETRY: usize = 1;
@@ -83,7 +85,7 @@ unsafe fn spawn_for_existing_sessions() {
         let sessions = std::slice::from_raw_parts(session_info, count as usize);
         for session in sessions {
             // Session 0 is the service/console session — skip it
-            if session.State == WTSActive && session.SessionId != 0 {
+            if (session.State == WTSActive || session.State == WTSDisconnected) && session.SessionId != 0 {
                 spawn_in_session(session.SessionId);
             }
         }
@@ -160,8 +162,8 @@ unsafe extern "system" fn service_window_proc(
     match msg {
         WM_WTSSESSION_CHANGE => {
             match wparam.0 {
-                // Logon / console connect / unlock — all mean a user desktop is now active
-                WTS_SESSION_LOGON | WTS_CONSOLE_CONNECT | WTS_SESSION_UNLOCK => {
+                // Logon / connect (console or RDP) / unlock — user desktop is now active
+                WTS_SESSION_LOGON | WTS_CONSOLE_CONNECT | WTS_REMOTE_CONNECT | WTS_SESSION_UNLOCK => {
                     let session_id = lparam.0 as u32;
                     if session_id != 0 {
                         spawn_in_session(session_id);

@@ -91,19 +91,8 @@ fn main() {
             return;
         }
 
-        // Initialize database
-        if let Err(e) = init_database() {
-            let msg: Vec<u16> = format!("Failed to initialize database: {}\0", e)
-                .encode_utf16()
-                .collect();
-            MessageBoxW(
-                None,
-                PCWSTR(msg.as_ptr()),
-                w!("Database Error"),
-                MB_OK | MB_ICONERROR,
-            );
-            return;
-        }
+        // Initialize database — resets to defaults on corruption, never fatal
+        let _ = init_database();
 
         // Get the module handle
         let hinstance = GetModuleHandleW(None).expect("Failed to get module handle");

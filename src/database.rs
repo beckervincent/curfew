@@ -31,10 +31,22 @@ pub fn get_database_path() -> PathBuf {
     db_dir.join("data.db")
 }
 
-/// Initialize the SQLite database
+/// Initialize the SQLite database, resetting to defaults on any error.
+/// Never returns an error to the caller — a corrupt/missing DB is always reset.
 pub fn init_database() -> Result<(), Box<dyn std::error::Error>> {
     let db_path = get_database_path();
-    let conn = Connection::open(&db_path)?;
+
+    // First attempt; on any failure wipe the file and try once more.
+    if try_init_database(&db_path).is_err() {
+        let _ = std::fs::remove_file(&db_path);
+        try_init_database(&db_path)?;
+    }
+
+    Ok(())
+}
+
+fn try_init_database(db_path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path)?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS settings (
@@ -44,10 +56,8 @@ pub fn init_database() -> Result<(), Box<dyn std::error::Error>> {
         [],
     )?;
 
-    // Default settings to initialize
     let defaults = [
         ("passcode", "0000"),
-        // Daily limits in minutes (default 120 = 2 hours)
         ("limit_monday", "120"),
         ("limit_tuesday", "120"),
         ("limit_wednesday", "120"),
@@ -55,25 +65,19 @@ pub fn init_database() -> Result<(), Box<dyn std::error::Error>> {
         ("limit_friday", "180"),
         ("limit_saturday", "240"),
         ("limit_sunday", "240"),
-        // First warning (minutes before limit)
         ("warning1_minutes", "10"),
         ("warning1_message", "10 minutes remaining!"),
-        // Second warning (minutes before limit)
         ("warning2_minutes", "5"),
         ("warning2_message", "5 minutes remaining!"),
-        // Blocking message
         ("blocking_message", "Your screen time limit has been reached."),
-        // Pause mode settings
-        ("pause_enabled", "1"),              // 1 = enabled, 0 = disabled
-        ("pause_daily_budget", "45"),        // Total pause minutes per day
-        ("pause_max_duration", "20"),        // Max minutes per single pause
-        ("pause_cooldown", "15"),            // Minutes between pauses
-        ("pause_min_active_time", "10"),     // Min minutes before first pause allowed
-        // Lock screen timeout (seconds before shutdown, default 10 minutes)
+        ("pause_enabled", "1"),
+        ("pause_daily_budget", "45"),
+        ("pause_max_duration", "20"),
+        ("pause_cooldown", "15"),
+        ("pause_min_active_time", "10"),
         ("lock_screen_timeout", "600"),
-        // Idle detection settings
-        ("idle_enabled", "1"),              // 1 = enabled, 0 = disabled
-        ("idle_timeout_minutes", "5"),      // Minutes of inactivity before auto-pause
+        ("idle_enabled", "1"),
+        ("idle_timeout_minutes", "5"),
     ];
 
     for (key, value) in defaults {
