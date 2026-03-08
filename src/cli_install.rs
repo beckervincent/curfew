@@ -152,7 +152,29 @@ pub fn run_install(args: &[String]) {
     }
     ok!("{}", install_dir.display());
 
-    // 2. Copy this executable
+    // 2. Stop existing service and kill all processes before touching files
+    let nssm_dest = install_dir.join("nssm.exe");
+    info!("Stopping existing service (if any)...");
+    nssm_run(&nssm_dest, &["stop", svc]);
+    // Wait up to 10s for service to stop
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let running = Command::new("sc").args(["query", svc]).output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("RUNNING"))
+            .unwrap_or(false);
+        if !running { break; }
+    }
+    info!("Killing remaining processes...");
+    let _ = Command::new("taskkill").args(["/f", "/im", "screen-time-manager.exe"]).output();
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    nssm_run(&nssm_dest, &["remove", svc, "confirm"]);
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    // 3. Reset ACLs on existing install dir so we can write files
+    info!("Resetting ACLs on install dir...");
+    set_acl(&install_dir, true);
+
+    // 4. Copy this executable
     let exe_dest = install_dir.join("screen-time-manager.exe");
     info!("Copying executable...");
     let exe_src = std::env::current_exe().expect("cannot resolve own path");
@@ -162,8 +184,7 @@ pub fn run_install(args: &[String]) {
     }
     ok!("{} -> {}", exe_src.display(), exe_dest.display());
 
-    // 3. Copy nssm.exe
-    let nssm_dest = install_dir.join("nssm.exe");
+    // 5. Copy nssm.exe
     if nssm_src != nssm_dest {
         info!("Copying nssm.exe...");
         if !nssm_src.exists() {
@@ -177,14 +198,9 @@ pub fn run_install(args: &[String]) {
         ok!("{} -> {}", nssm_src.display(), nssm_dest.display());
     }
 
-    // 4. Remove any existing service
-    info!("Removing existing service (if any)...");
-    nssm_run(&nssm_dest, &["stop",   svc]);
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    nssm_run(&nssm_dest, &["remove", svc, "confirm"]);
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    // (service removal already done above)
 
-    // 5. Install service
+    // 6. Install service
     info!("Installing service via NSSM...");
     let exe_dest_str = exe_dest.to_string_lossy().into_owned();
     if !nssm_run(&nssm_dest, &["install", svc, &exe_dest_str, "--service"]) {
@@ -200,7 +216,7 @@ pub fn run_install(args: &[String]) {
     nssm_run(&nssm_dest, &["set", svc, "Start",           "SERVICE_AUTO_START"]);
     ok!("Service registered");
 
-    // 6. Log rotation
+    // 7. Log rotation
     info!("Configuring log rotation...");
     let _ = fs::create_dir_all(install_dir.join("logs"));
     let stdout_log = format!("{}\\stdout.log", logs_str);
@@ -211,14 +227,14 @@ pub fn run_install(args: &[String]) {
     nssm_run(&nssm_dest, &["set", svc, "AppRotateSeconds", "86400"]);
     ok!("Logs -> {}", logs_str);
 
-    // 7. Lock down directories
+    // 8. Lock down directories
     info!("Applying directory permissions...");
     set_acl(&install_dir, false);
     let db_dir_base = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".into());
     let db_dir = PathBuf::from(db_dir_base).join("ScreenTimeManager");
     lock_db_dir(&db_dir);
 
-    // 8. Start service
+    // 9. Start service
     info!("Starting service...");
     if nssm_run(&nssm_dest, &["start", svc]) {
         ok!("Service started");
@@ -254,17 +270,29 @@ pub fn run_uninstall(args: &[String]) {
     // 1. Stop + remove service via NSSM
     info!("Stopping service...");
     nssm_run(&nssm, &["stop", svc]);
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    // Wait up to 10s for service to stop
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let running = Command::new("sc").args(["query", svc]).output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("RUNNING"))
+            .unwrap_or(false);
+        if !running { break; }
+    }
     info!("Removing service...");
     nssm_run(&nssm, &["remove", svc, "confirm"]);
     std::thread::sleep(std::time::Duration::from_secs(1));
 
-    // 2. Kill any remaining processes
+    // 2. Kill any remaining processes and wait for them to exit
     info!("Killing remaining processes...");
-    let _ = Command::new("taskkill")
-        .args(["/f", "/im", "screen-time-manager.exe"])
-        .output();
-    ok!("Done");
+    let _ = Command::new("taskkill").args(["/f", "/im", "screen-time-manager.exe"]).output();
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let still_running = Command::new("tasklist").output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("screen-time-manager"))
+            .unwrap_or(false);
+        if !still_running { break; }
+    }
+    ok!("Processes stopped");
 
     // 3. Reset ACLs so files can be deleted
     info!("Resetting directory permissions...");
