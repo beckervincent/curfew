@@ -192,12 +192,16 @@ begin
     '& $nssm set $svc AppRotateFiles  1' + #13#10 +
     '& $nssm set $svc AppRotateSeconds 86400' + #13#10 +
     '' + #13#10 +
-    '# Lock down install directory' + #13#10 +
+    '# Lock down install directory (SID-based, locale-independent)' + #13#10 +
+    'function AclRule($sidStr,$rights,$inherit,$prop,$type){' + #13#10 +
+    '    $sid=New-Object System.Security.Principal.SecurityIdentifier($sidStr)' + #13#10 +
+    '    New-Object System.Security.AccessControl.FileSystemAccessRule($sid,$rights,$inherit,$prop,$type)' + #13#10 +
+    '}' + #13#10 +
     '$acl = Get-Acl $dir' + #13#10 +
     '$acl.SetAccessRuleProtection($true, $false)' + #13#10 +
-    '$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
-    '$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
-    '$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Users","ReadAndExecute","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
+    '$acl.AddAccessRule((AclRule "S-1-5-32-544" "FullControl"    "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
+    '$acl.AddAccessRule((AclRule "S-1-5-18"     "FullControl"    "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
+    '$acl.AddAccessRule((AclRule "S-1-5-32-545" "ReadAndExecute" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     'Set-Acl $dir $acl' + #13#10 +
     '' + #13#10 +
     '# Lock down ProgramData DB directory' + #13#10 +
@@ -205,8 +209,8 @@ begin
     'New-Item -ItemType Directory -Path $dbDir -Force | Out-Null' + #13#10 +
     '$dbAcl = Get-Acl $dbDir' + #13#10 +
     '$dbAcl.SetAccessRuleProtection($true, $false)' + #13#10 +
-    '$dbAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
-    '$dbAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","ContainerInherit,ObjectInherit","None","Allow")))' + #13#10 +
+    '$dbAcl.AddAccessRule((AclRule "S-1-5-32-544" "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
+    '$dbAcl.AddAccessRule((AclRule "S-1-5-18"     "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     'Set-Acl $dbDir $dbAcl' + #13#10 +
     '' + #13#10 +
     '# Start the service' + #13#10 +

@@ -56,12 +56,13 @@ fn set_acl(dir: &Path, reset_only: bool) {
         )
     } else {
         format!(
-            r#"$p = '{dir}';
+            r#"function AclRule($s,$r,$i,$p,$t){{$sid=New-Object System.Security.Principal.SecurityIdentifier($s);New-Object System.Security.AccessControl.FileSystemAccessRule($sid,$r,$i,$p,$t)}}
+$p = '{dir}';
 $a = Get-Acl $p;
 $a.SetAccessRuleProtection($true, $false);
-$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')));
-$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')));
-$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')));
+$a.AddAccessRule((AclRule 'S-1-5-32-544' 'FullControl'    'ContainerInherit,ObjectInherit' 'None' 'Allow'));
+$a.AddAccessRule((AclRule 'S-1-5-18'     'FullControl'    'ContainerInherit,ObjectInherit' 'None' 'Allow'));
+$a.AddAccessRule((AclRule 'S-1-5-32-545' 'ReadAndExecute' 'ContainerInherit,ObjectInherit' 'None' 'Allow'));
 Set-Acl $p $a"#,
             dir = dir.display()
         )
@@ -79,12 +80,13 @@ Set-Acl $p $a"#,
 
 fn lock_db_dir(db_dir: &Path) {
     let script = format!(
-        r#"$p = '{db}';
+        r#"function AclRule($s,$r,$i,$p,$t){{$sid=New-Object System.Security.Principal.SecurityIdentifier($s);New-Object System.Security.AccessControl.FileSystemAccessRule($sid,$r,$i,$p,$t)}}
+$p = '{db}';
 New-Item -ItemType Directory -Path $p -Force | Out-Null;
 $a = Get-Acl $p;
 $a.SetAccessRuleProtection($true, $false);
-$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')));
-$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')));
+$a.AddAccessRule((AclRule 'S-1-5-32-544' 'FullControl' 'ContainerInherit,ObjectInherit' 'None' 'Allow'));
+$a.AddAccessRule((AclRule 'S-1-5-18'     'FullControl' 'ContainerInherit,ObjectInherit' 'None' 'Allow'));
 Set-Acl $p $a"#,
         db = db_dir.display()
     );
