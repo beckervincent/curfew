@@ -42,8 +42,9 @@ function Set-LockedAcl($path, $includeUsers) {
     }
     if ($includeUsers) {
         $s = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
+        $rights = if ($includeUsers -eq "Modify") { "Modify" } else { "ReadAndExecute" }
         $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-            $s, "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")))
+            $s, $rights, "ContainerInherit,ObjectInherit", "None", "Allow")))
     }
     Set-Acl $path $acl
 }

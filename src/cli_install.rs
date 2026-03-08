@@ -87,6 +87,7 @@ $a = Get-Acl $p;
 $a.SetAccessRuleProtection($true, $false);
 $a.AddAccessRule((AclRule 'S-1-5-32-544' 'FullControl' 'ContainerInherit,ObjectInherit' 'None' 'Allow'));
 $a.AddAccessRule((AclRule 'S-1-5-18'     'FullControl' 'ContainerInherit,ObjectInherit' 'None' 'Allow'));
+$a.AddAccessRule((AclRule 'S-1-5-32-545' 'Modify'      'ContainerInherit,ObjectInherit' 'None' 'Allow'));
 Set-Acl $p $a"#,
         db = db_dir.display()
     );

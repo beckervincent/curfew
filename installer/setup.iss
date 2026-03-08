@@ -211,6 +211,7 @@ begin
     '$dbAcl.SetAccessRuleProtection($true, $false)' + #13#10 +
     '$dbAcl.AddAccessRule((AclRule "S-1-5-32-544" "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     '$dbAcl.AddAccessRule((AclRule "S-1-5-18"     "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
+    '$dbAcl.AddAccessRule((AclRule "S-1-5-32-545" "Modify"      "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     'Set-Acl $dbDir $dbAcl' + #13#10 +
     '' + #13#10 +
     '# Start the service' + #13#10 +
