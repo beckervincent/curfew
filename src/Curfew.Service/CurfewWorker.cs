@@ -4,15 +4,17 @@ using Curfew.Core;
 namespace Curfew.Service;
 
 /// <summary>
-/// Curfew service loop. Enforces the content filter and Time Manipulation
-/// Guarding. Per-session app spawning + watchdog respawn land in a later
-/// milestone.
+/// Curfew service loop. Keeps the tray app alive in every session (spawn +
+/// watchdog), enforces the content filter, runs Time Manipulation Guarding and
+/// checks for updates.
 /// </summary>
 public sealed class CurfewWorker : BackgroundService
 {
-    private static readonly TimeSpan TimeGuardInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan SlowInterval = TimeSpan.FromHours(6);
 
     private readonly ILogger<CurfewWorker> _logger;
+    private readonly SessionManager _sessions = new(SessionManager.DefaultAppPath());
 
     public CurfewWorker(ILogger<CurfewWorker> logger) => _logger = logger;
 
@@ -21,16 +23,23 @@ public sealed class CurfewWorker : BackgroundService
         _logger.LogInformation("Curfew service started");
 
         ApplyContentFilter();
-        // Re-pin the filter whenever the network changes (new Wi-Fi, ethernet, VPN).
         NetworkChange.NetworkAddressChanged += OnNetworkChanged;
 
+        var lastSlow = DateTimeOffset.MinValue;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                EnforceTimeGuard();
-                await CheckForUpdatesAsync(stoppingToken);
-                await Task.Delay(TimeGuardInterval, stoppingToken);
+                SafeTickSessions();
+
+                if (DateTimeOffset.UtcNow - lastSlow >= SlowInterval)
+                {
+                    lastSlow = DateTimeOffset.UtcNow;
+                    EnforceTimeGuard();
+                    await CheckForUpdatesAsync(stoppingToken);
+                }
+
+                await Task.Delay(PollInterval, stoppingToken);
             }
         }
         catch (OperationCanceledException)
@@ -40,6 +49,18 @@ public sealed class CurfewWorker : BackgroundService
         finally
         {
             NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
+        }
+    }
+
+    private void SafeTickSessions()
+    {
+        try
+        {
+            _sessions.Tick();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Session tick failed");
         }
     }
 
@@ -64,9 +85,7 @@ public sealed class CurfewWorker : BackgroundService
         {
             using var settings = OpenSettings();
             if (settings.GetBool("time_guard_enabled", true))
-            {
                 TimeGuardService.Enforce();
-            }
         }
         catch (Exception ex)
         {
