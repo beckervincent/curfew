@@ -79,6 +79,6 @@ public sealed partial class MiniOverlayWindow : Window
     {
         if (seconds <= 60) return Color.FromArgb(255, 0xFF, 0x44, 0x44);   // red
         if (seconds <= 300) return Color.FromArgb(255, 0xE0, 0x6C, 0x75);  // accent
-        return Colors.White;
+        return Microsoft.UI.Colors.White;
     }
 }
