@@ -3,18 +3,37 @@
     x:Class="Curfew.App.SetupWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer Padding="24,20,24,24"
-                  VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollMode="Disabled">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom drag-region title bar so the caption shows the Mica backdrop. -->
+        <Grid x:Name="TitleBar" Grid.Row="0" Height="44" Padding="16,0" Background="Transparent">
+            <TextBlock Text="Set up Curfew" VerticalAlignment="Center"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Padding="24,8,24,24"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollMode="Disabled">
         <StackPanel Spacing="16" MaxWidth="540" HorizontalAlignment="Center">
 
-            <!-- Title / intro -->
-            <StackPanel Spacing="4" Margin="0,0,0,4">
-                <TextBlock Text="Set up Curfew" Style="{StaticResource TitleTextBlockStyle}" />
+            <!-- Hero header -->
+            <StackPanel Spacing="8" Margin="0,8,0,8" HorizontalAlignment="Center">
+                <Border Width="60" Height="60" CornerRadius="30" HorizontalAlignment="Center"
+                        Background="{ThemeResource AccentFillColorDefaultBrush}">
+                    <FontIcon Glyph="&#xE916;" FontSize="28"
+                              Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                </Border>
+                <TextBlock Text="Set up Curfew" Style="{StaticResource TitleTextBlockStyle}"
+                           HorizontalAlignment="Center" />
                 <TextBlock Text="Create an administrator PIN and choose how screen time is enforced. You can fine-tune everything later in Settings."
                            Style="{StaticResource BodyTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           TextWrapping="Wrap" />
+                           TextWrapping="Wrap" TextAlignment="Center" MaxWidth="440" />
             </StackPanel>
 
             <!-- Administrator PIN -->
@@ -226,5 +245,6 @@
                     Margin="0,4,0,0"
                     AutomationProperties.Name="Continue and save setup" />
         </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+    </Grid>
 </Window>

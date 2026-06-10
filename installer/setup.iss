@@ -250,6 +250,46 @@ begin
   DeleteFile(ScriptPath);
 end;
 
+{ True if the named switch was passed on the installer command line. }
+function HasParam(const Name: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), Name) = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+end;
+
+{ Launch the first-run wizard in the interactive user session via a one-shot
+  scheduled task. This works even for a silent install kicked off over SSH/SYSTEM
+  (session 0), where ShellExec would open the GUI on an invisible desktop. }
+procedure LaunchSetupInUserSession(const AppDir: String);
+var
+  ScriptPath, Script: String;
+begin
+  ScriptPath := ExpandConstant('{tmp}\curfew_setup_launch.ps1');
+  Script :=
+    '$exe = "' + AppDir + '\app\{#AppExeName}"' + #13#10 +
+    '$act = New-ScheduledTaskAction -Execute $exe -Argument "--setup"' + #13#10 +
+    '$trg = New-ScheduledTaskTrigger -AtLogOn' + #13#10 +
+    '$prn = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited' + #13#10 +
+    '$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries' + #13#10 +
+    'Register-ScheduledTask -TaskName "CurfewSetup" -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null' + #13#10 +
+    'Start-ScheduledTask -TaskName "CurfewSetup"' + #13#10 +
+    'Start-Sleep -Seconds 3' + #13#10 +
+    'Unregister-ScheduledTask -TaskName "CurfewSetup" -Confirm:$false 2>$null | Out-Null' + #13#10;
+
+  if WriteScript(ScriptPath, Script) then
+  begin
+    RunPS(ScriptPath);
+    DeleteFile(ScriptPath);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -259,8 +299,15 @@ begin
       InstallService();
     ssDone:
       if not IsUpdate then
-        ShellExec('runas', ExpandConstant('{app}\app\{#AppExeName}'), '--setup', '',
-                  SW_SHOWNORMAL, ewNoWait, ResultCode);
+      begin
+        { /RUNSETUP forces the wizard even for a silent/remote install; otherwise
+          only show it for an interactive install. }
+        if HasParam('/RUNSETUP') then
+          LaunchSetupInUserSession(ExpandConstant('{app}'))
+        else if not WizardSilent then
+          ShellExec('runas', ExpandConstant('{app}\app\{#AppExeName}'), '--setup', '',
+                    SW_SHOWNORMAL, ewNoWait, ResultCode);
+      end;
   end;
 end;
 

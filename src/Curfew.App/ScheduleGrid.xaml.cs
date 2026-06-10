@@ -14,13 +14,12 @@ namespace Curfew.App;
 /// Click and drag with the mouse to paint slots using the currently selected
 /// tool: <c>Allow</c> (blue) or <c>Block</c> (grey). Days run Monday (top) to
 /// Sunday (bottom); within each row time runs midnight (left) to midnight (right).
+/// Quick-fill preset buttons set common patterns in one click.
 /// </summary>
 public sealed partial class ScheduleGrid : UserControl
 {
     private const int DayCount = 7;
-
-    /// <summary>Hour interval between vertical gridlines.</summary>
-    private const int GridlineHours = 2;
+    private const int SlotsPerHour = 4; // 60 min / 15 min
 
     private static readonly string[] Days = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
@@ -30,9 +29,10 @@ public sealed partial class ScheduleGrid : UserControl
     /// <summary>True while a press-drag paint gesture is in progress.</summary>
     private bool _painting;
 
-    private static readonly Brush AllowedBrush = new SolidColorBrush(Color.FromArgb(255, 0x54, 0xAD, 0xF2));
-    private static readonly Brush BlockedBrush = new SolidColorBrush(Color.FromArgb(40, 0x80, 0x80, 0x80));
-    private static readonly Brush LineBrush = new SolidColorBrush(Color.FromArgb(60, 0x80, 0x80, 0x80));
+    private static readonly Brush AllowedBrush = new SolidColorBrush(Color.FromArgb(255, 0x4C, 0xA0, 0xF0));
+    private static readonly Brush BlockedBrush = new SolidColorBrush(Color.FromArgb(28, 0x80, 0x80, 0x80));
+    private static readonly Brush HourLineBrush = new SolidColorBrush(Color.FromArgb(38, 0x80, 0x80, 0x80));
+    private static readonly Brush MajorLineBrush = new SolidColorBrush(Color.FromArgb(80, 0x80, 0x80, 0x80));
 
     public ScheduleGrid()
     {
@@ -72,6 +72,48 @@ public sealed partial class ScheduleGrid : UserControl
         return new Schedule(clone);
     }
 
+    // ---- Quick-fill presets ------------------------------------------------
+
+    private void FillAll(bool allowed)
+    {
+        for (var d = 0; d < DayCount; d++)
+            Array.Fill(_slots[d], allowed);
+        Render();
+    }
+
+    /// <summary>Sets every slot of the given day to <paramref name="allowed"/>.</summary>
+    private void SetDay(int day, bool allowed) => Array.Fill(_slots[day], allowed);
+
+    /// <summary>Allows a contiguous hour window [fromHour, toHour) on the given day.</summary>
+    private void AllowWindow(int day, int fromHour, int toHour)
+    {
+        for (var s = fromHour * SlotsPerHour; s < toHour * SlotsPerHour && s < Schedule.SlotsPerDay; s++)
+            _slots[day][s] = true;
+    }
+
+    private void OnPresetAllowAll(object sender, RoutedEventArgs e) => FillAll(true);
+
+    private void OnPresetBlockAll(object sender, RoutedEventArgs e) => FillAll(false);
+
+    private void OnPresetWeeknights(object sender, RoutedEventArgs e)
+    {
+        for (var d = 0; d < DayCount; d++)
+        {
+            SetDay(d, false);
+            if (d <= 4) AllowWindow(d, 16, 20); // Mon–Fri 4 PM–8 PM
+        }
+        Render();
+    }
+
+    private void OnPresetWeekends(object sender, RoutedEventArgs e)
+    {
+        for (var d = 0; d < DayCount; d++)
+            SetDay(d, d >= 5); // Sat/Sun allowed, weekdays blocked
+        Render();
+    }
+
+    // ---- Rendering ---------------------------------------------------------
+
     /// <summary>Redraws the day rows, allowed-time blocks, labels and gridlines.</summary>
     private void Render()
     {
@@ -87,17 +129,17 @@ public sealed partial class ScheduleGrid : UserControl
         for (var d = 0; d < DayCount; d++)
         {
             var y = d * rowH;
-            AddRect(0, y, w, rowH, BlockedBrush);
+            AddRect(0, y, w, rowH, BlockedBrush, 0);
             RenderAllowedRuns(d, y, rowH, slotW);
             AddLabel(Days[d], y, rowH);
         }
 
-        RenderGridlines(slotW, h);
+        RenderGridlines(slotW, rowH, h);
     }
 
     /// <summary>
     /// Draws the allowed (blue) blocks for one day, coalescing contiguous allowed
-    /// slots into a single rectangle so the visual tree stays small.
+    /// slots into a single rounded rectangle so the visual tree stays small.
     /// </summary>
     private void RenderAllowedRuns(int day, double y, double rowH, double slotW)
     {
@@ -109,29 +151,52 @@ public sealed partial class ScheduleGrid : UserControl
 
             var end = start;
             while (end < Schedule.SlotsPerDay && row[end]) end++;
-            AddRect(start * slotW, y, (end - start) * slotW, rowH, AllowedBrush);
+            // Inset within the row so day rows read as distinct bands.
+            AddRect(start * slotW, y + 1, (end - start) * slotW, rowH - 2, AllowedBrush, 3);
             start = end;
         }
     }
 
-    /// <summary>Draws faint vertical gridlines at fixed hour intervals.</summary>
-    private void RenderGridlines(double slotW, double h)
+    /// <summary>
+    /// Faint vertical lines every hour, stronger lines every six hours, plus a
+    /// separator between day rows.
+    /// </summary>
+    private void RenderGridlines(double slotW, double rowH, double h)
     {
-        const int slotsPerHour = 4; // 60min / 15min
-        for (var hour = 0; hour <= 24; hour += GridlineHours)
+        for (var hour = 0; hour <= 24; hour++)
         {
-            var x = hour * slotsPerHour * slotW;
+            var x = hour * SlotsPerHour * slotW;
+            var major = hour % 6 == 0;
             GridCanvas.Children.Add(new Line
             {
                 X1 = x, Y1 = 0, X2 = x, Y2 = h,
-                Stroke = LineBrush, StrokeThickness = 1
+                Stroke = major ? MajorLineBrush : HourLineBrush,
+                StrokeThickness = 1,
+            });
+        }
+
+        var w = GridCanvas.ActualWidth;
+        for (var d = 1; d < DayCount; d++)
+        {
+            var y = d * rowH;
+            GridCanvas.Children.Add(new Line
+            {
+                X1 = 0, Y1 = y, X2 = w, Y2 = y,
+                Stroke = HourLineBrush, StrokeThickness = 1,
             });
         }
     }
 
-    private void AddRect(double x, double y, double w, double h, Brush fill)
+    private void AddRect(double x, double y, double w, double h, Brush fill, double radius)
     {
-        var rect = new Rectangle { Width = Math.Max(0, w), Height = Math.Max(0, h), Fill = fill };
+        var rect = new Rectangle
+        {
+            Width = Math.Max(0, w),
+            Height = Math.Max(0, h),
+            Fill = fill,
+            RadiusX = radius,
+            RadiusY = radius,
+        };
         Canvas.SetLeft(rect, x);
         Canvas.SetTop(rect, y);
         GridCanvas.Children.Add(rect);
@@ -145,6 +210,8 @@ public sealed partial class ScheduleGrid : UserControl
         Canvas.SetTop(label, y + rowH / 2 - labelHalfHeight);
         LabelCanvas.Children.Add(label);
     }
+
+    // ---- Paint gestures ----------------------------------------------------
 
     /// <summary>
     /// Maps a pointer position to a (day, slot), applies the active tool, and

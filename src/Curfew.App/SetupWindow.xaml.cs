@@ -45,12 +45,11 @@ public sealed partial class SetupWindow : Window
         ApplyWindowChrome();
     }
 
-    /// <summary>Applies the Mica backdrop, fixed size and Win11 rounded corners.</summary>
+    /// <summary>Applies the title, Mica backdrop, custom title bar and rounded corners.</summary>
     private void ApplyWindowChrome()
     {
-        SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(WindowSize);
-        WindowEffects.RoundCorners(this);
+        WindowEffects.Apply(this, "Set up Curfew", TitleBar);
     }
 
     /// <summary>

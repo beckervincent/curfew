@@ -17,7 +17,7 @@ public sealed partial class PasscodeWindow : Window
     private const string PasscodeKey = "passcode";
 
     /// <summary>Initial window size in device-independent pixels.</summary>
-    private static readonly Windows.Graphics.SizeInt32 WindowSize = new(420, 320);
+    private static readonly Windows.Graphics.SizeInt32 WindowSize = new(440, 380);
 
     private readonly SettingsStore _settings;
 
@@ -38,7 +38,7 @@ public sealed partial class PasscodeWindow : Window
         InitializeComponent();
 
         AppWindow.Resize(WindowSize);
-        WindowEffects.RoundCorners(this);
+        WindowEffects.Apply(this, "Curfew", TitleBar);
 
         // If the window is dismissed by any means other than OK/Cancel (for
         // example the title-bar X), treat it as a cancellation so the caller is

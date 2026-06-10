@@ -35,9 +35,8 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         _settings = settings;
 
-        SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(WindowWidth, WindowHeight));
-        WindowEffects.RoundCorners(this);
+        WindowEffects.Apply(this, "Curfew Settings", TitleBar);
 
         Load();
     }

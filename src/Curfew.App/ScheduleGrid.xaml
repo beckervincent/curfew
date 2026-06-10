@@ -8,6 +8,7 @@
     <Grid RowSpacing="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -74,8 +75,23 @@
             </StackPanel>
         </Grid>
 
+        <!-- Quick-fill presets -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="Quick fill" VerticalAlignment="Center"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Button Content="Allow all" Click="OnPresetAllowAll"
+                    ToolTipService.ToolTip="Allow usage at every time of every day" />
+            <Button Content="Block all" Click="OnPresetBlockAll"
+                    ToolTipService.ToolTip="Block usage at every time of every day" />
+            <Button Content="Weeknights 4–8 PM" Click="OnPresetWeeknights"
+                    ToolTipService.ToolTip="Allow Mon–Fri 4 PM to 8 PM only; everything else blocked" />
+            <Button Content="Weekends only" Click="OnPresetWeekends"
+                    ToolTipService.ToolTip="Allow all day Sat–Sun; weekdays blocked" />
+        </StackPanel>
+
         <!-- Schedule surface: a Mica-friendly card holding the day labels + paintable canvas -->
-        <Border Grid.Row="1"
+        <Border Grid.Row="2"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1"
@@ -141,7 +157,7 @@
         </Border>
 
         <!-- Helper caption -->
-        <TextBlock Grid.Row="2"
+        <TextBlock Grid.Row="3"
                    Text="Each cell is a 15-minute slot. Hold and drag across the grid to paint quickly."
                    Style="{StaticResource CaptionTextBlockStyle}"
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"

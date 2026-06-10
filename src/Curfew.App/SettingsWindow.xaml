@@ -5,9 +5,23 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Curfew.App">
 
-    <ScrollViewer Padding="24,16,24,24"
-                  VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollMode="Disabled">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom drag-region title bar (wired with SetTitleBar) so the caption
+             area shows the Mica backdrop instead of a flat white strip. -->
+        <Grid x:Name="TitleBar" Grid.Row="0" Height="44" Padding="16,0" Background="Transparent">
+            <TextBlock Text="Curfew Settings" VerticalAlignment="Center"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Padding="24,8,24,24"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollMode="Disabled">
         <!-- WinUI 3 Window has no Resources property, so window-scoped styles live
              on the root content element instead. -->
         <ScrollViewer.Resources>
@@ -232,5 +246,6 @@
                         MinWidth="100" TabIndex="7" />
             </StackPanel>
         </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+    </Grid>
 </Window>
