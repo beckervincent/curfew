@@ -11,13 +11,23 @@ namespace Curfew.App;
 
 /// <summary>
 /// Interactive weekly allowed-time grid (7 days × 96 fifteen-minute slots).
-/// Click and drag to paint allowed (blue) or blocked windows.
+/// Click and drag with the mouse to paint slots using the currently selected
+/// tool: <c>Allow</c> (blue) or <c>Block</c> (grey). Days run Monday (top) to
+/// Sunday (bottom); within each row time runs midnight (left) to midnight (right).
 /// </summary>
 public sealed partial class ScheduleGrid : UserControl
 {
+    private const int DayCount = 7;
+
+    /// <summary>Hour interval between vertical gridlines.</summary>
+    private const int GridlineHours = 2;
+
     private static readonly string[] Days = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
+    /// <summary><c>_slots[day][slot]</c> — <c>true</c> means usage is allowed.</summary>
     private readonly bool[][] _slots = NewGrid();
+
+    /// <summary>True while a press-drag paint gesture is in progress.</summary>
     private bool _painting;
 
     private static readonly Brush AllowedBrush = new SolidColorBrush(Color.FromArgb(255, 0x54, 0xAD, 0xF2));
@@ -31,30 +41,38 @@ public sealed partial class ScheduleGrid : UserControl
         Loaded += (_, _) => Render();
     }
 
+    /// <summary>Creates a fresh, fully-allowed backing grid.</summary>
     private static bool[][] NewGrid()
     {
-        var g = new bool[7][];
-        for (var d = 0; d < 7; d++) { g[d] = new bool[Schedule.SlotsPerDay]; Array.Fill(g[d], true); }
-        return g;
+        var grid = new bool[DayCount][];
+        for (var d = 0; d < DayCount; d++)
+        {
+            grid[d] = new bool[Schedule.SlotsPerDay];
+            Array.Fill(grid[d], true);
+        }
+        return grid;
     }
 
-    /// <summary>Load an existing schedule into the grid.</summary>
-    public void Load(Schedule schedule)
+    /// <summary>Loads an existing schedule into the grid and redraws.</summary>
+    /// <param name="schedule">The schedule to display. Null is treated as fully allowed.</param>
+    public void Load(Schedule? schedule)
     {
-        for (var d = 0; d < 7; d++)
+        for (var d = 0; d < DayCount; d++)
             for (var s = 0; s < Schedule.SlotsPerDay; s++)
-                _slots[d][s] = schedule.GetSlot(d, s);
+                _slots[d][s] = schedule?.GetSlot(d, s) ?? true;
         Render();
     }
 
-    /// <summary>The current grid as a Schedule.</summary>
+    /// <summary>Captures the current grid state as a new <see cref="Schedule"/>.</summary>
     public Schedule ToSchedule()
     {
-        var clone = new bool[7][];
-        for (var d = 0; d < 7; d++) clone[d] = (bool[])_slots[d].Clone();
+        var clone = new bool[DayCount][];
+        for (var d = 0; d < DayCount; d++)
+            clone[d] = (bool[])_slots[d].Clone();
         return new Schedule(clone);
     }
 
+    /// <summary>Redraws the day rows, allowed-time blocks, labels and gridlines.</summary>
     private void Render()
     {
         GridCanvas.Children.Clear();
@@ -63,36 +81,51 @@ public sealed partial class ScheduleGrid : UserControl
         double w = GridCanvas.ActualWidth, h = GridCanvas.ActualHeight;
         if (w <= 1 || h <= 1) return;
 
-        var rowH = h / 7;
+        var rowH = h / DayCount;
         var slotW = w / Schedule.SlotsPerDay;
 
-        for (var d = 0; d < 7; d++)
+        for (var d = 0; d < DayCount; d++)
         {
             var y = d * rowH;
             AddRect(0, y, w, rowH, BlockedBrush);
-
-            var s = 0;
-            while (s < Schedule.SlotsPerDay)
-            {
-                if (_slots[d][s])
-                {
-                    var e = s;
-                    while (e < Schedule.SlotsPerDay && _slots[d][e]) e++;
-                    AddRect(s * slotW, y, (e - s) * slotW, rowH, AllowedBrush);
-                    s = e;
-                }
-                else s++;
-            }
-
+            RenderAllowedRuns(d, y, rowH, slotW);
             AddLabel(Days[d], y, rowH);
         }
 
-        // Hour gridlines every 2 hours (8 slots).
-        for (var hour = 0; hour <= 24; hour += 2)
+        RenderGridlines(slotW, h);
+    }
+
+    /// <summary>
+    /// Draws the allowed (blue) blocks for one day, coalescing contiguous allowed
+    /// slots into a single rectangle so the visual tree stays small.
+    /// </summary>
+    private void RenderAllowedRuns(int day, double y, double rowH, double slotW)
+    {
+        var row = _slots[day];
+        var start = 0;
+        while (start < Schedule.SlotsPerDay)
         {
-            var x = hour * 4 * slotW;
-            var line = new Line { X1 = x, Y1 = 0, X2 = x, Y2 = h, Stroke = LineBrush, StrokeThickness = 1 };
-            GridCanvas.Children.Add(line);
+            if (!row[start]) { start++; continue; }
+
+            var end = start;
+            while (end < Schedule.SlotsPerDay && row[end]) end++;
+            AddRect(start * slotW, y, (end - start) * slotW, rowH, AllowedBrush);
+            start = end;
+        }
+    }
+
+    /// <summary>Draws faint vertical gridlines at fixed hour intervals.</summary>
+    private void RenderGridlines(double slotW, double h)
+    {
+        const int slotsPerHour = 4; // 60min / 15min
+        for (var hour = 0; hour <= 24; hour += GridlineHours)
+        {
+            var x = hour * slotsPerHour * slotW;
+            GridCanvas.Children.Add(new Line
+            {
+                X1 = x, Y1 = 0, X2 = x, Y2 = h,
+                Stroke = LineBrush, StrokeThickness = 1
+            });
         }
     }
 
@@ -106,22 +139,30 @@ public sealed partial class ScheduleGrid : UserControl
 
     private void AddLabel(string text, double y, double rowH)
     {
+        const double labelHalfHeight = 9;
         var label = new TextBlock { Text = text, FontSize = 12 };
         Canvas.SetLeft(label, 2);
-        Canvas.SetTop(label, y + rowH / 2 - 9);
+        Canvas.SetTop(label, y + rowH / 2 - labelHalfHeight);
         LabelCanvas.Children.Add(label);
     }
 
+    /// <summary>
+    /// Maps a pointer position to a (day, slot), applies the active tool, and
+    /// redraws only when the slot actually changes — keeping drag-paint cheap.
+    /// </summary>
     private void PaintAt(Point p)
     {
         double w = GridCanvas.ActualWidth, h = GridCanvas.ActualHeight;
         if (w <= 1 || h <= 1) return;
 
-        var day = (int)(p.Y / (h / 7));
+        var day = (int)(p.Y / (h / DayCount));
         var slot = (int)(p.X / (w / Schedule.SlotsPerDay));
-        if (day is < 0 or > 6 || slot < 0 || slot >= Schedule.SlotsPerDay) return;
+        if (day < 0 || day >= DayCount || slot < 0 || slot >= Schedule.SlotsPerDay) return;
 
-        _slots[day][slot] = ToolAllow.IsChecked == true;
+        var allow = ToolAllow.IsChecked == true;
+        if (_slots[day][slot] == allow) return;
+
+        _slots[day][slot] = allow;
         Render();
     }
 

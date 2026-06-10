@@ -3,22 +3,148 @@
     x:Class="Curfew.App.ScheduleGrid"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <StackPanel Spacing="8">
-        <StackPanel Orientation="Horizontal" Spacing="14">
-            <RadioButton x:Name="ToolAllow" Content="Allow" GroupName="tool" IsChecked="True" />
-            <RadioButton x:Name="ToolBlock" Content="Block" GroupName="tool" />
-        </StackPanel>
-        <Grid>
+
+    <!-- Root grid so the paintable surface can stretch to fill the host's allotted height. -->
+    <Grid RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Tool selector + legend row -->
+        <Grid Grid.Row="0" ColumnSpacing="16">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="40" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Canvas x:Name="LabelCanvas" Grid.Column="0" />
-            <Canvas x:Name="GridCanvas" Grid.Column="1" Background="Transparent"
-                    PointerPressed="OnPointerPressed"
-                    PointerMoved="OnPointerMoved"
-                    PointerReleased="OnPointerReleased"
-                    PointerCanceled="OnPointerReleased" />
+
+            <!-- Paint tool: choose what a click/drag applies -->
+            <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="Paint tool"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <StackPanel Orientation="Horizontal"
+                            Spacing="16"
+                            AutomationProperties.Name="Paint tool"
+                            AutomationProperties.HelpText="Choose whether dragging on the grid allows or blocks usage for that time.">
+                    <RadioButton x:Name="ToolAllow"
+                                 Content="Allow"
+                                 GroupName="tool"
+                                 IsChecked="True"
+                                 TabIndex="0"
+                                 ToolTipService.ToolTip="Drag to allow usage (shown in blue)."
+                                 AutomationProperties.HelpText="Drag on the grid to allow usage during those times." />
+                    <RadioButton x:Name="ToolBlock"
+                                 Content="Block"
+                                 GroupName="tool"
+                                 TabIndex="1"
+                                 ToolTipService.ToolTip="Drag to block usage (shown in gray)."
+                                 AutomationProperties.HelpText="Drag on the grid to block usage during those times." />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Legend: what the colors mean -->
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="16"
+                        VerticalAlignment="Bottom">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Rectangle Width="14" Height="14" RadiusX="3" RadiusY="3">
+                        <Rectangle.Fill>
+                            <SolidColorBrush Color="#FF54ADF2" />
+                        </Rectangle.Fill>
+                    </Rectangle>
+                    <TextBlock Text="Allowed"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Rectangle Width="14" Height="14" RadiusX="3" RadiusY="3">
+                        <Rectangle.Fill>
+                            <SolidColorBrush Color="#28808080" />
+                        </Rectangle.Fill>
+                    </Rectangle>
+                    <TextBlock Text="Blocked"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </StackPanel>
         </Grid>
-    </StackPanel>
+
+        <!-- Schedule surface: a Mica-friendly card holding the day labels + paintable canvas -->
+        <Border Grid.Row="1"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="12,10,12,8">
+            <Grid RowSpacing="6">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Hour axis aligned to the paint column -->
+                <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="0:00"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Left" />
+                    <TextBlock Grid.Column="1" Text="6:00"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Left" />
+                    <TextBlock Grid.Column="2" Text="12:00"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Left" />
+                    <TextBlock Grid.Column="3" Text="18:00"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Left" />
+                    <TextBlock Grid.Column="4" Text="24:00"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Right" />
+                </Grid>
+
+                <!-- Day labels (left gutter, drawn by code-behind) -->
+                <Canvas x:Name="LabelCanvas" Grid.Row="1" Grid.Column="0" />
+
+                <!-- Paintable schedule canvas (Transparent so it receives pointer input) -->
+                <Canvas x:Name="GridCanvas"
+                        Grid.Row="1"
+                        Grid.Column="1"
+                        Background="Transparent"
+                        AutomationProperties.Name="Weekly schedule grid"
+                        AutomationProperties.HelpText="A grid of seven days by 24 hours. Click and drag to apply the selected paint tool."
+                        ToolTipService.ToolTip="Click and drag to allow or block time."
+                        PointerPressed="OnPointerPressed"
+                        PointerMoved="OnPointerMoved"
+                        PointerReleased="OnPointerReleased"
+                        PointerCanceled="OnPointerReleased" />
+            </Grid>
+        </Border>
+
+        <!-- Helper caption -->
+        <TextBlock Grid.Row="2"
+                   Text="Each cell is a 15-minute slot. Hold and drag across the grid to paint quickly."
+                   Style="{StaticResource CaptionTextBlockStyle}"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   TextWrapping="Wrap" />
+    </Grid>
 </UserControl>

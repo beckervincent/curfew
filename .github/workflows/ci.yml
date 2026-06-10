@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Run JavaScript-based actions on Node.js 24 (Node.js 20 is deprecated).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-test:
     name: Build & test
@@ -30,28 +34,4 @@ jobs:
       # The WinUI app needs an x64 platform and is built on its own so the
       # AnyCPU solution build above stays clean.
       - name: Build WinUI app (x64)
-        run: dotnet build src/Curfew.App/Curfew.App.csproj -c Release -p:Platform=x64 -v detailed -bl:winui.binlog
-
-      - name: Re-run XamlCompiler to capture crash
-        if: failure()
-        shell: pwsh
-        run: |
-          $xc = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk" -Recurse -Filter XamlCompiler.exe -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match 'net472' } | Select-Object -First 1
-          $inp = Get-ChildItem "src/Curfew.App/obj" -Recurse -Filter input.json -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $xc -or -not $inp) { Write-Host "XamlCompiler or input.json not found"; exit 0 }
-          $out = Join-Path $inp.Directory.FullName "output.recap.json"
-          Write-Host "xc   = $($xc.FullName)"
-          Write-Host "input= $($inp.FullName)"
-          Write-Host "===== XamlCompiler stdout/stderr ====="
-          & $xc.FullName $inp.FullName $out 2>&1 | ForEach-Object { Write-Host $_ }
-          Write-Host "exit = $LASTEXITCODE"
-          if (Test-Path $out) { Write-Host "===== output.recap.json ====="; Get-Content $out }
-
-      - name: Upload WinUI build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: winui-binlog
-          path: winui.binlog
-          if-no-files-found: ignore
+        run: dotnet build src/Curfew.App/Curfew.App.csproj -c Release -p:Platform=x64

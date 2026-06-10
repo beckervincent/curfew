@@ -5,20 +5,18 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Curfew.App">
 
-    <Window.Resources>
-        <!-- Muted secondary text used for section descriptions and hints.
-             Defined standalone (no BasedOn) — the WinUI 3 XAML compiler crashes
-             on a compiled Style based on a merged-dictionary theme style. -->
-        <Style x:Key="SectionDescriptionStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
-    </Window.Resources>
-
     <ScrollViewer Padding="24,16,24,24"
                   VerticalScrollBarVisibility="Auto"
                   HorizontalScrollMode="Disabled">
+        <!-- WinUI 3 Window has no Resources property, so window-scoped styles live
+             on the root content element instead. -->
+        <ScrollViewer.Resources>
+            <Style x:Key="SectionDescriptionStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+        </ScrollViewer.Resources>
         <StackPanel Spacing="12" MaxWidth="660" HorizontalAlignment="Stretch">
 
             <!-- Page header -->
