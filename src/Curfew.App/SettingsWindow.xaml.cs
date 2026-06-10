@@ -4,6 +4,8 @@ using Curfew.Core.Security;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
+using Windows.UI;
 
 namespace Curfew.App;
 
@@ -56,6 +58,79 @@ public sealed partial class SettingsWindow : Window
         LoadContentFilter();
         LoadProtection();
         LoadUnlock();
+        LoadUsageHistory();
+    }
+
+    /// <summary>Draws a 7-day bar chart of active screen time from usage history.</summary>
+    private void LoadUsageHistory()
+    {
+        var history = _settings.GetUsageHistory(7);
+        var max = Math.Max(1, history.Count == 0 ? 1 : history.Max(h => h.Minutes));
+        const double maxBarHeight = 104;
+
+        var accent = new SolidColorBrush(Color.FromArgb(0xFF, 0x4C, 0xA0, 0xF0));
+        var muted = new SolidColorBrush(Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+
+        UsageChart.ColumnDefinitions.Clear();
+        UsageChart.Children.Clear();
+
+        for (var i = 0; i < history.Count; i++)
+        {
+            UsageChart.ColumnDefinitions.Add(new ColumnDefinition());
+            var day = history[i];
+
+            var column = new Grid();
+            column.RowDefinitions.Add(new RowDefinition());                            // bar area
+            column.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // day label
+            Grid.SetColumn(column, i);
+
+            var bars = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Bottom,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Spacing = 4,
+            };
+            bars.Children.Add(new TextBlock
+            {
+                Text = FormatUsage(day.Minutes),
+                FontSize = 11,
+                Foreground = muted,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+            bars.Children.Add(new Rectangle
+            {
+                Width = 28,
+                Height = Math.Max(2, day.Minutes / (double)max * maxBarHeight),
+                RadiusX = 4,
+                RadiusY = 4,
+                Fill = accent,
+                VerticalAlignment = VerticalAlignment.Bottom,
+            });
+            Grid.SetRow(bars, 0);
+
+            var name = Loc.T($"day.{TimeMath.MondayBasedWeekday(day.Date)}");
+            var label = new TextBlock
+            {
+                Text = name.Length >= 2 ? name[..2] : name,
+                FontSize = 11,
+                Foreground = muted,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0),
+            };
+            Grid.SetRow(label, 1);
+
+            column.Children.Add(bars);
+            column.Children.Add(label);
+            UsageChart.Children.Add(column);
+        }
+    }
+
+    private static string FormatUsage(int minutes)
+    {
+        if (minutes <= 0) return "0";
+        return minutes < 60
+            ? Loc.T("settings.history.minutes", minutes)
+            : Loc.T("settings.history.hours", minutes / 60, minutes % 60);
     }
 
     private void LoadUnlock()

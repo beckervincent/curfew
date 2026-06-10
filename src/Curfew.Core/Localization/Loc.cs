@@ -169,6 +169,12 @@ public static class Loc
             ["settings.err.newmatch"] = "New passcode and confirmation do not match.",
             ["settings.err.newlen"] = "New passcode must be exactly {0} digits.",
 
+            // Usage history
+            ["settings.history.title"] = "Usage history",
+            ["settings.history.desc"] = "Active screen time over the last 7 days.",
+            ["settings.history.minutes"] = "{0} min",
+            ["settings.history.hours"] = "{0} h {1} min",
+
             // Offline unlock codes
             ["settings.unlock.title"] = "Offline unlock codes",
             ["settings.unlock.desc"] = "Add this secret to an authenticator app (e.g. Google Authenticator). When the device is locked and you are away, read the current 6-digit code to your child to grant bonus time — no internet needed.",
@@ -275,6 +281,11 @@ public static class Loc
             ["settings.err.currentwrong"] = "Aktuelle PIN ist falsch.",
             ["settings.err.newmatch"] = "Neue PIN und Bestätigung stimmen nicht überein.",
             ["settings.err.newlen"] = "Neue PIN muss genau {0} Ziffern haben.",
+
+            ["settings.history.title"] = "Nutzungsverlauf",
+            ["settings.history.desc"] = "Aktive Bildschirmzeit der letzten 7 Tage.",
+            ["settings.history.minutes"] = "{0} Min",
+            ["settings.history.hours"] = "{0} Std {1} Min",
 
             ["settings.unlock.title"] = "Offline-Entsperrcodes",
             ["settings.unlock.desc"] = "Füge dieses Geheimnis zu einer Authenticator-App hinzu (z. B. Google Authenticator). Wenn das Gerät gesperrt ist und du nicht da bist, lies deinem Kind den aktuellen 6-stelligen Code vor, um Bonuszeit zu gewähren – ohne Internet.",

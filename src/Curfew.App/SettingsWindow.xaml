@@ -40,6 +40,17 @@
                            Style="{StaticResource SectionDescriptionStyle}" />
             </StackPanel>
 
+            <!-- Usage history -->
+            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsExpanded="True">
+                <Expander.Header>
+                    <StackPanel Spacing="2" Padding="0,4">
+                        <TextBlock Text="{local:Loc Key=settings.history.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{local:Loc Key=settings.history.desc}" Style="{StaticResource SectionDescriptionStyle}" />
+                    </StackPanel>
+                </Expander.Header>
+                <Grid x:Name="UsageChart" Height="160" Padding="0,8,0,4" ColumnSpacing="8" />
+            </Expander>
+
             <!-- Daily time budget -->
             <Expander x:Name="DailyLimitsExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                       IsExpanded="True" TabIndex="0">

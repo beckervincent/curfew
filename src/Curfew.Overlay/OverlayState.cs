@@ -127,4 +127,43 @@ internal static class OverlayState
     /// </summary>
     private static string RemainingKey(DateOnly date) =>
         RemainingPrefix + date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    // ---- Usage history -----------------------------------------------------
+    // Records active (unlocked) screen time per day so Settings can chart it.
+
+    private static int _usedSeconds;
+    private static DateOnly _usageDate;
+
+    /// <summary>Loads today's accumulated usage so a respawn continues the count.</summary>
+    public static void LoadUsage()
+    {
+        _usageDate = DateOnly.FromDateTime(DateTime.Now);
+        _usedSeconds = int.TryParse(Settings.Get(UsageKey(_usageDate)), out var seconds) ? seconds : 0;
+    }
+
+    /// <summary>
+    /// Counts one second of active screen use. Rolls over cleanly at midnight by
+    /// flushing the finished day and resetting the counter, and persists about
+    /// twice a minute to bound writes.
+    /// </summary>
+    public static void RecordActiveSecond()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today != _usageDate)
+        {
+            PersistUsage();
+            _usageDate = today;
+            _usedSeconds = 0;
+        }
+
+        _usedSeconds++;
+        if (_usedSeconds % 30 == 0) PersistUsage();
+    }
+
+    /// <summary>Writes the running usage total for the current day.</summary>
+    public static void PersistUsage() =>
+        Settings.Set(UsageKey(_usageDate), _usedSeconds.ToString(CultureInfo.InvariantCulture));
+
+    private static string UsageKey(DateOnly date) =>
+        SettingsStore.UsagePrefix + date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }

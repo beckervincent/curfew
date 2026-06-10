@@ -71,6 +71,7 @@ namespace Curfew.Overlay
             OverlayState.Remaining =
                 TimeKeeper.InitialRemaining(saved, OverlayState.Settings.GetDailyLimit(weekday));
             OverlayState.LoadEnforcement();
+            OverlayState.LoadUsage();
 
             var hInstance = GetModuleHandleW(null);
             OverlayLog.Write($"settings opened, remaining={OverlayState.Remaining}, hInstance={hInstance}");
@@ -154,6 +155,9 @@ namespace Curfew.Overlay
         {
             // Time is frozen while the lock screen is up.
             if (OverlayState.Locked) return;
+
+            // Count this second of active (unlocked) screen time for usage history.
+            OverlayState.RecordActiveSecond();
 
             // The budget only ticks down when it is the active control.
             if (OverlayState.LimitEnabled)

@@ -100,7 +100,13 @@ public sealed class SettingsStore : IDisposable
         ("schedule_enabled", "0"),
     };
 
-    private SettingsStore(SqliteConnection connection) => _connection = connection;
+    private readonly DateOnly _today;
+
+    private SettingsStore(SqliteConnection connection, DateOnly today)
+    {
+        _connection = connection;
+        _today = today;
+    }
 
     /// <summary>
     /// Opens (or creates) the database at <paramref name="databasePath"/>,
@@ -163,7 +169,7 @@ public sealed class SettingsStore : IDisposable
                 transaction.Commit();
             }
 
-            return new SettingsStore(connection);
+            return new SettingsStore(connection, today);
         }
         catch
         {
@@ -287,6 +293,32 @@ public sealed class SettingsStore : IDisposable
 
     /// <summary>Whether a parental passcode has been set.</summary>
     public bool HasPasscode => !string.IsNullOrEmpty(Get("passcode"));
+
+    /// <summary>Settings-key prefix for per-day recorded active screen time (seconds).</summary>
+    public const string UsagePrefix = "used_time_";
+
+    /// <summary>One day's recorded screen time.</summary>
+    public readonly record struct UsageDay(DateOnly Date, int Minutes);
+
+    /// <summary>
+    /// Active screen-time per day for the last <paramref name="days"/> days,
+    /// oldest first and ending on the day the store was opened. Days without a
+    /// record report zero. These rows are intentionally exempt from the per-day
+    /// purge so history accumulates.
+    /// </summary>
+    public IReadOnlyList<UsageDay> GetUsageHistory(int days)
+    {
+        if (days < 1) days = 1;
+
+        var history = new List<UsageDay>(days);
+        for (var i = days - 1; i >= 0; i--)
+        {
+            var date = _today.AddDays(-i);
+            var seconds = GetInt(UsagePrefix + date.ToString("yyyy-MM-dd"), 0);
+            history.Add(new UsageDay(date, Math.Max(0, seconds) / 60));
+        }
+        return history;
+    }
 
     /// <summary>Closes the underlying database connection.</summary>
     public void Dispose() => _connection.Dispose();
