@@ -17,6 +17,7 @@ public sealed partial class SetupWindow : Window
         InitializeComponent();
         _settings = settings;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(540, 640));
+        WindowEffects.RoundCorners(this);
     }
 
     private void OnContinue(object sender, RoutedEventArgs e)

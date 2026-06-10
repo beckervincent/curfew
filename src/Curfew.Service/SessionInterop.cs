@@ -63,7 +63,9 @@ internal static class SessionInterop
             {
                 var ptr = buffer + i * size;
                 var info = Marshal.PtrToStructure<WTS_SESSION_INFO>(ptr);
-                var interactive = info.State is WtsConnectState.Active or WtsConnectState.Connected;
+                // Active = at the screen; Disconnected = logged in but not currently
+                // viewing (locked/RDP-switched). Both need the overlay/lock running.
+                var interactive = info.State is WtsConnectState.Active or WtsConnectState.Disconnected;
                 if (interactive && info.SessionId != 0)
                     result.Add(info.SessionId);
             }
@@ -86,7 +88,11 @@ internal static class SessionInterop
         var envBlock = IntPtr.Zero;
         try
         {
-            CreateEnvironmentBlock(out envBlock, token, false);
+            // A null env block with CREATE_UNICODE_ENVIRONMENT gives the child an
+            // EMPTY environment (no SystemRoot/TEMP/PATH), which crashes a WinUI
+            // app. Only use the user block when we actually got one.
+            var haveEnv = CreateEnvironmentBlock(out envBlock, token, false) && envBlock != IntPtr.Zero;
+            var creationFlags = haveEnv ? CREATE_UNICODE_ENVIRONMENT : 0;
 
             var si = new STARTUPINFO
             {
@@ -94,12 +100,15 @@ internal static class SessionInterop
                 lpDesktop = @"winsta0\default",
             };
 
+            // Launch from the app's own directory so dependencies resolve.
+            var workingDir = Path.GetDirectoryName(exePath);
+
             var commandLine = $"\"{exePath}\"";
             var ok = CreateProcessAsUserW(
                 token, exePath, commandLine,
                 IntPtr.Zero, IntPtr.Zero, false,
-                CREATE_UNICODE_ENVIRONMENT,
-                envBlock, null, ref si, out var pi);
+                creationFlags,
+                envBlock, workingDir, ref si, out var pi);
 
             if (!ok) return IntPtr.Zero;
 

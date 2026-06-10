@@ -16,6 +16,7 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         _settings = settings;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(580, 820));
+        WindowEffects.RoundCorners(this);
         Load();
     }
 
