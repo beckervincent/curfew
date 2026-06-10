@@ -45,6 +45,13 @@ jobs:
           -p:Version=${{ steps.ver.outputs.VERSION }}
           -o installer/app
 
+      - name: Publish overlay (self-contained x64)
+        run: >
+          dotnet publish src/Curfew.Overlay/Curfew.Overlay.csproj
+          -c Release -r win-x64 --self-contained
+          -p:Version=${{ steps.ver.outputs.VERSION }}
+          -o installer/overlay
+
       - name: Download NSSM
         shell: pwsh
         env:

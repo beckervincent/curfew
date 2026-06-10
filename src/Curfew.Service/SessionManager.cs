@@ -13,14 +13,17 @@ internal sealed class SessionManager
 
     public SessionManager(string appExePath) => _appExePath = appExePath;
 
-    /// <summary>The Curfew.App.exe sibling of the running service.</summary>
+    /// <summary>The Win32 overlay executable spawned into each session. It is a
+    /// plain Win32 app (no WinUI), which starts reliably under the service's
+    /// CreateProcessAsUser; the WinUI dialogs are launched separately by the
+    /// user.</summary>
     public static string DefaultAppPath()
     {
         var serviceDir = AppContext.BaseDirectory;
-        var appExe = Path.GetFullPath(Path.Combine(serviceDir, "..", "app", "Curfew.App.exe"));
-        if (File.Exists(appExe)) return appExe;
+        var overlayExe = Path.GetFullPath(Path.Combine(serviceDir, "..", "overlay", "Curfew.Overlay.exe"));
+        if (File.Exists(overlayExe)) return overlayExe;
         // Fall back to a sibling file in the same directory (dev layout).
-        return Path.Combine(serviceDir, "Curfew.App.exe");
+        return Path.Combine(serviceDir, "Curfew.Overlay.exe");
     }
 
     /// <summary>One poll pass: spawn missing apps, drop dead/ended sessions.</summary>

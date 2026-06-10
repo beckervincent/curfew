@@ -33,8 +33,10 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 WizardStyle=modern
-CloseApplications=yes
-CloseApplicationsFilter={#AppExeName},{#ServiceExeName}
+; Do NOT use RestartManager to close our files: it cannot stop the SYSTEM
+; service and aborts a silent install. The service is stopped explicitly in
+; PrepareToInstall instead.
+CloseApplications=no
 RestartApplications=no
 MinVersion=10.0
 
@@ -44,6 +46,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 Source: "service\*"; DestDir: "{app}\service"; Flags: recursesubdirs ignoreversion
 Source: "app\*";     DestDir: "{app}\app";     Flags: recursesubdirs ignoreversion
+Source: "overlay\*"; DestDir: "{app}\overlay"; Flags: recursesubdirs ignoreversion
 Source: "nssm.exe";  DestDir: "{app}";         Flags: ignoreversion
 
 [Icons]
@@ -100,7 +103,7 @@ begin
     '    sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
     '}' + #13#10 +
     '' + #13#10 +
-    'Get-Process -Name "Curfew.App","Curfew.Service" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
+    'Get-Process -Name "Curfew.App","Curfew.Overlay","Curfew.Service" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
     'Start-Sleep -Milliseconds 500' + #13#10 +
     '' + #13#10 +
     'foreach ($p in @($dir, (Join-Path $env:ProgramData "{#DataFolder}"))) {' + #13#10 +
