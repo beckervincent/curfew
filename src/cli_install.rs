@@ -11,7 +11,7 @@ use std::time::SystemTime;
 // ── logging ──────────────────────────────────────────────────────────────────
 
 fn ts() -> String {
-    // Simple wall-clock timestamp using seconds since UNIX epoch
+    // HH:MM:SS derived from the UNIX epoch (UTC)
     let secs = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -198,8 +198,6 @@ pub fn run_install(args: &[String]) {
         }
         ok!("{} -> {}", nssm_src.display(), nssm_dest.display());
     }
-
-    // (service removal already done above)
 
     // 6. Install service
     info!("Installing service via NSSM...");

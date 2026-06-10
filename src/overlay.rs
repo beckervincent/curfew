@@ -1,5 +1,4 @@
-//! Warning overlay module
-//! Displays a click-through banner that auto-hides after a duration
+//! Warning overlay: a click-through banner that auto-hides after a delay.
 
 use std::mem::zeroed;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -9,10 +8,9 @@ use windows::{
     Win32::{
         Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::Gdi::{
-            BeginPaint, CreateFontW, CreateSolidBrush, DeleteObject, EndPaint, FillRect,
-            GetStockObject, InvalidateRect, SelectObject, SetBkMode, SetTextColor, DrawTextW,
-            BLACK_BRUSH, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FW_BOLD, HBRUSH, PAINTSTRUCT,
-            TRANSPARENT,
+            BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect, GetStockObject,
+            InvalidateRect, SelectObject, SetBkMode, SetTextColor, BLACK_BRUSH, DT_CENTER,
+            DT_SINGLELINE, DT_VCENTER, HBRUSH, PAINTSTRUCT, TRANSPARENT,
         },
         Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC},
         UI::WindowsAndMessaging::*,
@@ -21,12 +19,11 @@ use windows::{
 
 use crate::constants::*;
 use crate::dpi::scale;
+use crate::ui;
 
-/// Global state for overlay window
 pub static OVERLAY_HWND: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
 pub static OVERLAY_TEXT: Mutex<Option<String>> = Mutex::new(None);
 
-/// Timer ID for overlay auto-hide
 pub const TIMER_OVERLAY_HIDE: usize = 1;
 
 pub unsafe fn create_overlay_window(hinstance: windows::Win32::Foundation::HMODULE) {
@@ -35,22 +32,18 @@ pub unsafe fn create_overlay_window(hinstance: windows::Win32::Foundation::HMODU
     let screen_width = GetSystemMetrics(SM_CXSCREEN);
     let screen_height = GetSystemMetrics(SM_CYSCREEN);
 
-    // Apply DPI scaling to height
+    // Full-width banner, vertically centered.
     let overlay_height = scale(120);
-    let overlay_width = screen_width;
-    let overlay_x = 0;
     let overlay_y = (screen_height - overlay_height) / 2;
 
-    let ex_style = WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT;
-
     let overlay_hwnd = CreateWindowExW(
-        ex_style,
+        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
         overlay_class_name,
         w!("Screen Time Overlay"),
         WS_POPUP,
-        overlay_x,
+        0,
         overlay_y,
-        overlay_width,
+        screen_width,
         overlay_height,
         None,
         None,
@@ -65,7 +58,7 @@ pub unsafe fn create_overlay_window(hinstance: windows::Win32::Foundation::HMODU
     OVERLAY_HWND.store(overlay_hwnd.0, Ordering::SeqCst);
 }
 
-/// Shows the warning overlay with the specified text for a given duration
+/// Show the banner with `text` for `duration_seconds`.
 pub unsafe fn show_overlay(text: &str, duration_seconds: u32) {
     let overlay_hwnd = HWND(OVERLAY_HWND.load(Ordering::SeqCst));
     if overlay_hwnd.0.is_null() {
@@ -118,24 +111,12 @@ pub unsafe extern "system" fn overlay_window_proc(
 
             let overlay_text_guard = OVERLAY_TEXT.lock().unwrap();
             if let Some(ref text) = *overlay_text_guard {
-                let hfont = CreateFontW(
-                    scale(72), 0, 0, 0,
-                    FW_BOLD.0 as i32,
-                    0, 0, 0, 0, 0, 0, 0, 0,
-                    w!("Segoe UI"),
-                );
-
+                let hfont = ui::font(72, true);
                 let old_font = SelectObject(hdc, hfont);
                 SetTextColor(hdc, COLORREF(COLOR_TEXT_WHITE));
                 SetBkMode(hdc, TRANSPARENT);
 
-                let mut wide_text: Vec<u16> = text.encode_utf16().collect();
-                DrawTextW(
-                    hdc,
-                    &mut wide_text,
-                    &mut rect,
-                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-                );
+                ui::draw_text(hdc, text, &mut rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
                 SelectObject(hdc, old_font);
                 let _ = DeleteObject(hfont);

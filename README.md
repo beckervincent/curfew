@@ -1,4 +1,4 @@
-# Screen Time Manager
+# Curfew
 
 A simple Windows app to manage your child's computer time. Set daily limits, and when time's up, the screen is blocked until you enter the passcode.
 
