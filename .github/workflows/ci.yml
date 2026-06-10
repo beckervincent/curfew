@@ -32,18 +32,21 @@ jobs:
       - name: Build WinUI app (x64)
         run: dotnet build src/Curfew.App/Curfew.App.csproj -c Release -p:Platform=x64 -v detailed -bl:winui.binlog
 
-      - name: Dump XAML compiler diagnostics
+      - name: Re-run XamlCompiler to capture crash
         if: failure()
         shell: pwsh
         run: |
-          $dir = "src/Curfew.App/obj/x64/Release"
-          Get-ChildItem -Recurse $dir -Filter output.json -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "===== $($_.FullName) ====="
-            Get-Content $_.FullName
-          }
-          Get-ChildItem -Recurse $dir -Filter *.json -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match 'rror|iagnost' } | ForEach-Object {
-              Write-Host "===== $($_.FullName) ====="; Get-Content $_.FullName }
+          $xc = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk" -Recurse -Filter XamlCompiler.exe -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match 'net472' } | Select-Object -First 1
+          $inp = Get-ChildItem "src/Curfew.App/obj" -Recurse -Filter input.json -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $xc -or -not $inp) { Write-Host "XamlCompiler or input.json not found"; exit 0 }
+          $out = Join-Path $inp.Directory.FullName "output.recap.json"
+          Write-Host "xc   = $($xc.FullName)"
+          Write-Host "input= $($inp.FullName)"
+          Write-Host "===== XamlCompiler stdout/stderr ====="
+          & $xc.FullName $inp.FullName $out 2>&1 | ForEach-Object { Write-Host $_ }
+          Write-Host "exit = $LASTEXITCODE"
+          if (Test-Path $out) { Write-Host "===== output.recap.json ====="; Get-Content $out }
 
       - name: Upload WinUI build log
         if: always()
