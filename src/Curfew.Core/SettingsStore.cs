@@ -44,6 +44,14 @@ public sealed class SettingsStore : IDisposable
         ("idle_enabled", "1"),
         ("idle_timeout_minutes", "5"),
         ("auto_update_enabled", "1"),
+        // Content filtering: "off" | "malware" | "family". Chosen during setup.
+        ("dns_filter_mode", "off"),
+        // Block third-party DoH at the firewall so browsers can't bypass the filter.
+        ("block_doh_bypass", "1"),
+        // Time Manipulation Guarding: correct the clock from NTP before resetting time.
+        ("time_guard_enabled", "1"),
+        // Set once the first-run setup wizard has completed.
+        ("setup_complete", "0"),
     };
 
     private SettingsStore(SqliteConnection connection) => _connection = connection;
