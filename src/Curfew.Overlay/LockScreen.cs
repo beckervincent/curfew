@@ -174,7 +174,7 @@ internal static class LockScreen
         switch (id)
         {
             case IdUnlock:
-                if (PasscodeMatches()) { Hide(); }
+                if (PasscodeMatches()) { OverlayState.ScheduleOverride = true; Hide(); }
                 else Reject(hwnd);
                 break;
             case IdExtend15: Extend(hwnd, 15); break;
@@ -195,6 +195,7 @@ internal static class LockScreen
         if (PasscodeMatches())
         {
             OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
+            OverlayState.ScheduleOverride = true;
             OverlayState.Persist();
             Hide();
         }
@@ -246,7 +247,9 @@ internal static class LockScreen
 
         SetBkMode(hdc, TRANSPARENT);
 
-        DrawCentered(hdc, "Time's Up!", px, py + 30, pw, 50, 40, true, ColorWhite);
+        // Title reflects why we're locked.
+        var title = OverlayState.BudgetBlocked ? "Time's Up!" : "Outside Allowed Hours";
+        DrawCentered(hdc, title, px, py + 30, pw, 50, 40, true, ColorWhite);
 
         var countdownText = _shutdownCountdown switch
         {

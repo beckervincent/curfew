@@ -52,6 +52,10 @@ public sealed class SettingsStore : IDisposable
         ("time_guard_enabled", "1"),
         // Set once the first-run setup wizard has completed.
         ("setup_complete", "0"),
+        // Daily hours budget on/off (the per-day limits). Parent's choice.
+        ("limit_enabled", "1"),
+        // Weekly allowed-time schedule on/off. Default off; absent schedule = all allowed.
+        ("schedule_enabled", "0"),
     };
 
     private SettingsStore(SqliteConnection connection) => _connection = connection;

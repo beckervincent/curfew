@@ -50,6 +50,7 @@ namespace Curfew.Overlay
             var weekday = TimeMath.MondayBasedWeekday(today);
             OverlayState.Remaining =
                 TimeKeeper.InitialRemaining(saved, OverlayState.Settings.GetDailyLimit(weekday));
+            OverlayState.LoadEnforcement();
 
             var hInstance = GetModuleHandleW(null);
             OverlayLog.Write($"settings opened, remaining={OverlayState.Remaining}, hInstance={hInstance}");
@@ -85,9 +86,9 @@ namespace Curfew.Overlay
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             SetTimer(hwnd, new IntPtr(1), 1000, IntPtr.Zero);
 
-            // Pre-create the lock window; show it immediately if already exhausted.
+            // Pre-create the lock window; show it immediately if already blocked.
             LockScreen.Register(hInstance);
-            if (TimeKeeper.IsExhausted(OverlayState.Remaining)) LockScreen.Show();
+            if (OverlayState.ShouldBlock) LockScreen.Show();
 
             OverlayLog.Write("entering message loop");
 
@@ -125,11 +126,19 @@ namespace Curfew.Overlay
             // Time is frozen while the lock screen is up.
             if (OverlayState.Locked) return;
 
-            OverlayState.Remaining = TimeKeeper.Tick(OverlayState.Remaining);
-            if (TimeKeeper.ShouldPersist(OverlayState.Remaining)) OverlayState.Persist();
+            // The budget only ticks down when it is the active control.
+            if (OverlayState.LimitEnabled)
+            {
+                OverlayState.Remaining = TimeKeeper.Tick(OverlayState.Remaining);
+                if (TimeKeeper.ShouldPersist(OverlayState.Remaining)) OverlayState.Persist();
+            }
+
+            // A reopened schedule window clears any parent override.
+            if (OverlayState.ScheduleAllows()) OverlayState.ScheduleOverride = false;
+
             InvalidateRect(hwnd, IntPtr.Zero, true);
 
-            if (TimeKeeper.IsExhausted(OverlayState.Remaining)) LockScreen.Show();
+            if (OverlayState.ShouldBlock) LockScreen.Show();
         }
 
         private static void Paint(IntPtr hwnd)
@@ -145,8 +154,20 @@ namespace Curfew.Overlay
             var oldFont = SelectObject(hdc, font);
             SetBkMode(hdc, TRANSPARENT);
 
-            var text = TimeMath.FormatCompact(OverlayState.Remaining);
-            SetTextColor(hdc, ColorForRemaining(OverlayState.Remaining));
+            // Show the remaining budget, or the wall clock in schedule-only mode.
+            string text;
+            uint color;
+            if (OverlayState.LimitEnabled)
+            {
+                text = TimeMath.FormatCompact(OverlayState.Remaining);
+                color = ColorForRemaining(OverlayState.Remaining);
+            }
+            else
+            {
+                text = DateTime.Now.ToString("HH:mm");
+                color = ColorWhite;
+            }
+            SetTextColor(hdc, color);
             DrawTextW(hdc, text, text.Length, ref rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
             SelectObject(hdc, oldFont);
