@@ -1,5 +1,24 @@
-target/
-.claude/
+## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+*.user
+*.suo
+
+## Rider / VS
+.vs/
+.idea/
+
+## NuGet
+*.nupkg
+project.lock.json
+
+## Test results
+TestResults/
+
+## Misc
 logs/
-*.exe
+*.log
 *.backup

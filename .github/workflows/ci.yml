@@ -2,26 +2,32 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, winui-rewrite]
   pull_request:
+  workflow_dispatch:
 
 jobs:
-  check:
-    name: Check & lint (Windows cross)
-    runs-on: ubuntu-latest
+  build-test:
+    name: Build & test
+    runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      # Linux runner + mingw cross-check is much faster than a Windows runner.
-      - name: Install mingw cross compiler
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
         with:
-          targets: x86_64-pc-windows-gnu
-          components: clippy
+          dotnet-version: '8.0.x'
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore solution
+        run: dotnet restore Curfew.sln
 
-      - name: Clippy (deny warnings)
-        run: cargo clippy --target x86_64-pc-windows-gnu -- -D warnings
+      - name: Build solution (Core, Service)
+        run: dotnet build Curfew.sln -c Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test Curfew.sln -c Release --no-build --verbosity normal
+
+      # The WinUI app needs an x64 platform and is built on its own so the
+      # AnyCPU solution build above stays clean.
+      - name: Build WinUI app (x64)
+        run: dotnet build src/Curfew.App/Curfew.App.csproj -c Release -p:Platform=x64
