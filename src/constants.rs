@@ -13,6 +13,7 @@ pub const IDM_TODAYS_STATS: u16 = 1006;
 pub const IDM_PAUSE_TOGGLE: u16 = 1007;
 pub const IDM_EXTEND_15: u16 = 1008;
 pub const IDM_EXTEND_45: u16 = 1009;
+pub const IDM_CHECK_UPDATES: u16 = 1010;
 
 /// Single-instance mutex name.
 pub const MUTEX_NAME: &str = "Local\\ScreenTimeManager_SingleInstance_7F3A9B2E";

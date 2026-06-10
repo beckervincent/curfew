@@ -11,6 +11,8 @@ Parental screen time manager for Windows. Set daily limits — when time is up, 
 - Full-screen lock on all monitors, passcode-protected, with +15/30/60 min extensions
 - Pause budget for breaks (45 min/day by default) and auto-pause when idle
 - Optional shutdown countdown on the lock screen
+- Automatic background updates (toggle in Settings; check manually from the tray)
+- Clean Win11 dialogs that follow the system light/dark theme
 - Survives restarts; runs as a system service
 
 ## Install

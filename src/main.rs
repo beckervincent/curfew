@@ -12,8 +12,10 @@ mod dpi;
 mod mini_overlay;
 mod overlay;
 mod service;
+mod theme;
 mod tray;
 mod ui;
+mod updater;
 
 use std::mem::zeroed;
 use std::sync::atomic::Ordering;

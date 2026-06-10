@@ -18,7 +18,6 @@ use windows::{
     },
 };
 
-use crate::constants::{COLOR_TEXT_LIGHT, DARK_EDIT_BG};
 use crate::dpi::scale;
 
 /// Encode text as a null-terminated UTF-16 buffer.
@@ -225,20 +224,23 @@ pub unsafe fn create_checkbox(
     }
 }
 
-/// Cached brush for dark edit/static backgrounds.
+/// Cached brushes for edit/static backgrounds, one per theme.
 /// WM_CTLCOLOR* fires on every redraw; creating a brush each time leaks GDI handles.
-static CTL_BG_BRUSH: AtomicIsize = AtomicIsize::new(0);
+static CTL_BG_BRUSH_DARK: AtomicIsize = AtomicIsize::new(0);
+static CTL_BG_BRUSH_LIGHT: AtomicIsize = AtomicIsize::new(0);
 
-/// Shared WM_CTLCOLOREDIT / WM_CTLCOLORSTATIC handler for dark dialogs.
-pub unsafe fn ctl_color_dark(wparam: WPARAM) -> LRESULT {
+/// Shared WM_CTLCOLOREDIT / WM_CTLCOLORSTATIC handler, theme-aware.
+pub unsafe fn ctl_color(wparam: WPARAM) -> LRESULT {
+    let theme = crate::theme::current();
     let hdc = HDC(wparam.0 as _);
-    SetTextColor(hdc, COLORREF(COLOR_TEXT_LIGHT));
-    SetBkColor(hdc, COLORREF(DARK_EDIT_BG));
+    SetTextColor(hdc, COLORREF(theme.text));
+    SetBkColor(hdc, COLORREF(theme.edit_bg));
 
-    let mut brush = CTL_BG_BRUSH.load(Ordering::Relaxed);
+    let cache = if theme.dark { &CTL_BG_BRUSH_DARK } else { &CTL_BG_BRUSH_LIGHT };
+    let mut brush = cache.load(Ordering::Relaxed);
     if brush == 0 {
-        brush = CreateSolidBrush(COLORREF(DARK_EDIT_BG)).0 as isize;
-        CTL_BG_BRUSH.store(brush, Ordering::Relaxed);
+        brush = CreateSolidBrush(COLORREF(theme.edit_bg)).0 as isize;
+        cache.store(brush, Ordering::Relaxed);
     }
     LRESULT(HBRUSH(brush as _).0 as isize)
 }

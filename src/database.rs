@@ -74,6 +74,7 @@ fn try_init_database(db_path: &std::path::Path) -> Result<(), Box<dyn std::error
         ("lock_screen_timeout", "600"),
         ("idle_enabled", "1"),
         ("idle_timeout_minutes", "5"),
+        ("auto_update_enabled", "1"),
     ];
 
     for (key, value) in defaults {

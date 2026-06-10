@@ -147,6 +147,7 @@ pub unsafe fn show_context_menu(hwnd: HWND) {
     insert(item, IDM_SHOW_OVERLAY, w!("Show Warning (5s)"));
     insert(item, IDM_SHOW_BLOCKING, w!("Show Blocking Overlay"));
     insert(sep, 0, PCWSTR::null());
+    insert(item, IDM_CHECK_UPDATES, w!("Check for Updates"));
     insert(item, IDM_ABOUT, w!("About"));
     insert(item, IDM_QUIT, w!("Quit"));
 
@@ -221,6 +222,31 @@ pub unsafe extern "system" fn window_proc(
                     if verify_passcode(hwnd) {
                         extend_time(45);
                     }
+                }
+                IDM_CHECK_UPDATES => {
+                    // Network check runs off the UI thread; result shows as a message box.
+                    std::thread::spawn(|| {
+                        let text = match crate::updater::check_for_update() {
+                            Ok(Some(tag)) => format!(
+                                "Version {} is available.\n\nIt will be installed automatically in the background.",
+                                tag.trim_start_matches('v')
+                            ),
+                            Ok(None) => format!(
+                                "Curfew {} is up to date.",
+                                crate::updater::CURRENT_VERSION
+                            ),
+                            Err(()) => "Could not check for updates.\nPlease check your internet connection.".to_string(),
+                        };
+                        let wide = to_wide(&text);
+                        unsafe {
+                            MessageBoxW(
+                                HWND::default(),
+                                PCWSTR(wide.as_ptr()),
+                                w!("Curfew Updates"),
+                                MB_OK | MB_ICONINFORMATION,
+                            );
+                        }
+                    });
                 }
                 IDM_ABOUT => show_about(hwnd),
                 IDM_QUIT if verify_passcode(hwnd) => {

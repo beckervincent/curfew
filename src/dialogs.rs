@@ -9,11 +9,14 @@ use windows::{
     Win32::{
         Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::{
-            Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE},
+            Dwm::{
+                DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+            },
             Gdi::{
-                BeginPaint, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, EndPaint,
-                FillRect, InvalidateRect, SelectObject, SetBkMode, SetWindowRgn, SetTextColor,
-                DT_CENTER, DT_SINGLELINE, DT_WORDBREAK, HDC, HFONT, PAINTSTRUCT, TRANSPARENT,
+                BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect, InvalidateRect,
+                SelectObject, SetBkMode, SetTextColor, DT_CENTER, DT_SINGLELINE, DT_WORDBREAK,
+                HDC, HFONT, PAINTSTRUCT, TRANSPARENT,
             },
         },
         System::LibraryLoader::GetModuleHandleW,
@@ -54,6 +57,7 @@ struct SettingsHandles {
     lock_screen_timeout: isize,
     idle_enabled: isize,
     idle_timeout_minutes: isize,
+    auto_update: isize,
 }
 
 static SETTINGS_HANDLES: Mutex<Option<SettingsHandles>> = Mutex::new(None);
@@ -69,7 +73,7 @@ fn hwnd_of(raw: isize) -> HWND {
 /// Register a dialog class (ignores re-registration), create a centered dark
 /// dialog with rounded corners, and pump messages until it is destroyed.
 /// `enter_command` optionally maps the Enter key to a WM_COMMAND id.
-unsafe fn run_dark_dialog(
+unsafe fn run_dialog(
     class_name: PCWSTR,
     title: PCWSTR,
     dialog_proc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
@@ -112,19 +116,24 @@ unsafe fn run_dark_dialog(
     );
 
     if let Ok(dlg) = dialog_hwnd {
-        let rgn = CreateRoundRectRgn(0, 0, dialog_width, dialog_height, scale(10), scale(10));
-        SetWindowRgn(dlg, rgn, true);
-
-        let _ = ShowWindow(dlg, SW_SHOW);
-        let _ = SetForegroundWindow(dlg);
-
-        let dark: i32 = 1;
+        // Native Win11 rounded corners; titlebar follows the app theme.
+        let corner = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            dlg,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner as *const _ as *const c_void,
+            4,
+        );
+        let dark: i32 = crate::theme::current().dark as i32;
         let _ = DwmSetWindowAttribute(
             dlg,
             DWMWA_USE_IMMERSIVE_DARK_MODE,
             &dark as *const i32 as *const c_void,
             4,
         );
+
+        let _ = ShowWindow(dlg, SW_SHOW);
+        let _ = SetForegroundWindow(dlg);
 
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -144,19 +153,20 @@ unsafe fn run_dark_dialog(
 
 /// Fill the background and draw centered title, subtitle and optional error line.
 unsafe fn paint_dialog_header(hwnd: HWND, title: &str, subtitle: &str, error: Option<&str>) {
+    let theme = crate::theme::current();
     let mut ps: PAINTSTRUCT = zeroed();
     let hdc = BeginPaint(hwnd, &mut ps);
 
     let mut rect: RECT = zeroed();
     GetClientRect(hwnd, &mut rect).ok();
 
-    let bg_brush = CreateSolidBrush(COLORREF(DARK_BG));
+    let bg_brush = CreateSolidBrush(COLORREF(theme.bg));
     FillRect(hdc, &rect, bg_brush);
     let _ = DeleteObject(bg_brush);
 
     let title_font = ui::font(22, true);
     let old_font = SelectObject(hdc, title_font);
-    SetTextColor(hdc, COLORREF(COLOR_TEXT_WHITE));
+    SetTextColor(hdc, COLORREF(theme.text));
     SetBkMode(hdc, TRANSPARENT);
 
     let mut title_rect = RECT { left: 0, top: scale(25), right: rect.right, bottom: scale(55) };
@@ -164,7 +174,7 @@ unsafe fn paint_dialog_header(hwnd: HWND, title: &str, subtitle: &str, error: Op
 
     let sub_font = ui::font(14, false);
     SelectObject(hdc, sub_font);
-    SetTextColor(hdc, COLORREF(COLOR_TEXT_LIGHT));
+    SetTextColor(hdc, COLORREF(theme.text_secondary));
 
     let mut sub_rect = RECT { left: 0, top: scale(55), right: rect.right, bottom: scale(80) };
     ui::draw_text(hdc, subtitle, &mut sub_rect, DT_CENTER | DT_SINGLELINE);
@@ -261,7 +271,7 @@ pub unsafe fn verify_passcode(parent_hwnd: HWND) -> bool {
                 }
                 LRESULT(0)
             }
-            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color_dark(wparam),
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color(wparam),
             WM_CLOSE => {
                 PROMPT_RESULT.store(2, Ordering::SeqCst);
                 DestroyWindow(hwnd).ok();
@@ -275,7 +285,7 @@ pub unsafe fn verify_passcode(parent_hwnd: HWND) -> bool {
         }
     }
 
-    run_dark_dialog(
+    run_dialog(
         w!("ScreenTimePasscodeDialogNice"),
         w!(""),
         prompt_proc,
@@ -363,6 +373,11 @@ unsafe fn save_settings(hwnd: HWND) -> bool {
         set_setting("idle_enabled", if checked.0 == 1 { "1" } else { "0" });
     }
     save_clamped(h.idle_timeout_minutes, "idle_timeout_minutes", 1, 600);
+
+    if h.auto_update != 0 {
+        let checked = SendMessageW(hwnd_of(h.auto_update), BM_GETCHECK, WPARAM(0), LPARAM(0));
+        set_setting("auto_update_enabled", if checked.0 == 1 { "1" } else { "0" });
+    }
 
     true
 }
@@ -501,6 +516,16 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
                     edit_font, EditStyle::number(3), &idle_value,
                 );
                 h.idle_timeout_minutes = idle_edit.0 as isize;
+                y += 26;
+
+                // Updates.
+                ui::create_label(hwnd, "Updates", 15, y, 360, 20, title_font);
+                y += 20;
+                let upd_chk = ui::create_checkbox(hwnd, "Install updates automatically", 25, y, 250, 20, label_font);
+                if crate::database::get_setting("auto_update_enabled").map(|s| s == "1").unwrap_or(true) {
+                    SendMessageW(upd_chk, BM_SETCHECK, WPARAM(1), LPARAM(0));
+                }
+                h.auto_update = upd_chk.0 as isize;
                 y += 28;
 
                 // Buttons.
@@ -511,6 +536,15 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
 
                 *SETTINGS_HANDLES.lock().unwrap() = Some(h);
                 LRESULT(0)
+            }
+            WM_ERASEBKGND => {
+                let hdc = HDC(wparam.0 as _);
+                let mut rect: RECT = zeroed();
+                GetClientRect(hwnd, &mut rect).ok();
+                let brush = CreateSolidBrush(COLORREF(crate::theme::current().bg));
+                FillRect(hdc, &rect, brush);
+                let _ = DeleteObject(brush);
+                LRESULT(1)
             }
             WM_COMMAND => {
                 match (wparam.0 & 0xFFFF) as i32 {
@@ -554,7 +588,7 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
                 }
                 LRESULT(0)
             }
-            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color_dark(wparam),
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color(wparam),
             WM_CLOSE => {
                 DestroyWindow(hwnd).ok();
                 LRESULT(0)
@@ -568,7 +602,7 @@ pub unsafe fn show_settings_dialog(parent_hwnd: HWND) {
         }
     }
 
-    run_dark_dialog(
+    run_dialog(
         w!("ScreenTimeSettingsDialog"),
         w!("Screen Time Settings"),
         settings_dialog_proc,
@@ -620,7 +654,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
             let value_x = scale(160);
 
             SelectObject(hdc, label_font);
-            SetTextColor(hdc, COLORREF(COLOR_TEXT_LIGHT));
+            SetTextColor(hdc, COLORREF(crate::theme::current().text_secondary));
             let mut label_rect = RECT { left: left_margin, top: y, right: value_x, bottom: y + scale(22) };
             ui::draw_text(hdc, label, &mut label_rect, DT_SINGLELINE);
 
@@ -643,10 +677,11 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 let mut ps: PAINTSTRUCT = zeroed();
                 let hdc = BeginPaint(hwnd, &mut ps);
 
+                let theme = crate::theme::current();
                 let mut rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut rect).ok();
 
-                let bg_brush = CreateSolidBrush(COLORREF(DARK_BG));
+                let bg_brush = CreateSolidBrush(COLORREF(theme.bg));
                 FillRect(hdc, &rect, bg_brush);
                 let _ = DeleteObject(bg_brush);
 
@@ -674,7 +709,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 let small_font = ui::font(13, false);
 
                 let old_font = SelectObject(hdc, title_font);
-                SetTextColor(hdc, COLORREF(COLOR_TEXT_WHITE));
+                SetTextColor(hdc, COLORREF(theme.text));
                 SetBkMode(hdc, TRANSPARENT);
 
                 let mut title_rect = RECT { left: 0, top: scale(15), right: rect.right, bottom: scale(42) };
@@ -693,15 +728,15 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 let weekday_name = WEEKDAY_NAMES.get(weekday as usize).unwrap_or(&"Unknown");
 
                 let mut y = scale(50);
-                y = stat_row(hdc, label_font, value_font, "Day:", weekday_name, COLOR_TEXT_WHITE, y, rect.right);
-                y = stat_row(hdc, label_font, value_font, "Daily Limit:", &format!("{} min", daily_limit_minutes), COLOR_TEXT_WHITE, y, rect.right);
-                y = stat_row(hdc, label_font, value_font, "Time Used:", &ui::format_duration(used_seconds), COLOR_TEXT_WHITE, y, rect.right);
+                y = stat_row(hdc, label_font, value_font, "Day:", weekday_name, theme.text, y, rect.right);
+                y = stat_row(hdc, label_font, value_font, "Daily Limit:", &format!("{} min", daily_limit_minutes), theme.text, y, rect.right);
+                y = stat_row(hdc, label_font, value_font, "Time Used:", &ui::format_duration(used_seconds), theme.text, y, rect.right);
                 y = stat_row(hdc, label_font, value_font, "Time Remaining:", &ui::format_duration(remaining_seconds), time_color(remaining_seconds), y, rect.right);
                 y += scale(8);
 
                 // Pause section.
                 SelectObject(hdc, section_font);
-                SetTextColor(hdc, COLORREF(COLOR_TEXT_WHITE));
+                SetTextColor(hdc, COLORREF(theme.text));
                 let mut section_rect = RECT { left: scale(25), top: y, right: rect.right - scale(15), bottom: y + scale(20) };
                 ui::draw_text(hdc, "Pause Mode", &mut section_rect, DT_SINGLELINE);
                 y += scale(22);
@@ -712,24 +747,24 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                         pause_used_seconds / 60,
                         pause_config.daily_budget_minutes
                     );
-                    y = stat_row(hdc, label_font, value_font, "Pause Used:", &pause_used_str, COLOR_TEXT_WHITE, y, rect.right);
+                    y = stat_row(hdc, label_font, value_font, "Pause Used:", &pause_used_str, theme.text, y, rect.right);
                     y = stat_row(
                         hdc, label_font, value_font, "Pause Remaining:",
                         &ui::format_duration(pause_remaining_seconds),
                         time_color(pause_remaining_seconds), y, rect.right,
                     );
-                    y = stat_row(hdc, label_font, value_font, "Pauses Today:", &pause_log.len().to_string(), COLOR_TEXT_WHITE, y, rect.right);
+                    y = stat_row(hdc, label_font, value_font, "Pauses Today:", &pause_log.len().to_string(), theme.text, y, rect.right);
 
                     if !pause_log.is_empty() {
                         SelectObject(hdc, small_font);
-                        SetTextColor(hdc, COLORREF(COLOR_TEXT_MUTED));
+                        SetTextColor(hdc, COLORREF(theme.text_muted));
                         let log_str = format!("Log: {}", pause_log.join(", "));
                         let mut log_rect = RECT { left: scale(25), top: y, right: rect.right - scale(15), bottom: y + scale(18) };
                         ui::draw_text(hdc, &log_str, &mut log_rect, DT_SINGLELINE);
                     }
                 } else {
                     SelectObject(hdc, label_font);
-                    SetTextColor(hdc, COLORREF(COLOR_TEXT_MUTED));
+                    SetTextColor(hdc, COLORREF(theme.text_muted));
                     let mut disabled_rect = RECT { left: scale(25), top: y, right: rect.right - scale(15), bottom: y + scale(22) };
                     ui::draw_text(hdc, "Pause feature is disabled", &mut disabled_rect, DT_SINGLELINE);
                 }
@@ -760,7 +795,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
                 }
                 LRESULT(0)
             }
-            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color_dark(wparam),
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color(wparam),
             WM_CLOSE => {
                 DestroyWindow(hwnd).ok();
                 LRESULT(0)
@@ -773,7 +808,7 @@ pub unsafe fn show_stats_dialog(parent_hwnd: HWND) {
         }
     }
 
-    run_dark_dialog(
+    run_dialog(
         w!("ScreenTimeStatsDialog"),
         w!("Today's Stats"),
         stats_dialog_proc,
@@ -832,7 +867,8 @@ pub unsafe fn show_setup_wizard() {
                 let mut rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut rect).ok();
 
-                let bg = CreateSolidBrush(COLORREF(DARK_BG));
+                let theme = crate::theme::current();
+                let bg = CreateSolidBrush(COLORREF(theme.bg));
                 FillRect(hdc, &rect, bg);
                 let _ = DeleteObject(bg);
 
@@ -842,12 +878,12 @@ pub unsafe fn show_setup_wizard() {
                 let label_font = ui::font(14, false);
                 let old_font = SelectObject(hdc, title_font);
 
-                SetTextColor(hdc, COLORREF(COLOR_TEXT_WHITE));
+                SetTextColor(hdc, COLORREF(theme.text));
                 let mut r = RECT { left: 0, top: scale(20), right: rect.right, bottom: scale(55) };
-                ui::draw_text(hdc, "Set Up Screen Time Manager", &mut r, DT_CENTER | DT_SINGLELINE);
+                ui::draw_text(hdc, "Set Up Curfew", &mut r, DT_CENTER | DT_SINGLELINE);
 
                 SelectObject(hdc, label_font);
-                SetTextColor(hdc, COLORREF(COLOR_TEXT_LIGHT));
+                SetTextColor(hdc, COLORREF(theme.text_secondary));
                 let mut r2 = RECT { left: scale(20), top: scale(58), right: rect.right - scale(20), bottom: scale(95) };
                 ui::draw_text(
                     hdc,
@@ -856,7 +892,7 @@ pub unsafe fn show_setup_wizard() {
                     DT_CENTER | DT_WORDBREAK,
                 );
 
-                SetTextColor(hdc, COLORREF(COLOR_TEXT_WHITE));
+                SetTextColor(hdc, COLORREF(theme.text));
                 let mut r3 = RECT { left: 0, top: scale(98), right: rect.right, bottom: scale(116) };
                 ui::draw_text(hdc, "Enter PIN:", &mut r3, DT_CENTER | DT_SINGLELINE);
 
@@ -920,7 +956,7 @@ pub unsafe fn show_setup_wizard() {
                 }
                 LRESULT(0)
             }
-            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color_dark(wparam),
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => ui::ctl_color(wparam),
             WM_CLOSE => {
                 DestroyWindow(hwnd).ok();
                 LRESULT(0)
@@ -933,7 +969,7 @@ pub unsafe fn show_setup_wizard() {
         }
     }
 
-    run_dark_dialog(
+    run_dialog(
         w!("ScreenTimeSetupWizard"),
         w!("Screen Time Manager Setup"),
         setup_proc,

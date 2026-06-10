@@ -196,7 +196,11 @@ begin
     '$dbAcl.AddAccessRule((AclRule "S-1-5-32-545" "Modify"      "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     'Set-Acl $dbDir $dbAcl' + #13#10 +
     '' + #13#10 +
-    '& $nssm start $svc' + #13#10;
+    '& $nssm start $svc' + #13#10 +
+    '' + #13#10 +
+    '# Clear any pending auto-update task and downloaded installer' + #13#10 +
+    'schtasks /delete /tn "CurfewAutoUpdate" /f 2>$null | Out-Null' + #13#10 +
+    'Remove-Item -Recurse -Force (Join-Path $env:ProgramData "ScreenTimeManager\update") -EA SilentlyContinue' + #13#10;
 
   if not WriteScript(ScriptPath, Script) then
   begin

@@ -33,6 +33,11 @@ const WTS_SESSION_UNLOCK:   usize = 0x8;
 
 /// Timer ID used to retry spawning after boot (in case the shell wasn't ready yet)
 const TIMER_BOOT_RETRY: usize = 1;
+/// One-shot first update check shortly after boot.
+const TIMER_UPDATE_INITIAL: usize = 2;
+/// Recurring update check.
+const TIMER_UPDATE_CHECK: usize = 3;
+const UPDATE_CHECK_INTERVAL_MS: u32 = 6 * 60 * 60 * 1000;
 
 pub unsafe fn run_service_mode() {
     let hinstance = GetModuleHandleW(None).expect("Failed to get module handle");
@@ -65,6 +70,10 @@ pub unsafe fn run_service_mode() {
     // wasn't fully initialised yet (common on fast-boot / auto-login).
     spawn_for_existing_sessions();
     SetTimer(hwnd, TIMER_BOOT_RETRY, 15_000, None);
+
+    // Automatic updates: first check 2 minutes after boot, then every 6 hours.
+    SetTimer(hwnd, TIMER_UPDATE_INITIAL, 120_000, None);
+    SetTimer(hwnd, TIMER_UPDATE_CHECK, UPDATE_CHECK_INTERVAL_MS, None);
 
     // Message loop
     let mut msg: MSG = zeroed();
@@ -176,6 +185,13 @@ unsafe extern "system" fn service_window_proc(
             // One-shot retry to catch sessions that weren't ready at service start
             KillTimer(hwnd, TIMER_BOOT_RETRY).ok();
             spawn_for_existing_sessions();
+        }
+        WM_TIMER if wparam.0 == TIMER_UPDATE_INITIAL || wparam.0 == TIMER_UPDATE_CHECK => {
+            if wparam.0 == TIMER_UPDATE_INITIAL {
+                KillTimer(hwnd, TIMER_UPDATE_INITIAL).ok();
+            }
+            // Network calls run off the message loop.
+            std::thread::spawn(crate::updater::run_auto_update_cycle);
         }
         _ => {}
     }
