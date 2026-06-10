@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Curfew.App.LockScreenWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="#1E1E2E">
+        <Border Background="#282840" CornerRadius="16" Padding="40"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                MaxWidth="520">
+            <StackPanel Spacing="14" HorizontalAlignment="Center">
+                <TextBlock Text="Time's Up!" FontSize="40" FontWeight="Bold"
+                           Foreground="White" HorizontalAlignment="Center" />
+                <TextBlock x:Name="MessageText" FontSize="18" Foreground="#BBBBBB"
+                           TextAlignment="Center" TextWrapping="Wrap" />
+
+                <TextBlock Text="Extend time (requires passcode):" Foreground="#BBBBBB"
+                           HorizontalAlignment="Center" Margin="0,12,0,0" />
+                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                    <Button Content="+15 min" Click="OnExtend15" />
+                    <Button Content="+30 min" Click="OnExtend30" />
+                    <Button Content="+60 min" Click="OnExtend60" />
+                </StackPanel>
+
+                <TextBlock Text="Enter passcode to unlock:" Foreground="#BBBBBB"
+                           HorizontalAlignment="Center" Margin="0,12,0,0" />
+                <PasswordBox x:Name="PasscodeBox" Width="200"
+                             HorizontalAlignment="Center" MaxLength="4"
+                             KeyDown="OnPasscodeKeyDown" />
+                <TextBlock x:Name="ErrorText" Text="Incorrect passcode!" Foreground="#FF4444"
+                           HorizontalAlignment="Center" Visibility="Collapsed" />
+
+                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"
+                            Margin="0,8,0,0">
+                    <Button Content="Unlock" Click="OnUnlock" />
+                    <Button Content="Shut Down" Click="OnShutdown" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

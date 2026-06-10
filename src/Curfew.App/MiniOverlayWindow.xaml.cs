@@ -1,5 +1,4 @@
 using Curfew.Core;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -9,9 +8,8 @@ using Windows.UI;
 namespace Curfew.App;
 
 /// <summary>
-/// Small always-on-top countdown shown in the top-right corner. Drives the
-/// per-second tick via <see cref="TimeKeeper"/>. The blocking lock screen is
-/// wired up in a later milestone.
+/// Small always-on-top countdown in the top-right corner. A view only — the
+/// <see cref="AppController"/> owns the timer and calls <see cref="ShowTime"/>.
 /// </summary>
 public sealed partial class MiniOverlayWindow : Window
 {
@@ -19,24 +17,11 @@ public sealed partial class MiniOverlayWindow : Window
     private const int Height = 44;
     private const int Margin = 12;
 
-    private readonly DispatcherQueueTimer _timer;
-    private readonly SettingsStore _settings;
-    private int _remaining;
-
-    public MiniOverlayWindow(SettingsStore settings, int initialRemaining)
+    public MiniOverlayWindow()
     {
         InitializeComponent();
-        _settings = settings;
-        _remaining = initialRemaining;
-
         ConfigurePresenter();
         PositionTopRight();
-        Render();
-
-        _timer = DispatcherQueue.CreateTimer();
-        _timer.Interval = TimeSpan.FromSeconds(1);
-        _timer.Tick += (_, _) => OnSecond();
-        _timer.Start();
     }
 
     private void ConfigurePresenter()
@@ -59,20 +44,10 @@ public sealed partial class MiniOverlayWindow : Window
         AppWindow.Move(new PointInt32(work.X + work.Width - Width - Margin, work.Y + Margin));
     }
 
-    private void OnSecond()
+    public void ShowTime(int remaining)
     {
-        _remaining = TimeKeeper.Tick(_remaining);
-        if (TimeKeeper.ShouldPersist(_remaining))
-        {
-            _settings.Set($"remaining_time_{DateTime.Now:yyyy-MM-dd}", _remaining.ToString());
-        }
-        Render();
-    }
-
-    private void Render()
-    {
-        TimeText.Text = TimeMath.FormatCompact(_remaining);
-        TimeText.Foreground = new SolidColorBrush(ColorForRemaining(_remaining));
+        TimeText.Text = TimeMath.FormatCompact(remaining);
+        TimeText.Foreground = new SolidColorBrush(ColorForRemaining(remaining));
     }
 
     private static Color ColorForRemaining(int seconds)
