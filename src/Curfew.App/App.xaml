@@ -7,64 +7,22 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <!--
-                    Brings in the WinUI 3 Fluent control templates and theme styles
-                    (TitleTextBlockStyle, CaptionTextBlockStyle, AccentButtonStyle, the
-                    *FillColorBrush tokens, etc.) that every window in this app consumes.
-                    This merge is required for the controls to render and must stay first.
+                    WinUI 3 Fluent control templates and theme styles
+                    (TitleTextBlockStyle, CaptionTextBlockStyle, AccentButtonStyle,
+                    the *FillColorBrush tokens, …). Required for controls to render;
+                    must stay first.
                 -->
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
             <!--
-                App-wide Fluent design rhythm.
-
-                These overrides are picked up implicitly by every control template in the
-                app (Button, TextBox, NumberBox, Expander, flyouts, cards, …) without any
-                per-window markup, which keeps the configuration windows visually
-                consistent. The values follow the Windows 11 rounded-corner system.
-
-                We deliberately do NOT set Application.RequestedTheme so the app keeps
-                following the system light/dark setting and stays Mica-friendly.
+                Windows 11 rounded-corner system, applied implicitly to every control
+                template (Button, TextBox, NumberBox, Expander, flyouts, cards, …) and
+                overlay surface. We deliberately do not set Application.RequestedTheme,
+                so the app follows the system light/dark setting and stays Mica-friendly.
             -->
-
-            <!-- Consistent corner rounding for all controls and overlay surfaces. -->
             <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">8</CornerRadius>
-
-            <!-- Shared spacing rhythm (8 / 12 / 16 / 24) for windows to reference. -->
-            <x:Double x:Key="CurfewSpacingSmall">8</x:Double>
-            <x:Double x:Key="CurfewSpacingMedium">12</x:Double>
-            <x:Double x:Key="CurfewSpacingLarge">16</x:Double>
-            <x:Double x:Key="CurfewSpacingXLarge">24</x:Double>
-
-            <!-- Comfortable reading width for settings-style content. -->
-            <x:Double x:Key="CurfewContentMaxWidth">640</x:Double>
-
-            <!--
-                Default Button styling: a sensible minimum hit target and consistent
-                padding for every button in the app. Based on the framework default so
-                the full Fluent visual state machine (hover / pressed / focus) is kept.
-            -->
-            <Style TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-                <Setter Property="MinWidth" Value="96" />
-                <Setter Property="Padding" Value="16,6,16,7" />
-            </Style>
-
-            <!--
-                Secondary / descriptive caption text. Muted and slightly smaller, for the
-                helper lines under section headers. Theme-aware via TextFillColorSecondary.
-            -->
-            <Style x:Key="CurfewSecondaryTextStyle"
-                   TargetType="TextBlock"
-                   BasedOn="{StaticResource CaptionTextBlockStyle}">
-                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-                <Setter Property="TextWrapping" Value="Wrap" />
-            </Style>
-
-            <!-- Section header text inside expanders / cards. -->
-            <Style x:Key="CurfewSectionHeaderTextStyle"
-                   TargetType="TextBlock"
-                   BasedOn="{StaticResource BodyStrongTextBlockStyle}" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
