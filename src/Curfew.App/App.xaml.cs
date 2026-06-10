@@ -12,21 +12,30 @@ namespace Curfew.App;
 public partial class App : Application
 {
     private AppController? _controller;
-    private SetupWindow? _setup;
+    private Window? _window;
 
     public App() => InitializeComponent();
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        if (Environment.GetCommandLineArgs().Contains("--setup"))
+        var cmdline = Environment.GetCommandLineArgs();
+
+        if (cmdline.Contains("--setup"))
         {
-            var settings = SettingsStore.Open(CurfewPaths.DatabaseFile, DateOnly.FromDateTime(DateTime.Now));
-            _setup = new SetupWindow(settings);
-            _setup.Activate();
+            _window = new SetupWindow(OpenSettings());
+            _window.Activate();
+        }
+        else if (cmdline.Contains("--settings"))
+        {
+            _window = new SettingsWindow(OpenSettings());
+            _window.Activate();
         }
         else
         {
             _controller = new AppController(DispatcherQueue.GetForCurrentThread());
         }
     }
+
+    private static SettingsStore OpenSettings() =>
+        SettingsStore.Open(CurfewPaths.DatabaseFile, DateOnly.FromDateTime(DateTime.Now));
 }
