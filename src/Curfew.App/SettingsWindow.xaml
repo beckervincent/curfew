@@ -2,74 +2,112 @@
 <Window
     x:Class="Curfew.App.SettingsWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer>
-        <StackPanel Padding="28" Spacing="12" MaxWidth="520" HorizontalAlignment="Center">
-            <TextBlock Text="Curfew Settings" FontSize="26" FontWeight="Bold" />
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Curfew.App">
+    <ScrollViewer Padding="24,16,24,24">
+        <StackPanel Spacing="10" MaxWidth="640" HorizontalAlignment="Stretch">
+            <TextBlock Text="Curfew Settings" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,8" />
 
-            <TextBlock Text="Daily time limits (minutes)" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <StackPanel x:Name="DailyLimitsPanel" Spacing="6" />
+            <!-- Daily time budget -->
+            <Expander HorizontalAlignment="Stretch" IsExpanded="True">
+                <Expander.Header>
+                    <Grid>
+                        <StackPanel>
+                            <TextBlock Text="Daily time limit" />
+                            <TextBlock Text="Maximum screen time per day, in hours" Opacity="0.6" FontSize="12" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="LimitEnabled" HorizontalAlignment="Right" />
+                    </Grid>
+                </Expander.Header>
+                <StackPanel x:Name="DailyLimitsPanel" Spacing="6" Padding="0,8,0,0" />
+            </Expander>
 
-            <TextBlock Text="Warnings" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <Grid ColumnSpacing="10" RowSpacing="6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="100" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <TextBlock Text="First (min)" VerticalAlignment="Center" Grid.Row="0" Grid.Column="0" />
-                <NumberBox x:Name="Warn1Min" Minimum="0" Maximum="600" Grid.Row="0" Grid.Column="1" />
-                <TextBox x:Name="Warn1Msg" PlaceholderText="message" Grid.Row="0" Grid.Column="2" />
-                <TextBlock Text="Second (min)" VerticalAlignment="Center" Grid.Row="1" Grid.Column="0" />
-                <NumberBox x:Name="Warn2Min" Minimum="0" Maximum="600" Grid.Row="1" Grid.Column="1" />
-                <TextBox x:Name="Warn2Msg" PlaceholderText="message" Grid.Row="1" Grid.Column="2" />
-            </Grid>
+            <!-- Weekly schedule -->
+            <Expander HorizontalAlignment="Stretch">
+                <Expander.Header>
+                    <Grid>
+                        <StackPanel>
+                            <TextBlock Text="Weekly schedule" />
+                            <TextBlock Text="Allow usage only within painted time windows" Opacity="0.6" FontSize="12" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="ScheduleEnabled" HorizontalAlignment="Right" />
+                    </Grid>
+                </Expander.Header>
+                <StackPanel Padding="0,8,0,0" Spacing="8">
+                    <TextBlock Text="Click and drag on the grid to allow (blue) or block usage per day."
+                               Opacity="0.7" TextWrapping="Wrap" />
+                    <local:ScheduleGrid x:Name="Schedule" Height="260" HorizontalAlignment="Stretch" />
+                </StackPanel>
+            </Expander>
 
-            <TextBlock Text="Blocking message" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <TextBox x:Name="BlockingMsg" />
+            <!-- Warnings -->
+            <Expander HorizontalAlignment="Stretch">
+                <Expander.Header><TextBlock Text="Warnings" /></Expander.Header>
+                <Grid ColumnSpacing="10" RowSpacing="8" Padding="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="First (min before)" VerticalAlignment="Center" Grid.Row="0" Grid.Column="0" />
+                    <NumberBox x:Name="Warn1Min" Minimum="0" Maximum="600" Grid.Row="0" Grid.Column="1" />
+                    <TextBox x:Name="Warn1Msg" PlaceholderText="message" Grid.Row="0" Grid.Column="2" />
+                    <TextBlock Text="Second (min before)" VerticalAlignment="Center" Grid.Row="1" Grid.Column="0" />
+                    <NumberBox x:Name="Warn2Min" Minimum="0" Maximum="600" Grid.Row="1" Grid.Column="1" />
+                    <TextBox x:Name="Warn2Msg" PlaceholderText="message" Grid.Row="1" Grid.Column="2" />
+                </Grid>
+            </Expander>
 
-            <TextBlock Text="Lock screen" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBlock Text="Shutdown timeout (min)" VerticalAlignment="Center" />
-                <NumberBox x:Name="LockTimeout" Minimum="1" Maximum="720" Width="120" />
-            </StackPanel>
+            <!-- Lock screen + content filtering + protection -->
+            <Expander HorizontalAlignment="Stretch">
+                <Expander.Header><TextBlock Text="Lock screen and message" /></Expander.Header>
+                <StackPanel Padding="0,8,0,0" Spacing="10">
+                    <TextBox x:Name="BlockingMsg" Header="Blocking message" />
+                    <NumberBox x:Name="LockTimeout" Header="Shutdown timeout (minutes)" Minimum="1" Maximum="720" Width="200" HorizontalAlignment="Left" />
+                    <ToggleSwitch x:Name="IdleEnabled" Header="Auto-pause when idle" />
+                    <NumberBox x:Name="IdleTimeout" Header="Idle timeout (minutes)" Minimum="1" Maximum="600" Width="200" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Expander>
 
-            <TextBlock Text="Idle detection" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <CheckBox x:Name="IdleEnabled" Content="Auto-pause when idle" />
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBlock Text="Idle timeout (min)" VerticalAlignment="Center" />
-                <NumberBox x:Name="IdleTimeout" Minimum="1" Maximum="600" Width="120" />
-            </StackPanel>
+            <Expander HorizontalAlignment="Stretch">
+                <Expander.Header><TextBlock Text="Content filtering" /></Expander.Header>
+                <StackPanel Padding="0,8,0,0" Spacing="6">
+                    <RadioButton x:Name="FilterOff" Content="None" GroupName="filter" />
+                    <RadioButton x:Name="FilterMalware" Content="Block malware (Cloudflare 1.1.1.2)" GroupName="filter" />
+                    <RadioButton x:Name="FilterFamily" Content="Block malware + adult content (Cloudflare 1.1.1.3)" GroupName="filter" />
+                    <ToggleSwitch x:Name="BlockDoh" Header="Also block DNS-over-HTTPS bypass" />
+                </StackPanel>
+            </Expander>
 
-            <TextBlock Text="Content filtering" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <RadioButton x:Name="FilterOff" Content="None" GroupName="filter" />
-            <RadioButton x:Name="FilterMalware" Content="Block malware (Cloudflare 1.1.1.2)" GroupName="filter" />
-            <RadioButton x:Name="FilterFamily" Content="Block malware + adult content (Cloudflare 1.1.1.3)" GroupName="filter" />
-            <CheckBox x:Name="BlockDoh" Content="Also block DNS-over-HTTPS bypass" />
+            <Expander HorizontalAlignment="Stretch">
+                <Expander.Header><TextBlock Text="Protection and updates" /></Expander.Header>
+                <StackPanel Padding="0,8,0,0" Spacing="6">
+                    <ToggleSwitch x:Name="TimeGuard" Header="Time Manipulation Guarding" />
+                    <ToggleSwitch x:Name="AutoUpdate" Header="Install updates automatically" />
+                </StackPanel>
+            </Expander>
 
-            <TextBlock Text="Protection" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <CheckBox x:Name="TimeGuard" Content="Time Manipulation Guarding" />
-            <CheckBox x:Name="AutoUpdate" Content="Install updates automatically" />
-
-            <TextBlock Text="Change passcode (leave blank to keep)" FontWeight="SemiBold" Margin="0,8,0,0" />
-            <Grid ColumnSpacing="10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <PasswordBox x:Name="CurrentPin" Header="Current" MaxLength="4" Grid.Column="0" />
-                <PasswordBox x:Name="NewPin" Header="New" MaxLength="4" Grid.Column="1" />
-                <PasswordBox x:Name="ConfirmPin" Header="Confirm" MaxLength="4" Grid.Column="2" />
-            </Grid>
+            <Expander HorizontalAlignment="Stretch">
+                <Expander.Header><TextBlock Text="Change passcode (leave blank to keep)" /></Expander.Header>
+                <Grid ColumnSpacing="10" Padding="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <PasswordBox x:Name="CurrentPin" Header="Current" MaxLength="4" Grid.Column="0" />
+                    <PasswordBox x:Name="NewPin" Header="New" MaxLength="4" Grid.Column="1" />
+                    <PasswordBox x:Name="ConfirmPin" Header="Confirm" MaxLength="4" Grid.Column="2" />
+                </Grid>
+            </Expander>
 
             <TextBlock x:Name="StatusText" Foreground="#FF4444" Visibility="Collapsed" TextWrapping="Wrap" />
             <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" Margin="0,8,0,0">
-                <Button Content="Save" Click="OnSave" />
+                <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Click="OnSave" />
                 <Button Content="Cancel" Click="OnCancel" />
             </StackPanel>
         </StackPanel>
