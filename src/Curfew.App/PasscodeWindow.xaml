@@ -2,7 +2,8 @@
 <Window
     x:Class="Curfew.App.PasscodeWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Curfew.App">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -32,10 +33,10 @@
                               FontSize="28"
                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                               HorizontalAlignment="Center" />
-                    <TextBlock Text="Enter passcode"
+                    <TextBlock Text="{local:Loc Key=passcode.title}"
                                Style="{StaticResource SubtitleTextBlockStyle}"
                                HorizontalAlignment="Center" />
-                    <TextBlock Text="Enter your 4-digit PIN to continue."
+                    <TextBlock Text="{local:Loc Key=passcode.subtitle}"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextWrapping="Wrap"
@@ -60,19 +61,19 @@
                          Severity="Error"
                          IsOpen="True"
                          IsClosable="False"
-                         Title="Incorrect passcode"
-                         Message="Please check the PIN and try again."
+                         Title="{local:Loc Key=passcode.error.title}"
+                         Message="{local:Loc Key=passcode.error.msg}"
                          Visibility="Collapsed" />
 
                 <!-- Actions -->
                 <StackPanel Orientation="Horizontal"
                             Spacing="8"
                             HorizontalAlignment="Right">
-                    <Button Content="Cancel"
+                    <Button Content="{local:Loc Key=common.cancel}"
                             MinWidth="96"
                             TabIndex="2"
                             Click="OnCancel" />
-                    <Button Content="OK"
+                    <Button Content="{local:Loc Key=common.ok}"
                             MinWidth="96"
                             TabIndex="1"
                             Style="{StaticResource AccentButtonStyle}"

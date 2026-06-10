@@ -1,4 +1,5 @@
 using Curfew.Core;
+using Curfew.Core.Localization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -36,7 +37,7 @@ public sealed partial class SettingsWindow : Window
         _settings = settings;
 
         AppWindow.Resize(new Windows.Graphics.SizeInt32(WindowWidth, WindowHeight));
-        WindowEffects.Apply(this, "Curfew Settings", TitleBar);
+        WindowEffects.Apply(this, Loc.T("settings.title"), TitleBar);
 
         Load();
     }
@@ -63,7 +64,7 @@ public sealed partial class SettingsWindow : Window
             var minutes = _settings.GetInt(SettingsStore.WeekdayKeys[i], DefaultDailyMinutes);
             var box = new NumberBox
             {
-                Header = SettingsStore.WeekdayNames[i],
+                Header = Loc.T($"day.{i}"),
                 Minimum = 0,
                 Maximum = 24,
                 SmallChange = 0.25,
@@ -194,17 +195,17 @@ public sealed partial class SettingsWindow : Window
         var stored = _settings.Get("passcode") ?? "";
         if (CurrentPin.Password != stored)
         {
-            ShowError("Current passcode is incorrect.");
+            ShowError(Loc.T("settings.err.currentwrong"));
             return false;
         }
         if (newPin.Length != PasscodeLength || !newPin.All(char.IsAsciiDigit))
         {
-            ShowError($"New passcode must be exactly {PasscodeLength} digits.");
+            ShowError(Loc.T("settings.err.newlen", PasscodeLength));
             return false;
         }
         if (newPin != confirm)
         {
-            ShowError("New passcode and confirmation do not match.");
+            ShowError(Loc.T("settings.err.newmatch"));
             return false;
         }
 
