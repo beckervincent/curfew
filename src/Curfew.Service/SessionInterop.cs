@@ -79,11 +79,12 @@ internal static class SessionInterop
     }
 
     /// <summary>Launches <paramref name="exePath"/> in the given session as the
-    /// logged-in user. Returns the process handle, or zero on failure.</summary>
-    public static IntPtr LaunchInSession(uint sessionId, string exePath)
+    /// logged-in user. Returns the process handle (zero on failure) and the
+    /// Win32 error for diagnostics.</summary>
+    public static (IntPtr Handle, int Error) LaunchInSession(uint sessionId, string exePath)
     {
         if (!WTSQueryUserToken(sessionId, out var token))
-            return IntPtr.Zero;
+            return (IntPtr.Zero, Marshal.GetLastWin32Error());
 
         var envBlock = IntPtr.Zero;
         try
@@ -110,10 +111,10 @@ internal static class SessionInterop
                 creationFlags,
                 envBlock, workingDir, ref si, out var pi);
 
-            if (!ok) return IntPtr.Zero;
+            if (!ok) return (IntPtr.Zero, Marshal.GetLastWin32Error());
 
             CloseHandle(pi.hThread);
-            return pi.hProcess;
+            return (pi.hProcess, 0);
         }
         finally
         {

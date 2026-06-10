@@ -25,7 +25,13 @@ internal static class PowerShellRunner
             if (process is null) return -1;
             process.StandardInput.Write(script);
             process.StandardInput.Close();
-            process.WaitForExit();
+
+            // Never block forever — a hung script must not stall the service.
+            if (!process.WaitForExit(60_000))
+            {
+                try { process.Kill(true); } catch { /* ignore */ }
+                return -1;
+            }
             return process.ExitCode;
         }
         catch

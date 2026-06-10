@@ -48,9 +48,16 @@ internal sealed class SessionManager
             if (handle != IntPtr.Zero) SessionInterop.Close(handle);
             _processes.Remove(sessionId);
 
-            var newHandle = SessionInterop.LaunchInSession(sessionId, _appExePath);
+            var (newHandle, error) = SessionInterop.LaunchInSession(sessionId, _appExePath);
             if (newHandle != IntPtr.Zero)
+            {
                 _processes[sessionId] = newHandle;
+                ServiceLog.Write($"spawned overlay in session {sessionId}");
+            }
+            else
+            {
+                ServiceLog.Write($"spawn FAILED in session {sessionId}, win32err={error}");
+            }
         }
     }
 }

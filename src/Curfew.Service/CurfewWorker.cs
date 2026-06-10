@@ -4,9 +4,10 @@ using Curfew.Core;
 namespace Curfew.Service;
 
 /// <summary>
-/// Curfew service loop. Keeps the tray app alive in every session (spawn +
+/// Curfew service loop. Keeps the overlay alive in every session (spawn +
 /// watchdog), enforces the content filter, runs Time Manipulation Guarding and
-/// checks for updates.
+/// checks for updates. Session spawning runs first and never blocks on the
+/// slower tasks.
 /// </summary>
 public sealed class CurfewWorker : BackgroundService
 {
@@ -21,9 +22,15 @@ public sealed class CurfewWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Curfew service started");
+        ServiceLog.Write($"service started; overlay path = {SessionManager.DefaultAppPath()}");
 
-        ApplyContentFilter();
-        NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+        // Content filter + network watch run off the spawn loop so a slow or
+        // hung PowerShell call can never stop the overlay from launching.
+        _ = Task.Run(() =>
+        {
+            ApplyContentFilter();
+            NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+        }, stoppingToken);
 
         var lastSlow = DateTimeOffset.MinValue;
         try
@@ -35,8 +42,11 @@ public sealed class CurfewWorker : BackgroundService
                 if (DateTimeOffset.UtcNow - lastSlow >= SlowInterval)
                 {
                     lastSlow = DateTimeOffset.UtcNow;
-                    EnforceTimeGuard();
-                    await CheckForUpdatesAsync(stoppingToken);
+                    _ = Task.Run(async () =>
+                    {
+                        EnforceTimeGuard();
+                        await CheckForUpdatesAsync(stoppingToken);
+                    }, stoppingToken);
                 }
 
                 await Task.Delay(PollInterval, stoppingToken);
@@ -61,6 +71,7 @@ public sealed class CurfewWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Session tick failed");
+            ServiceLog.Write($"session tick threw: {ex.Message}");
         }
     }
 
@@ -72,10 +83,12 @@ public sealed class CurfewWorker : BackgroundService
         {
             using var settings = OpenSettings();
             ContentFilterApplier.Apply(settings);
+            ServiceLog.Write("content filter applied");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Content filter apply failed");
+            ServiceLog.Write($"content filter failed: {ex.Message}");
         }
     }
 
