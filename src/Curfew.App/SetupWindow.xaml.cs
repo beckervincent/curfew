@@ -103,6 +103,12 @@ public sealed partial class SetupWindow : Window
         _settings.Set("dns_filter_mode", ContentFilter.ToSetting(SelectedFilterMode()));
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));
         _settings.Set("time_guard_enabled", ToFlag(TimeGuard.IsOn));
+
+        // Seed the offline unlock-code secret so the feature is ready to enrol
+        // in an authenticator app from Settings.
+        if (string.IsNullOrEmpty(_settings.Get("unlock_secret")))
+            _settings.Set("unlock_secret", Curfew.Core.Security.UnlockCode.GenerateSecret());
+
         _settings.Set("setup_complete", "1");
     }
 

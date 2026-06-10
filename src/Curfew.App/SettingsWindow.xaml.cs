@@ -1,5 +1,6 @@
 using Curfew.Core;
 using Curfew.Core.Localization;
+using Curfew.Core.Security;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -54,6 +55,34 @@ public sealed partial class SettingsWindow : Window
         LoadLockScreen();
         LoadContentFilter();
         LoadProtection();
+        LoadUnlock();
+    }
+
+    private void LoadUnlock()
+    {
+        var secret = _settings.Get("unlock_secret");
+        if (string.IsNullOrEmpty(secret))
+        {
+            secret = UnlockCode.GenerateSecret();
+            _settings.Set("unlock_secret", secret);
+        }
+        ShowUnlockSecret(secret);
+        UnlockBonus.Value = _settings.GetInt("unlock_bonus_minutes", 30);
+    }
+
+    private void ShowUnlockSecret(string secret)
+    {
+        UnlockSecret.Text = secret;
+        UnlockUri.Text = $"otpauth://totp/Curfew:Device?secret={secret}&issuer=Curfew&digits=6&period=30";
+    }
+
+    /// <summary>Issues a fresh secret and resets the replay counter so old codes stop working.</summary>
+    private void OnRegenerateUnlock(object sender, RoutedEventArgs e)
+    {
+        var secret = UnlockCode.GenerateSecret();
+        _settings.Set("unlock_secret", secret);
+        _settings.Set("unlock_last_counter", string.Empty);
+        ShowUnlockSecret(secret);
     }
 
     /// <summary>Builds the seven per-day hour spinners and appends them to the panel.</summary>
@@ -125,6 +154,7 @@ public sealed partial class SettingsWindow : Window
         SaveLockScreen();
         SaveContentFilter();
         SaveProtection();
+        _settings.Set("unlock_bonus_minutes", Clamp(UnlockBonus, 1, 600, 30).ToString());
 
         Close();
     }

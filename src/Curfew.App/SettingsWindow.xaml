@@ -206,8 +206,29 @@
                 </StackPanel>
             </Expander>
 
-            <!-- Passcode -->
+            <!-- Offline unlock codes -->
             <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="6">
+                <Expander.Header>
+                    <StackPanel Spacing="2" Padding="0,4">
+                        <TextBlock Text="{local:Loc Key=settings.unlock.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{local:Loc Key=settings.unlock.desc}" Style="{StaticResource SectionDescriptionStyle}" />
+                    </StackPanel>
+                </Expander.Header>
+                <StackPanel Padding="0,4,0,4" Spacing="12">
+                    <TextBox x:Name="UnlockSecret" Header="{local:Loc Key=settings.unlock.secret}"
+                             IsReadOnly="True" IsSpellCheckEnabled="False" FontFamily="Consolas" />
+                    <TextBox x:Name="UnlockUri" Header="{local:Loc Key=settings.unlock.uri}"
+                             IsReadOnly="True" TextWrapping="Wrap" IsSpellCheckEnabled="False" />
+                    <NumberBox x:Name="UnlockBonus" Header="{local:Loc Key=settings.unlock.bonus}"
+                               Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
+                               SpinButtonPlacementMode="Inline" />
+                    <Button Content="{local:Loc Key=settings.unlock.regenerate}"
+                            Click="OnRegenerateUnlock" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Expander>
+
+            <!-- Passcode -->
+            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="7">
                 <Expander.Header>
                     <StackPanel Spacing="2" Padding="0,4">
                         <TextBlock Text="{local:Loc Key=settings.passcode.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />

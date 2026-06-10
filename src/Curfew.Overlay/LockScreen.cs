@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Curfew.Core;
 using Curfew.Core.Localization;
+using Curfew.Core.Security;
 using static Curfew.Overlay.Native;
 using static Curfew.Overlay.LockNative;
 
@@ -125,14 +126,47 @@ internal static class LockScreen
         if (OverlayState.MiniHwnd != IntPtr.Zero) ShowWindow(OverlayState.MiniHwnd, SW_SHOWNOACTIVATE);
     }
 
-    private static bool PasscodeMatches()
+    private static string EnteredText()
     {
-        if (_edit == IntPtr.Zero) return false;
+        if (_edit == IntPtr.Zero) return string.Empty;
         var buffer = new char[16];
         var len = GetWindowTextW(_edit, buffer, buffer.Length);
-        var entered = new string(buffer, 0, Math.Clamp(len, 0, buffer.Length));
+        return new string(buffer, 0, Math.Clamp(len, 0, buffer.Length));
+    }
+
+    private static bool PasscodeMatches()
+    {
         var stored = OverlayState.Settings.Get("passcode");
-        return !string.IsNullOrEmpty(stored) && entered == stored;
+        return !string.IsNullOrEmpty(stored) && EnteredText() == stored;
+    }
+
+    /// <summary>
+    /// Redeems a valid offline unlock code (TOTP): grants the configured bonus
+    /// minutes, lifts a schedule block and records the code's time step so it
+    /// cannot be replayed. Returns false when no secret is configured or the code
+    /// is wrong/reused.
+    /// </summary>
+    private static bool TryRedeemUnlockCode()
+    {
+        var secret = OverlayState.Settings.Get("unlock_secret");
+        if (string.IsNullOrWhiteSpace(secret)) return false;
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var minCounter = long.TryParse(OverlayState.Settings.Get("unlock_last_counter"), out var last)
+            ? last
+            : long.MinValue;
+
+        // window=2 (±60s) tolerates the delay of reading the code over the phone.
+        if (!UnlockCode.Verify(secret, EnteredText(), now, 2, minCounter, out var matched))
+            return false;
+
+        OverlayState.Settings.Set("unlock_last_counter", matched.ToString());
+        var bonus = OverlayState.Settings.GetInt("unlock_bonus_minutes", 30);
+        OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), bonus);
+        OverlayState.ScheduleOverride = true;
+        OverlayState.Persist();
+        OverlayLog.Write($"unlock code redeemed (+{bonus} min)");
+        return true;
     }
 
     private static void ClearEdit()
@@ -240,7 +274,8 @@ internal static class LockScreen
             WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_CENTER | ES_PASSWORD | ES_NUMBER,
             cx - fieldW / 2, py + 322, fieldW, fieldH,
             hwnd, new IntPtr(IdEdit), hInstance, IntPtr.Zero);
-        SendMessageW(_edit, EM_SETLIMITTEXT, new IntPtr(4), IntPtr.Zero);
+        // Accept up to 6 digits: a 4-digit parent PIN or a 6-digit offline unlock code.
+        SendMessageW(_edit, EM_SETLIMITTEXT, new IntPtr(6), IntPtr.Zero);
         if (_fontControl != IntPtr.Zero)
             SendMessageW(_edit, WM_SETFONT, _fontControl, new IntPtr(1));
 
@@ -265,6 +300,7 @@ internal static class LockScreen
         {
             case IdUnlock:
                 if (PasscodeMatches()) { OverlayState.ScheduleOverride = true; Hide(); }
+                else if (TryRedeemUnlockCode()) { if (OverlayState.ShouldBlock) ClearEdit(); else Hide(); }
                 else Reject(hwnd);
                 break;
             case IdExtend15: Extend(hwnd, 15); break;
