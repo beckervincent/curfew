@@ -104,6 +104,7 @@ begin
     '}' + #13#10 +
     '' + #13#10 +
     'Get-Process -Name "Curfew.App","Curfew.Overlay","Curfew.Service" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
+    'schtasks /delete /tn "CurfewOverlay" /f 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Milliseconds 500' + #13#10 +
     '' + #13#10 +
     'foreach ($p in @($dir, (Join-Path $env:ProgramData "{#DataFolder}"))) {' + #13#10 +
@@ -212,6 +213,18 @@ begin
     'Set-Acl $dbDir $dbAcl' + #13#10 +
     '' + #13#10 +
     '& $nssm start $svc' + #13#10 +
+    '' + #13#10 +
+    '# Overlay launches via a logon scheduled task: a .NET app fails to start' + #13#10 +
+    '# under the service CreateProcessAsUser, but starts cleanly from Task' + #13#10 +
+    '# Scheduler. At-logon trigger, interactive Users principal, auto-restart.' + #13#10 +
+    '$overlay = Join-Path $dir "overlay\Curfew.Overlay.exe"' + #13#10 +
+    '$act = New-ScheduledTaskAction -Execute $overlay' + #13#10 +
+    '$trg = New-ScheduledTaskTrigger -AtLogOn' + #13#10 +
+    '$prn = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited' + #13#10 +
+    '$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)' + #13#10 +
+    '$set.ExecutionTimeLimit = "PT0S"' + #13#10 +
+    'Register-ScheduledTask -TaskName "CurfewOverlay" -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null' + #13#10 +
+    'Start-ScheduledTask -TaskName "CurfewOverlay"' + #13#10 +
     '' + #13#10 +
     'schtasks /delete /tn "CurfewAutoUpdate" /f 2>$null | Out-Null' + #13#10 +
     'Remove-Item -Recurse -Force (Join-Path $dbDir "update") -EA SilentlyContinue' + #13#10;

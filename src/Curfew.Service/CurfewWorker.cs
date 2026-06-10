@@ -15,14 +15,14 @@ public sealed class CurfewWorker : BackgroundService
     private static readonly TimeSpan SlowInterval = TimeSpan.FromHours(6);
 
     private readonly ILogger<CurfewWorker> _logger;
-    private readonly SessionManager _sessions = new(SessionManager.DefaultAppPath());
+    private readonly SessionManager _sessions = new();
 
     public CurfewWorker(ILogger<CurfewWorker> logger) => _logger = logger;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Curfew service started");
-        ServiceLog.Write($"service started; overlay path = {SessionManager.DefaultAppPath()}");
+        ServiceLog.Write("service started");
 
         // Content filter + network watch run off the spawn loop so a slow or
         // hung PowerShell call can never stop the overlay from launching.

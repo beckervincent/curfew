@@ -1,63 +1,37 @@
+using System.Diagnostics;
+
 namespace Curfew.Service;
 
 /// <summary>
-/// Keeps the tray app running in every interactive session. A single poll loop
-/// both spawns the app on login and respawns it within seconds if it is killed
-/// (the watchdog failsafe) — a standard user cannot stop the SYSTEM service
-/// that does this.
+/// Ensures the overlay runs in every active session. The overlay is launched
+/// through a logon scheduled task (a .NET app fails to initialize when started
+/// via CreateProcessAsUser, but starts cleanly from Task Scheduler). The
+/// installer registers the task with an at-logon trigger; this re-triggers it
+/// when an active session has no overlay — the watchdog.
 /// </summary>
 internal sealed class SessionManager
 {
-    private readonly string _appExePath;
-    private readonly Dictionary<uint, IntPtr> _processes = new();
+    public const string TaskName = "CurfewOverlay";
 
-    public SessionManager(string appExePath) => _appExePath = appExePath;
-
-    /// <summary>The Win32 overlay executable spawned into each session. It is a
-    /// plain Win32 app (no WinUI), which starts reliably under the service's
-    /// CreateProcessAsUser; the WinUI dialogs are launched separately by the
-    /// user.</summary>
-    public static string DefaultAppPath()
-    {
-        var serviceDir = AppContext.BaseDirectory;
-        var overlayExe = Path.GetFullPath(Path.Combine(serviceDir, "..", "overlay", "Curfew.Overlay.exe"));
-        if (File.Exists(overlayExe)) return overlayExe;
-        // Fall back to a sibling file in the same directory (dev layout).
-        return Path.Combine(serviceDir, "Curfew.Overlay.exe");
-    }
-
-    /// <summary>One poll pass: spawn missing apps, drop dead/ended sessions.</summary>
+    /// <summary>Re-run the overlay task when an active session lacks it.</summary>
     public void Tick()
     {
         var active = SessionInterop.ActiveSessions();
-        var activeSet = new HashSet<uint>(active);
+        if (active.Count == 0) return;
 
-        // Forget sessions that ended.
-        foreach (var sessionId in _processes.Keys.Where(id => !activeSet.Contains(id)).ToList())
+        var overlaySessions = new HashSet<uint>();
+        foreach (var p in Process.GetProcessesByName("Curfew.Overlay"))
         {
-            SessionInterop.Close(_processes[sessionId]);
-            _processes.Remove(sessionId);
+            try { overlaySessions.Add((uint)p.SessionId); }
+            catch { /* process exited */ }
+            finally { p.Dispose(); }
         }
 
-        foreach (var sessionId in active)
+        var missing = active.Any(s => !overlaySessions.Contains(s));
+        if (missing)
         {
-            var running = _processes.TryGetValue(sessionId, out var handle)
-                          && !SessionInterop.HasProcessExited(handle);
-            if (running) continue;
-
-            if (handle != IntPtr.Zero) SessionInterop.Close(handle);
-            _processes.Remove(sessionId);
-
-            var (newHandle, error) = SessionInterop.LaunchInSession(sessionId, _appExePath);
-            if (newHandle != IntPtr.Zero)
-            {
-                _processes[sessionId] = newHandle;
-                ServiceLog.Write($"spawned overlay in session {sessionId}");
-            }
-            else
-            {
-                ServiceLog.Write($"spawn FAILED in session {sessionId}, win32err={error}");
-            }
+            PowerShellRunner.Run($"schtasks /run /tn {TaskName}");
+            ServiceLog.Write("triggered overlay task (a session had none)");
         }
     }
 }
