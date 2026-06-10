@@ -29,6 +29,7 @@ public sealed class CurfewWorker : BackgroundService
             while (!stoppingToken.IsCancellationRequested)
             {
                 EnforceTimeGuard();
+                await CheckForUpdatesAsync(stoppingToken);
                 await Task.Delay(TimeGuardInterval, stoppingToken);
             }
         }
@@ -70,6 +71,20 @@ public sealed class CurfewWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Time guard enforcement failed");
+        }
+    }
+
+    private async Task CheckForUpdatesAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var settings = OpenSettings();
+            var version = typeof(CurfewWorker).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+            await UpdateService.RunAsync(settings, version, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Update check failed");
         }
     }
 
