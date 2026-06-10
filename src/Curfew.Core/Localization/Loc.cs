@@ -81,6 +81,12 @@ public static class Loc
             ["lock.default.message"] = "Screen time limit reached for today.",
             ["lock.extend.minutes"] = "+{0} min",
 
+            // System tray + warnings
+            ["tray.settings"] = "Open Settings",
+            ["tray.left"] = "Curfew · {0} left",
+            ["tray.idle"] = "Curfew",
+            ["warn.default"] = "Screen time is almost up.",
+
             // Setup wizard
             ["setup.title"] = "Set up Curfew",
             ["setup.subtitle"] = "Create an administrator PIN and choose how screen time is enforced. You can fine-tune everything later in Settings.",
@@ -199,6 +205,11 @@ public static class Loc
             ["lock.exceeded"] = "Zeitlimit überschritten",
             ["lock.default.message"] = "Bildschirmzeit für heute erreicht.",
             ["lock.extend.minutes"] = "+{0} Min",
+
+            ["tray.settings"] = "Einstellungen öffnen",
+            ["tray.left"] = "Curfew · {0} übrig",
+            ["tray.idle"] = "Curfew",
+            ["warn.default"] = "Die Bildschirmzeit ist fast aufgebraucht.",
 
             ["setup.title"] = "Curfew einrichten",
             ["setup.subtitle"] = "Erstelle eine Administrator-PIN und lege fest, wie die Bildschirmzeit geregelt wird. Alles lässt sich später in den Einstellungen anpassen.",

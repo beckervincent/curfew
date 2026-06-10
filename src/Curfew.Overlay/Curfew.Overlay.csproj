@@ -9,6 +9,8 @@
     <AssemblyName>Curfew.Overlay</AssemblyName>
     <RootNamespace>Curfew.Overlay</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Embeds the app icon so the tray icon (ExtractIcon on our exe) is the real one. -->
+    <ApplicationIcon>..\..\resources\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

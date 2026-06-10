@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Curfew.Core;
+using Curfew.Core.Localization;
 using Curfew.Overlay;
 using static Curfew.Overlay.Native;
 
@@ -110,6 +111,8 @@ namespace Curfew.Overlay
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             SetTimer(hwnd, new IntPtr(1), 1000, IntPtr.Zero);
 
+            TrayIcon.Add(hwnd, hInstance);
+
             // Pre-create the lock window; show it immediately if already blocked.
             LockScreen.Register(hInstance);
             if (OverlayState.ShouldBlock) LockScreen.Show();
@@ -142,7 +145,12 @@ namespace Curfew.Overlay
                     Tick(hwnd);
                     return IntPtr.Zero;
 
+                case TrayIcon.WM_TRAYICON:
+                    TrayIcon.OnMessage(hwnd, lParam);
+                    return IntPtr.Zero;
+
                 case WM_DESTROY:
+                    TrayIcon.Remove();
                     PostQuitMessage(0);
                     return IntPtr.Zero;
 
@@ -169,11 +177,37 @@ namespace Curfew.Overlay
             // A reopened schedule window clears any parent override.
             if (OverlayState.ScheduleAllows()) OverlayState.ScheduleOverride = false;
 
+            UpdateTray();
+
             // Repaint without erasing (false): WM_PAINT redraws everything and
             // WM_ERASEBKGND is suppressed, so this stays flicker-free.
             InvalidateRect(hwnd, IntPtr.Zero, false);
 
             if (OverlayState.ShouldBlock) LockScreen.Show();
+        }
+
+        /// <summary>Refreshes the tray tooltip and raises a balloon at each warning threshold.</summary>
+        private static void UpdateTray()
+        {
+            TrayIcon.UpdateTooltip(OverlayState.LimitEnabled
+                ? Loc.T("tray.left", TimeMath.FormatCompact(OverlayState.Remaining))
+                : Loc.T("tray.idle"));
+
+            if (!OverlayState.LimitEnabled) return;
+
+            var warn1 = OverlayState.Settings.GetInt("warning1_minutes", 10);
+            var warn2 = OverlayState.Settings.GetInt("warning2_minutes", 5);
+
+            if (TimeKeeper.WarningFires(OverlayState.Remaining, warn1))
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), WarningMessage("warning1_message"));
+            else if (TimeKeeper.WarningFires(OverlayState.Remaining, warn2))
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), WarningMessage("warning2_message"));
+        }
+
+        private static string WarningMessage(string key)
+        {
+            var message = OverlayState.Settings.Get(key);
+            return string.IsNullOrWhiteSpace(message) ? Loc.T("warn.default") : message;
         }
 
         /// <summary>
