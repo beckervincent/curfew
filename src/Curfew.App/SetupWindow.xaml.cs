@@ -1,4 +1,5 @@
 using Curfew.Core;
+using Curfew.Core.Localization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
@@ -49,7 +50,7 @@ public sealed partial class SetupWindow : Window
     private void ApplyWindowChrome()
     {
         AppWindow.Resize(WindowSize);
-        WindowEffects.Apply(this, "Set up Curfew", TitleBar);
+        WindowEffects.Apply(this, Loc.T("setup.title"), TitleBar);
     }
 
     /// <summary>
@@ -77,13 +78,13 @@ public sealed partial class SetupWindow : Window
 
         if (pin.Length != PinLength || !pin.All(char.IsAsciiDigit))
         {
-            ShowError($"PIN must be exactly {PinLength} digits.");
+            ShowError(Loc.T("setup.err.pinlen", PinLength));
             return false;
         }
 
         if (pin != ConfirmBox.Password)
         {
-            ShowError("PINs do not match.");
+            ShowError(Loc.T("setup.err.pinmatch"));
             return false;
         }
 
