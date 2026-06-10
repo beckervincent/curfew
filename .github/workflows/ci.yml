@@ -32,6 +32,19 @@ jobs:
       - name: Build WinUI app (x64)
         run: dotnet build src/Curfew.App/Curfew.App.csproj -c Release -p:Platform=x64 -v detailed -bl:winui.binlog
 
+      - name: Dump XAML compiler diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $dir = "src/Curfew.App/obj/x64/Release"
+          Get-ChildItem -Recurse $dir -Filter output.json -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "===== $($_.FullName) ====="
+            Get-Content $_.FullName
+          }
+          Get-ChildItem -Recurse $dir -Filter *.json -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'rror|iagnost' } | ForEach-Object {
+              Write-Host "===== $($_.FullName) ====="; Get-Content $_.FullName }
+
       - name: Upload WinUI build log
         if: always()
         uses: actions/upload-artifact@v4
