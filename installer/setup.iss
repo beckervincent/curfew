@@ -92,17 +92,24 @@ begin
     '$nssm = "' + NssmExe + '"' + #13#10 +
     '$dir  = "' + AppDir  + '"' + #13#10 +
     '' + #13#10 +
+    '# 1. Stop and remove the service first (nssm, with sc.exe as a fallback).' + #13#10 +
     'if (Test-Path $nssm) {' + #13#10 +
     '    & $nssm stop   $svc 2>$null' + #13#10 +
     '    Start-Sleep -Seconds 2' + #13#10 +
     '    & $nssm remove $svc confirm 2>$null' + #13#10 +
     '    Start-Sleep -Seconds 1' + #13#10 +
-    '} else {' + #13#10 +
-    '    sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
-    '    Start-Sleep -Seconds 2' + #13#10 +
-    '    sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
     '}' + #13#10 +
+    'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
+    'Start-Sleep -Seconds 1' + #13#10 +
+    'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
+    'Start-Sleep -Milliseconds 500' + #13#10 +
     '' + #13#10 +
+    '# 2. Kill any leftover nssm.exe host so the service stops and its file unlocks.' + #13#10 +
+    'Get-Process -Name nssm -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
+    'taskkill /f /im nssm.exe 2>$null | Out-Null' + #13#10 +
+    'Start-Sleep -Milliseconds 500' + #13#10 +
+    '' + #13#10 +
+    '# 3. Kill the app/overlay/service processes and the overlay task.' + #13#10 +
     'Get-Process -Name "Curfew.App","Curfew.Overlay","Curfew.Service" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
     'schtasks /delete /tn "CurfewOverlay" /f 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Milliseconds 500' + #13#10 +
