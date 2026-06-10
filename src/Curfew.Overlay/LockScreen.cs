@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Curfew.Core;
+using Curfew.Core.Localization;
 using static Curfew.Overlay.Native;
 using static Curfew.Overlay.LockNative;
 
@@ -228,9 +229,9 @@ internal static class LockScreen
         var rowW = extW * 3 + gap * 2;
         var rowX = cx - rowW / 2;
         var extY = py + 224;
-        AddButton(hwnd, hInstance, "+15 min", IdExtend15, rowX, extY, extW, extH);
-        AddButton(hwnd, hInstance, "+30 min", IdExtend30, rowX + extW + gap, extY, extW, extH);
-        AddButton(hwnd, hInstance, "+60 min", IdExtend60, rowX + (extW + gap) * 2, extY, extW, extH);
+        AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 15), IdExtend15, rowX, extY, extW, extH);
+        AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 30), IdExtend30, rowX + extW + gap, extY, extW, extH);
+        AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 60), IdExtend60, rowX + (extW + gap) * 2, extY, extW, extH);
 
         // Passcode field, centred and generously sized.
         const int fieldW = 240, fieldH = 44;
@@ -245,8 +246,8 @@ internal static class LockScreen
 
         // Primary unlock action, then the destructive shutdown action below it.
         const int actW = 240, actH = 44;
-        AddButton(hwnd, hInstance, "Unlock", IdUnlock, cx - actW / 2, py + 376, actW, actH);
-        AddButton(hwnd, hInstance, "Shut Down Computer", IdShutdown, cx - actW / 2, py + 428, actW, actH);
+        AddButton(hwnd, hInstance, Loc.T("lock.unlock"), IdUnlock, cx - actW / 2, py + 376, actW, actH);
+        AddButton(hwnd, hInstance, Loc.T("lock.shutdown"), IdShutdown, cx - actW / 2, py + 428, actW, actH);
     }
 
     private static void AddButton(IntPtr parent, IntPtr hInstance, string text, int id, int x, int y, int w, int h)
@@ -270,8 +271,8 @@ internal static class LockScreen
             case IdExtend30: Extend(hwnd, 30); break;
             case IdExtend60: Extend(hwnd, 60); break;
             case IdShutdown:
-                if (MessageBoxW(hwnd, "Are you sure you want to shut down the computer?",
-                        "Confirm Shutdown", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES)
+                if (MessageBoxW(hwnd, Loc.T("lock.shutdown.confirm.text"),
+                        Loc.T("lock.shutdown.confirm.title"), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES)
                 {
                     LockNative.Shutdown();
                 }
@@ -359,30 +360,30 @@ internal static class LockScreen
         var innerW = PanelWidth - 56;
 
         // Title reflects why we're locked.
-        var title = OverlayState.BudgetBlocked ? "Time's Up" : "Outside Allowed Hours";
+        var title = OverlayState.BudgetBlocked ? Loc.T("lock.title.budget") : Loc.T("lock.title.schedule");
         DrawText(hdc, _fontTitle, title, innerX, py + 34, innerW, 56, ColorWhite, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         // Shutdown countdown — escalates colour as the clock runs out.
         var (countdownText, countdownColor) = _shutdownCountdown switch
         {
-            >= 0 and <= 60 => ($"Shutting down in {_shutdownCountdown}s", ColorRed),
-            <= 120 and > 60 => ($"Shutdown in {TimeMath.FormatDuration(_shutdownCountdown)}", ColorWarn),
-            > 120 => ($"Shutdown in {TimeMath.FormatDuration(_shutdownCountdown)}", ColorAccent),
-            _ => ("Time limit exceeded", ColorAccent),
+            >= 0 and <= 60 => (Loc.T("lock.shutdown.in.short", _shutdownCountdown), ColorRed),
+            <= 120 and > 60 => (Loc.T("lock.shutdown.in.long", TimeMath.FormatDuration(_shutdownCountdown)), ColorWarn),
+            > 120 => (Loc.T("lock.shutdown.in.long", TimeMath.FormatDuration(_shutdownCountdown)), ColorAccent),
+            _ => (Loc.T("lock.exceeded"), ColorAccent),
         };
         DrawText(hdc, _fontCountdown, countdownText, innerX, py + 98, innerW, 40, countdownColor, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         var message = OverlayState.Settings.Get("blocking_message");
-        if (string.IsNullOrWhiteSpace(message)) message = "Screen time limit reached for today.";
+        if (string.IsNullOrWhiteSpace(message)) message = Loc.T("lock.default.message");
         DrawText(hdc, _fontBody, message, innerX, py + 150, innerW, 48, ColorLight, DT_CENTER | DT_WORDBREAK);
 
         // Section captions sit directly above their controls.
-        DrawText(hdc, _fontCaption, "EXTEND TIME (REQUIRES PASSCODE)", innerX, py + 200, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
-        DrawText(hdc, _fontCaption, "ENTER PASSCODE TO UNLOCK", innerX, py + 296, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
+        DrawText(hdc, _fontCaption, Loc.T("lock.extend.caption"), innerX, py + 200, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
+        DrawText(hdc, _fontCaption, Loc.T("lock.enter.caption"), innerX, py + 296, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
 
         // Inline error feedback below the field, replacing the unlock caption gap.
         if (_error)
-            DrawText(hdc, _fontError, "Incorrect passcode — try again", innerX, py + 296, innerW, 20, ColorRed, DT_CENTER | DT_SINGLELINE);
+            DrawText(hdc, _fontError, Loc.T("lock.incorrect"), innerX, py + 296, innerW, 20, ColorRed, DT_CENTER | DT_SINGLELINE);
 
         EndPaint(hwnd, ref ps);
     }
