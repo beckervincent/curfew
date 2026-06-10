@@ -50,7 +50,7 @@
                 <StackPanel Spacing="12" Padding="0,4,0,8">
                     <PasswordBox x:Name="PinBox"
                                  Header="{local:Loc Key=setup.pin.field}"
-                                 MaxLength="4"
+                                 MaxLength="64"
                                  Width="220"
                                  HorizontalAlignment="Left"
                                  TabIndex="1"
@@ -60,7 +60,7 @@
                                  ToolTipService.ToolTip="Enter a 4-digit numeric PIN" />
                     <PasswordBox x:Name="ConfirmBox"
                                  Header="{local:Loc Key=setup.pin.confirm}"
-                                 MaxLength="4"
+                                 MaxLength="64"
                                  Width="220"
                                  HorizontalAlignment="Left"
                                  TabIndex="2"

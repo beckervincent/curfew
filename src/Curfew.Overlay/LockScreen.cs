@@ -134,11 +134,8 @@ internal static class LockScreen
         return new string(buffer, 0, Math.Clamp(len, 0, buffer.Length));
     }
 
-    private static bool PasscodeMatches()
-    {
-        var stored = OverlayState.Settings.Get("passcode");
-        return !string.IsNullOrEmpty(stored) && EnteredText() == stored;
-    }
+    private static bool PasscodeMatches() =>
+        PasscodeHash.Verify(EnteredText(), OverlayState.Settings.Get("passcode"));
 
     /// <summary>
     /// Redeems a valid offline unlock code (TOTP): grants the configured bonus
@@ -269,13 +266,14 @@ internal static class LockScreen
 
         // Passcode field, centred and generously sized.
         const int fieldW = 240, fieldH = 44;
+        // No ES_NUMBER: the passcode may be a PIN or a full password (any
+        // characters). A 6-digit offline unlock code is still typeable here.
         _edit = CreateWindowExW(
             0, "EDIT", "",
-            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_CENTER | ES_PASSWORD | ES_NUMBER,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_CENTER | ES_PASSWORD,
             cx - fieldW / 2, py + 322, fieldW, fieldH,
             hwnd, new IntPtr(IdEdit), hInstance, IntPtr.Zero);
-        // Accept up to 6 digits: a 4-digit parent PIN or a 6-digit offline unlock code.
-        SendMessageW(_edit, EM_SETLIMITTEXT, new IntPtr(6), IntPtr.Zero);
+        SendMessageW(_edit, EM_SETLIMITTEXT, new IntPtr(64), IntPtr.Zero);
         if (_fontControl != IntPtr.Zero)
             SendMessageW(_edit, WM_SETFONT, _fontControl, new IntPtr(1));
 

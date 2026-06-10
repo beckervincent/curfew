@@ -1,5 +1,6 @@
 using Curfew.Core;
 using Curfew.Core.Localization;
+using Curfew.Core.Security;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
@@ -19,8 +20,8 @@ namespace Curfew.App;
 /// </remarks>
 public sealed partial class SetupWindow : Window
 {
-    /// <summary>Administrator PINs are exactly this many decimal digits.</summary>
-    private const int PinLength = 4;
+    /// <summary>Minimum passcode length; any characters (PIN or password) are allowed.</summary>
+    private const int PinLength = PasscodeHash.MinLength;
 
     /// <summary>Hours-per-day applied when the <c>NumberBox</c> value is blank/NaN.</summary>
     private const double DefaultHoursPerDay = 2.0;
@@ -76,7 +77,7 @@ public sealed partial class SetupWindow : Window
     {
         pin = PinBox.Password;
 
-        if (pin.Length != PinLength || !pin.All(char.IsAsciiDigit))
+        if (pin.Length < PinLength)
         {
             ShowError(Loc.T("setup.err.pinlen", PinLength));
             return false;
@@ -94,7 +95,7 @@ public sealed partial class SetupWindow : Window
     /// <summary>Writes every wizard choice to the store and marks setup complete.</summary>
     private void PersistConfiguration(string pin)
     {
-        _settings.Set("passcode", pin);
+        _settings.Set("passcode", PasscodeHash.Hash(pin));
         _settings.Set("limit_enabled", ToFlag(LimitEnabled.IsOn));
         _settings.Set("schedule_enabled", ToFlag(ScheduleEnabled.IsOn));
 

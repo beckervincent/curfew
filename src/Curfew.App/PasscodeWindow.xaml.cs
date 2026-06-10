@@ -1,4 +1,5 @@
 using Curfew.Core;
+using Curfew.Core.Security;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
@@ -85,8 +86,7 @@ public sealed partial class PasscodeWindow : Window
     /// </summary>
     private bool IsPasscodeCorrect(string? entered)
     {
-        var stored = _settings.Get(PasscodeKey);
-        return !string.IsNullOrEmpty(stored) && entered == stored;
+        return PasscodeHash.Verify(entered, _settings.Get(PasscodeKey));
     }
 
     /// <summary>Reveals the error message and resets the input for another attempt.</summary>

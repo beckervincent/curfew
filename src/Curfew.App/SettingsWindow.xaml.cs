@@ -26,8 +26,8 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Number of editable weekdays (Monday … Sunday).</summary>
     private const int DayCount = 7;
 
-    /// <summary>Passcodes are fixed-length, digit-only PINs.</summary>
-    private const int PasscodeLength = 4;
+    /// <summary>Minimum passcode length; any characters (PIN or password) are allowed.</summary>
+    private const int PasscodeLength = PasscodeHash.MinLength;
 
     private readonly SettingsStore _settings;
 
@@ -297,13 +297,12 @@ public sealed partial class SettingsWindow : Window
         var confirm = ConfirmPin.Password;
         if (newPin.Length == 0 && confirm.Length == 0) return true;
 
-        var stored = _settings.Get("passcode") ?? "";
-        if (CurrentPin.Password != stored)
+        if (!PasscodeHash.Verify(CurrentPin.Password, _settings.Get("passcode")))
         {
             ShowError(Loc.T("settings.err.currentwrong"));
             return false;
         }
-        if (newPin.Length != PasscodeLength || !newPin.All(char.IsAsciiDigit))
+        if (newPin.Length < PasscodeLength)
         {
             ShowError(Loc.T("settings.err.newlen", PasscodeLength));
             return false;
@@ -314,7 +313,7 @@ public sealed partial class SettingsWindow : Window
             return false;
         }
 
-        _settings.Set("passcode", newPin);
+        _settings.Set("passcode", PasscodeHash.Hash(newPin));
         return true;
     }
 

@@ -253,14 +253,14 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <PasswordBox x:Name="CurrentPin" Header="{local:Loc Key=settings.passcode.current}" MaxLength="4" Grid.Column="0"
+                    <PasswordBox x:Name="CurrentPin" Header="{local:Loc Key=settings.passcode.current}" MaxLength="64" Grid.Column="0"
                                  TabIndex="0" PlaceholderText="• • • •"
                                  AutomationProperties.Name="Current passcode" />
-                    <PasswordBox x:Name="NewPin" Header="{local:Loc Key=settings.passcode.new}" MaxLength="4" Grid.Column="1"
+                    <PasswordBox x:Name="NewPin" Header="{local:Loc Key=settings.passcode.new}" MaxLength="64" Grid.Column="1"
                                  TabIndex="1" PlaceholderText="• • • •"
                                  AutomationProperties.HelpText="{local:Loc Key=settings.passcode.help.new}"
                                  AutomationProperties.Name="New passcode" />
-                    <PasswordBox x:Name="ConfirmPin" Header="{local:Loc Key=settings.passcode.confirm}" MaxLength="4" Grid.Column="2"
+                    <PasswordBox x:Name="ConfirmPin" Header="{local:Loc Key=settings.passcode.confirm}" MaxLength="64" Grid.Column="2"
                                  TabIndex="2"  PlaceholderText="• • • •"
                                  AutomationProperties.Name="Confirm new passcode" />
                 </Grid>

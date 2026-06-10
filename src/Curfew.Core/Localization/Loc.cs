@@ -92,7 +92,7 @@ public static class Loc
             ["setup.subtitle"] = "Create an administrator PIN and choose how screen time is enforced. You can fine-tune everything later in Settings.",
             ["setup.pin.header"] = "Administrator PIN",
             ["setup.pin.desc"] = "Required to change settings or unlock the device",
-            ["setup.pin.field"] = "4-digit PIN",
+            ["setup.pin.field"] = "PIN or password",
             ["setup.pin.confirm"] = "Confirm PIN",
             ["setup.limits.header"] = "Time limits",
             ["setup.limits.desc"] = "Control how long and when the device can be used",
@@ -111,7 +111,7 @@ public static class Loc
             ["setup.timeguard.title"] = "Time Manipulation Guarding",
             ["setup.timeguard.desc"] = "Detects and reverses clock changes used to dodge limits",
             ["setup.continue"] = "Continue",
-            ["setup.err.pinlen"] = "PIN must be exactly {0} digits.",
+            ["setup.err.pinlen"] = "PIN or password must be at least {0} characters.",
             ["setup.err.pinmatch"] = "PINs do not match.",
 
             // Content-filter choices (shared by setup and settings)
@@ -137,7 +137,7 @@ public static class Loc
 
             // Passcode prompt
             ["passcode.title"] = "Enter passcode",
-            ["passcode.subtitle"] = "Enter your 4-digit PIN to continue.",
+            ["passcode.subtitle"] = "Enter your PIN or password to continue.",
             ["passcode.error.title"] = "Incorrect passcode",
             ["passcode.error.msg"] = "Please check the PIN and try again.",
 
@@ -170,10 +170,10 @@ public static class Loc
             ["settings.passcode.current"] = "Current",
             ["settings.passcode.new"] = "New",
             ["settings.passcode.confirm"] = "Confirm",
-            ["settings.passcode.help.new"] = "New passcode must be exactly 4 digits",
+            ["settings.passcode.help.new"] = "At least 4 characters",
             ["settings.err.currentwrong"] = "Current passcode is incorrect.",
             ["settings.err.newmatch"] = "New passcode and confirmation do not match.",
-            ["settings.err.newlen"] = "New passcode must be exactly {0} digits.",
+            ["settings.err.newlen"] = "Passcode must be at least {0} characters.",
 
             // Usage history
             ["settings.history.title"] = "Usage history",
@@ -215,7 +215,7 @@ public static class Loc
             ["setup.subtitle"] = "Erstelle eine Administrator-PIN und lege fest, wie die Bildschirmzeit geregelt wird. Alles lässt sich später in den Einstellungen anpassen.",
             ["setup.pin.header"] = "Administrator-PIN",
             ["setup.pin.desc"] = "Erforderlich, um Einstellungen zu ändern oder das Gerät zu entsperren",
-            ["setup.pin.field"] = "4-stellige PIN",
+            ["setup.pin.field"] = "PIN oder Passwort",
             ["setup.pin.confirm"] = "PIN bestätigen",
             ["setup.limits.header"] = "Zeitlimits",
             ["setup.limits.desc"] = "Steuere, wie lange und wann das Gerät genutzt werden darf",
@@ -234,7 +234,7 @@ public static class Loc
             ["setup.timeguard.title"] = "Schutz vor Zeitmanipulation",
             ["setup.timeguard.desc"] = "Erkennt und korrigiert Uhränderungen zum Umgehen der Limits",
             ["setup.continue"] = "Weiter",
-            ["setup.err.pinlen"] = "Die PIN muss genau {0} Ziffern haben.",
+            ["setup.err.pinlen"] = "PIN oder Passwort muss mindestens {0} Zeichen haben.",
             ["setup.err.pinmatch"] = "Die PINs stimmen nicht überein.",
 
             ["filter.none"] = "Keiner",
@@ -256,7 +256,7 @@ public static class Loc
             ["common.save"] = "Speichern",
 
             ["passcode.title"] = "PIN eingeben",
-            ["passcode.subtitle"] = "Gib deine 4-stellige PIN ein, um fortzufahren.",
+            ["passcode.subtitle"] = "Gib deine PIN oder dein Passwort ein, um fortzufahren.",
             ["passcode.error.title"] = "Falsche PIN",
             ["passcode.error.msg"] = "Bitte PIN prüfen und erneut versuchen.",
 
@@ -288,10 +288,10 @@ public static class Loc
             ["settings.passcode.current"] = "Aktuell",
             ["settings.passcode.new"] = "Neu",
             ["settings.passcode.confirm"] = "Bestätigen",
-            ["settings.passcode.help.new"] = "Neue PIN muss genau 4 Ziffern haben",
+            ["settings.passcode.help.new"] = "Mindestens 4 Zeichen",
             ["settings.err.currentwrong"] = "Aktuelle PIN ist falsch.",
             ["settings.err.newmatch"] = "Neue PIN und Bestätigung stimmen nicht überein.",
-            ["settings.err.newlen"] = "Neue PIN muss genau {0} Ziffern haben.",
+            ["settings.err.newlen"] = "Passwort muss mindestens {0} Zeichen haben.",
 
             ["settings.history.title"] = "Nutzungsverlauf",
             ["settings.history.desc"] = "Aktive Bildschirmzeit der letzten 7 Tage.",

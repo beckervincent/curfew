@@ -46,7 +46,7 @@
 
                 <!-- PIN input -->
                 <PasswordBox x:Name="PinBox"
-                             MaxLength="4"
+                             MaxLength="64"
                              Width="200"
                              HorizontalAlignment="Center"
                              PlaceholderText="••••"
