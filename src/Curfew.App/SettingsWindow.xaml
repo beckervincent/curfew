@@ -6,8 +6,11 @@
     xmlns:local="using:Curfew.App">
 
     <Window.Resources>
-        <!-- Muted secondary text used for section descriptions and hints. -->
-        <Style x:Key="SectionDescriptionStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <!-- Muted secondary text used for section descriptions and hints.
+             Defined standalone (no BasedOn) — the WinUI 3 XAML compiler crashes
+             on a compiled Style based on a merged-dictionary theme style. -->
+        <Style x:Key="SectionDescriptionStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
@@ -162,11 +165,11 @@
                     </StackPanel>
                 </Expander.Header>
                 <StackPanel Padding="0,4,0,4" Spacing="12">
-                    <RadioButtons AutomationProperties.Name="Content filtering level">
+                    <StackPanel Spacing="6" AutomationProperties.Name="Content filtering level">
                         <RadioButton x:Name="FilterOff" Content="None" GroupName="filter" />
                         <RadioButton x:Name="FilterMalware" Content="Block malware (Cloudflare 1.1.1.2)" GroupName="filter" />
                         <RadioButton x:Name="FilterFamily" Content="Block malware + adult content (Cloudflare 1.1.1.3)" GroupName="filter" />
-                    </RadioButtons>
+                    </StackPanel>
                     <ToggleSwitch x:Name="BlockDoh" Header="Also block DNS-over-HTTPS bypass"
                                   OnContent="On" OffContent="Off"
                                   ToolTipService.ToolTip="Prevent apps from bypassing the DNS filter with encrypted DNS" />
