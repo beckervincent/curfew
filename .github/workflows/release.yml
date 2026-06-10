@@ -61,7 +61,7 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           $tag = "v$version"
-          $installer = "screen-time-manager-setup-v$version.exe"
+          $installer = "curfew-setup-v$version.exe"
           $notes = @"
           ### Installation
 
