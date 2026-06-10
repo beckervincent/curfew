@@ -24,21 +24,41 @@ catch (Exception ex)
 
 namespace Curfew.Overlay
 {
-    /// <summary>Win32 mini countdown overlay. Plain Win32 so it starts reliably
-    /// when the service spawns it. The lock screen is added next.</summary>
+    /// <summary>
+    /// Win32 mini countdown overlay — a small, always-on-top reminder pill that
+    /// shows the remaining daily budget (or the wall clock in schedule-only mode).
+    /// Plain Win32 so it starts reliably when the service spawns it. The
+    /// full-screen passcode lock lives in <see cref="LockScreen"/>.
+    /// </summary>
     internal static class OverlayApp
     {
         private const string ClassName = "CurfewOverlayClass";
-        private const int Width = 160;
-        private const int Height = 44;
+
+        // Pill geometry. Kept compact so it reads as a gentle reminder rather
+        // than a banner; the accent bar on the left carries the colour state.
+        private const int Width = 168;
+        private const int Height = 46;
         private const int Margin = 12;
+        private const int AccentBarWidth = 5;
+        private const int TextInset = 16;
 
-        private const uint ColorBg = 0x00222222;
-        private const uint ColorWhite = 0x00FFFFFF;
-        private const uint ColorAccent = 0x00756CE0; // soft red (BGR)
-        private const uint ColorRed = 0x004444FF;
+        // Layered-window opacity (0–255). High enough to stay legible over busy
+        // wallpaper, low enough to feel unobtrusive.
+        private const byte Opacity = 225;
 
-        // Keep the delegate alive for the window's lifetime.
+        // DrawTextW left-alignment flag. DT_LEFT is 0x0 in Win32 but isn't
+        // exposed by Native, so define it locally for self-documenting calls.
+        private const int DT_LEFT = 0x0;
+
+        // Colours are 0x00BBGGRR (GDI COLORREF order).
+        private const uint ColorBg = 0x00222222;       // near-black panel
+        private const uint ColorLabel = 0x00A8A29A;    // muted grey caption
+        private const uint ColorWhite = 0x00F4F4F4;    // primary text (off-white)
+        private const uint ColorAmber = 0x00309CF0;    // warning  (~5 min) BGR
+        private const uint ColorRed = 0x004444FF;       // critical (<1 min) BGR
+
+        // Keep the delegate alive for the window's lifetime; if it were a local
+        // it could be collected while Win32 still holds the function pointer.
         private static readonly WndProc Proc = WindowProc;
 
         public static void Run()
@@ -55,12 +75,15 @@ namespace Curfew.Overlay
             var hInstance = GetModuleHandleW(null);
             OverlayLog.Write($"settings opened, remaining={OverlayState.Remaining}, hInstance={hInstance}");
 
+            // We own all painting (WM_PAINT) and erasing (WM_ERASEBKGND), so the
+            // class needs no background brush — that also avoids leaking one and
+            // prevents a single-colour flash before the first paint.
             var wc = new WNDCLASSW
             {
                 lpfnWndProc = Proc,
                 hInstance = hInstance,
                 lpszClassName = ClassName,
-                hbrBackground = CreateSolidBrush(ColorBg),
+                hbrBackground = IntPtr.Zero,
             };
             var atom = RegisterClassW(ref wc);
             OverlayLog.Write($"RegisterClassW atom={atom} err={Marshal.GetLastWin32Error()}");
@@ -80,8 +103,8 @@ namespace Curfew.Overlay
             }
             OverlayState.MiniHwnd = hwnd;
 
-            // Semi-transparent so it reads as a gentle reminder.
-            SetLayeredWindowAttributes(hwnd, 0, 220, LWA_ALPHA);
+            // Semi-transparent so it reads as a gentle reminder, not a wall.
+            SetLayeredWindowAttributes(hwnd, 0, Opacity, LWA_ALPHA);
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             SetTimer(hwnd, new IntPtr(1), 1000, IntPtr.Zero);
@@ -104,6 +127,12 @@ namespace Curfew.Overlay
         {
             switch (msg)
             {
+                case WM_ERASEBKGND:
+                    // Suppress the default erase: WM_PAINT repaints the whole
+                    // client area every time, so erasing first only causes
+                    // flicker. Returning non-zero tells Windows it's handled.
+                    return new IntPtr(1);
+
                 case WM_PAINT:
                     Paint(hwnd);
                     return IntPtr.Zero;
@@ -136,49 +165,104 @@ namespace Curfew.Overlay
             // A reopened schedule window clears any parent override.
             if (OverlayState.ScheduleAllows()) OverlayState.ScheduleOverride = false;
 
-            InvalidateRect(hwnd, IntPtr.Zero, true);
+            // Repaint without erasing (false): WM_PAINT redraws everything and
+            // WM_ERASEBKGND is suppressed, so this stays flicker-free.
+            InvalidateRect(hwnd, IntPtr.Zero, false);
 
             if (OverlayState.ShouldBlock) LockScreen.Show();
         }
 
+        /// <summary>
+        /// Paints the whole pill in one pass: panel fill, a colour-coded accent
+        /// bar, a small caption and the large remaining-time (or clock) value.
+        /// Every GDI object created here is released before returning, and the
+        /// DC's original objects are restored.
+        /// </summary>
         private static void Paint(IntPtr hwnd)
         {
             var hdc = BeginPaint(hwnd, out var ps);
             GetClientRect(hwnd, out var rect);
 
-            var bg = CreateSolidBrush(ColorBg);
-            FillRect(hdc, ref rect, bg);
-            DeleteObject(bg);
+            // 1. Solid panel background (single fill = no flicker).
+            var bgBrush = CreateSolidBrush(ColorBg);
+            FillRect(hdc, ref rect, bgBrush);
+            DeleteObject(bgBrush);
 
-            var font = CreateFontW(24, 0, 0, 0, 700, 0, 0, 0, 0, 0, 0, 0, 0, "Consolas");
-            var oldFont = SelectObject(hdc, font);
-            SetBkMode(hdc, TRANSPARENT);
-
-            // Show the remaining budget, or the wall clock in schedule-only mode.
-            string text;
-            uint color;
+            // Decide what to show and which accent colour represents its state.
+            string value;
+            string caption;
+            uint accent;
             if (OverlayState.LimitEnabled)
             {
-                text = TimeMath.FormatCompact(OverlayState.Remaining);
-                color = ColorForRemaining(OverlayState.Remaining);
+                value = TimeMath.FormatCompact(OverlayState.Remaining);
+                caption = "TIME LEFT";
+                accent = ColorForRemaining(OverlayState.Remaining);
             }
             else
             {
-                text = DateTime.Now.ToString("HH:mm");
-                color = ColorWhite;
+                value = DateTime.Now.ToString("HH:mm");
+                caption = "SCHEDULE";
+                accent = ColorWhite;
             }
-            SetTextColor(hdc, color);
-            DrawTextW(hdc, text, text.Length, ref rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-            SelectObject(hdc, oldFont);
-            DeleteObject(font);
+            // 2. Accent bar down the left edge — the at-a-glance status colour.
+            var barRect = new RECT
+            {
+                left = rect.left,
+                top = rect.top,
+                right = rect.left + AccentBarWidth,
+                bottom = rect.bottom,
+            };
+            var accentBrush = CreateSolidBrush(accent);
+            FillRect(hdc, ref barRect, accentBrush);
+            DeleteObject(accentBrush);
+
+            SetBkMode(hdc, TRANSPARENT);
+
+            // Text column: inset from the accent bar, padded on the right.
+            var textLeft = rect.left + AccentBarWidth + TextInset;
+            var textRight = rect.right - 10;
+
+            // 3. Caption: small, muted label sitting just above the value.
+            DrawText(hdc, caption, textLeft, rect.top + 6, textRight, rect.top + 22,
+                fontSize: 12, weight: 600, color: ColorLabel,
+                format: DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
+            // 4. The value itself: large, semibold, status-coloured for urgency
+            //    (critical = red, warning = amber, otherwise off-white).
+            var valueColor = OverlayState.LimitEnabled ? accent : ColorWhite;
+            DrawText(hdc, value, textLeft, rect.top + 18, textRight, rect.bottom - 4,
+                fontSize: 26, weight: 700, color: valueColor,
+                format: DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
             EndPaint(hwnd, ref ps);
         }
 
+        /// <summary>
+        /// Draws a single line of Segoe UI text into the given rectangle,
+        /// creating and releasing the font and restoring the DC's previous font.
+        /// </summary>
+        private static void DrawText(
+            IntPtr hdc, string text, int left, int top, int right, int bottom,
+            int fontSize, int weight, uint color, int format)
+        {
+            var font = CreateFontW(fontSize, 0, 0, 0, weight, 0, 0, 0, 0, 0, 0, 0, 0, "Segoe UI");
+            var oldFont = SelectObject(hdc, font);
+
+            SetTextColor(hdc, color);
+            var rect = new RECT { left = left, top = top, right = right, bottom = bottom };
+            DrawTextW(hdc, text, text.Length, ref rect, format);
+
+            SelectObject(hdc, oldFont);
+            DeleteObject(font);
+        }
+
+        /// <summary>Accent colour for the remaining budget: white normally,
+        /// amber in the last five minutes, red in the final minute.</summary>
         private static uint ColorForRemaining(int seconds)
         {
             if (seconds <= 60) return ColorRed;
-            if (seconds <= 300) return ColorAccent;
+            if (seconds <= 300) return ColorAmber;
             return ColorWhite;
         }
 

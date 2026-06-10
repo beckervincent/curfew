@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Curfew.Core;
 using static Curfew.Overlay.Native;
 using static Curfew.Overlay.LockNative;
@@ -13,12 +14,18 @@ internal static class LockScreen
 {
     private const string ClassName = "CurfewLockClass";
 
-    private const uint ColorOverlayBg = 0x001E1E2E;
-    private const uint ColorPanelBg = 0x00402828;
+    // GDI colours are 0x00BBGGRR (COLORREF byte order is R, G, B low-to-high).
+    private const uint ColorOverlayBg = 0x00211B14; // deep desaturated navy backdrop
+    private const uint ColorPanelBg = 0x00302622;   // card surface, a touch lighter than the backdrop
+    private const uint ColorPanelEdge = 0x004A3C36;  // subtle card border / inset highlight
+    private const uint ColorPanelShadow = 0x00171210; // soft drop-shadow band under the card
     private const uint ColorWhite = 0x00FFFFFF;
-    private const uint ColorLight = 0x00BBBBBB;
-    private const uint ColorAccent = 0x00756CE0;
-    private const uint ColorRed = 0x000000FF;
+    private const uint ColorLight = 0x00C8C2BD;       // muted body text
+    private const uint ColorMuted = 0x008A847F;       // captions / hints
+    private const uint ColorAccent = 0x00E06C75;      // brand accent (BGR of a soft red/violet)
+    private const uint ColorWarn = 0x000A7FFF;        // amber warning (BGR)
+    private const uint ColorRed = 0x000000FF;         // urgent red
+    private const uint ColorFieldBg = 0x001C1614;     // passcode field well
 
     private const int IdEdit = 101;
     private const int IdUnlock = 102;
@@ -30,13 +37,29 @@ internal static class LockScreen
     private const int TimerReassert = 2;
     private const int TimerCountdown = 3;
 
-    // Keep delegates alive.
+    // Card geometry (logical pixels). Centred on the primary monitor.
+    private const int PanelWidth = 560;
+    private const int PanelHeight = 500;
+
+    // Keep delegates alive for the lifetime of the process so the GC never
+    // collects the thunks that Win32 holds raw pointers to.
     private static readonly WndProc Proc = LockProc;
     private static readonly HookProc Hook = KeyboardHookProc;
 
     private static IntPtr _hwnd;
     private static IntPtr _edit;
     private static IntPtr _hook;
+
+    // Cached fonts/brushes created once and reused on every paint, then freed in
+    // Dispose. Reusing GDI handles avoids per-frame churn and keeps the countdown
+    // repaint cheap (it fires once a second).
+    private static IntPtr _fontTitle;
+    private static IntPtr _fontCountdown;
+    private static IntPtr _fontBody;
+    private static IntPtr _fontCaption;
+    private static IntPtr _fontError;
+    private static IntPtr _fontControl;
+
     private static int _shutdownCountdown = -1;
     private static bool _error;
 
@@ -47,7 +70,10 @@ internal static class LockScreen
             lpfnWndProc = Proc,
             hInstance = hInstance,
             lpszClassName = ClassName,
-            hbrBackground = CreateSolidBrush(ColorOverlayBg),
+            // No class background brush: we paint the whole client area in
+            // WM_PAINT and swallow WM_ERASEBKGND, which eliminates the flash of
+            // background that GDI would otherwise draw before each repaint.
+            hbrBackground = IntPtr.Zero,
         };
         RegisterClassW(ref wc);
 
@@ -72,7 +98,11 @@ internal static class LockScreen
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
         ShowWindow(_hwnd, SW_SHOW);
         SetForegroundWindow(_hwnd);
-        if (_edit != IntPtr.Zero) SetFocus(_edit);
+        if (_edit != IntPtr.Zero)
+        {
+            SetWindowTextW(_edit, "");
+            SetFocus(_edit);
+        }
 
         SetTimer(_hwnd, new IntPtr(TimerReassert), 500, IntPtr.Zero);
         SetTimer(_hwnd, new IntPtr(TimerCountdown), 1000, IntPtr.Zero);
@@ -99,7 +129,7 @@ internal static class LockScreen
         if (_edit == IntPtr.Zero) return false;
         var buffer = new char[16];
         var len = GetWindowTextW(_edit, buffer, buffer.Length);
-        var entered = new string(buffer, 0, Math.Max(0, len));
+        var entered = new string(buffer, 0, Math.Clamp(len, 0, buffer.Length));
         var stored = OverlayState.Settings.Get("passcode");
         return !string.IsNullOrEmpty(stored) && entered == stored;
     }
@@ -114,8 +144,15 @@ internal static class LockScreen
         switch (msg)
         {
             case WM_CREATE:
+                CreateFonts();
                 CreateControls(hwnd);
                 return IntPtr.Zero;
+
+            case WM_ERASEBKGND:
+                // Suppress default background erase; WM_PAINT fills everything.
+                // Returning non-zero tells Win32 the background is handled and
+                // prevents the white/flush flicker on each invalidate.
+                return new IntPtr(1);
 
             case WM_PAINT:
                 PaintLock(hwnd);
@@ -129,7 +166,11 @@ internal static class LockScreen
                 HandleTimer(hwnd, (int)(long)wParam);
                 return IntPtr.Zero;
 
-            case 0x0010: // WM_CLOSE — never close
+            case WM_DESTROY:
+                Dispose();
+                return IntPtr.Zero;
+
+            case WM_CLOSE: // never close — the lock owns the session until unlocked
                 return IntPtr.Zero;
 
             default:
@@ -137,36 +178,84 @@ internal static class LockScreen
         }
     }
 
+    private static void CreateFonts()
+    {
+        _fontTitle = MakeFont(46, 700);
+        _fontCountdown = MakeFont(30, 700);
+        _fontBody = MakeFont(19, 400);
+        _fontCaption = MakeFont(15, 600);
+        _fontError = MakeFont(16, 700);
+        _fontControl = MakeFont(17, 400);
+    }
+
+    private static IntPtr MakeFont(int height, int weight) =>
+        // CLEARTYPE_QUALITY (5) for crisp anti-aliased Segoe UI text.
+        CreateFontW(height, 0, 0, 0, weight, 0, 0, 0, 0, 0, 0, 5, 0, "Segoe UI");
+
+    private static void Dispose()
+    {
+        DeleteFont(ref _fontTitle);
+        DeleteFont(ref _fontCountdown);
+        DeleteFont(ref _fontBody);
+        DeleteFont(ref _fontCaption);
+        DeleteFont(ref _fontError);
+        DeleteFont(ref _fontControl);
+    }
+
+    private static void DeleteFont(ref IntPtr font)
+    {
+        if (font != IntPtr.Zero) { DeleteObject(font); font = IntPtr.Zero; }
+    }
+
+    // Panel-relative layout. Returns the card origin and exposes a running
+    // vertical cursor helper so the controls (WM_CREATE) and the painted text
+    // (WM_PAINT) stay perfectly aligned from a single source of truth.
+    private static (int px, int py) PanelOrigin()
+    {
+        var sw = GetSystemMetrics(SM_CXSCREEN);
+        var sh = GetSystemMetrics(SM_CYSCREEN);
+        return ((sw - PanelWidth) / 2, (sh - PanelHeight) / 2);
+    }
+
     private static void CreateControls(IntPtr hwnd)
     {
         var hInstance = GetModuleHandleW(null);
-        var sw = GetSystemMetrics(SM_CXSCREEN);
-        var sh = GetSystemMetrics(SM_CYSCREEN);
-        var panelY = (sh - 460) / 2;
-        var cx = sw / 2;
+        var (px, py) = PanelOrigin();
+        var cx = px + PanelWidth / 2;
 
-        // Extend buttons.
-        AddButton(hwnd, hInstance, "+15 min", IdExtend15, cx - 170, panelY + 200, 100, 38);
-        AddButton(hwnd, hInstance, "+30 min", IdExtend30, cx - 50, panelY + 200, 100, 38);
-        AddButton(hwnd, hInstance, "+60 min", IdExtend60, cx + 70, panelY + 200, 100, 38);
+        // Three evenly spaced extend buttons centred under the "Extend" caption.
+        const int extW = 130, extH = 42, gap = 16;
+        var rowW = extW * 3 + gap * 2;
+        var rowX = cx - rowW / 2;
+        var extY = py + 224;
+        AddButton(hwnd, hInstance, "+15 min", IdExtend15, rowX, extY, extW, extH);
+        AddButton(hwnd, hInstance, "+30 min", IdExtend30, rowX + extW + gap, extY, extW, extH);
+        AddButton(hwnd, hInstance, "+60 min", IdExtend60, rowX + (extW + gap) * 2, extY, extW, extH);
 
-        // Passcode edit.
+        // Passcode field, centred and generously sized.
+        const int fieldW = 240, fieldH = 44;
         _edit = CreateWindowExW(
             0, "EDIT", "",
-            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_CENTER | ES_PASSWORD | ES_NUMBER,
-            cx - 100, panelY + 270, 200, 40,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_CENTER | ES_PASSWORD | ES_NUMBER,
+            cx - fieldW / 2, py + 322, fieldW, fieldH,
             hwnd, new IntPtr(IdEdit), hInstance, IntPtr.Zero);
         SendMessageW(_edit, EM_SETLIMITTEXT, new IntPtr(4), IntPtr.Zero);
+        if (_fontControl != IntPtr.Zero)
+            SendMessageW(_edit, WM_SETFONT, _fontControl, new IntPtr(1));
 
-        AddButton(hwnd, hInstance, "Unlock", IdUnlock, cx - 100, panelY + 320, 200, 40);
-        AddButton(hwnd, hInstance, "Shut Down Computer", IdShutdown, cx - 100, panelY + 370, 200, 40);
+        // Primary unlock action, then the destructive shutdown action below it.
+        const int actW = 240, actH = 44;
+        AddButton(hwnd, hInstance, "Unlock", IdUnlock, cx - actW / 2, py + 376, actW, actH);
+        AddButton(hwnd, hInstance, "Shut Down Computer", IdShutdown, cx - actW / 2, py + 428, actW, actH);
     }
 
     private static void AddButton(IntPtr parent, IntPtr hInstance, string text, int id, int x, int y, int w, int h)
     {
-        CreateWindowExW(0, "BUTTON", text,
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        var btn = CreateWindowExW(0, "BUTTON", text,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
             x, y, w, h, parent, new IntPtr(id), hInstance, IntPtr.Zero);
+        if (btn != IntPtr.Zero && _fontControl != IntPtr.Zero)
+            SendMessageW(btn, WM_SETFONT, _fontControl, new IntPtr(1));
     }
 
     private static void HandleCommand(IntPtr hwnd, int id, int notify)
@@ -207,88 +296,119 @@ internal static class LockScreen
         _error = true;
         ClearEdit();
         SetFocus(_edit);
-        InvalidateRect(hwnd, IntPtr.Zero, true);
+        InvalidateRect(hwnd, IntPtr.Zero, false);
     }
 
     private static void HandleTimer(IntPtr hwnd, int id)
     {
         if (id == TimerReassert)
         {
+            // Stay clamped to the top of the Z-order without stealing focus from
+            // the passcode field on every tick.
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
         else if (id == TimerCountdown)
         {
             if (_shutdownCountdown > 0) _shutdownCountdown--;
             else if (_shutdownCountdown == 0) LockNative.Shutdown();
-            InvalidateRect(hwnd, IntPtr.Zero, false);
+            // Only the countdown line changes each second; invalidate just the
+            // card so the buttons and field aren't needlessly repainted.
+            var (px, py) = PanelOrigin();
+            var dirty = new RECT { left = px, top = py, right = px + PanelWidth, bottom = py + 210 };
+            InvalidateRectEx(hwnd, ref dirty);
         }
+    }
+
+    private static void InvalidateRectEx(IntPtr hwnd, ref RECT r)
+    {
+        var p = Marshal.AllocHGlobal(Marshal.SizeOf<RECT>());
+        try
+        {
+            Marshal.StructureToPtr(r, p, false);
+            InvalidateRect(hwnd, p, false);
+        }
+        finally { Marshal.FreeHGlobal(p); }
     }
 
     private static void PaintLock(IntPtr hwnd)
     {
         var hdc = BeginPaint(hwnd, out var ps);
-        GetClientRect(hwnd, out var rect);
+        GetClientRect(hwnd, out var client);
 
-        var bg = CreateSolidBrush(ColorOverlayBg);
-        FillRect(hdc, ref rect, bg);
-        DeleteObject(bg);
+        // Fill the full backdrop ourselves (no class brush) so there is no flash.
+        FillSolid(hdc, client.left, client.top, client.right - client.left, client.bottom - client.top, ColorOverlayBg);
 
-        var sw = rect.right;
-        var sh = rect.bottom;
-        var pw = 500;
-        var ph = 460;
-        var px = (sw - pw) / 2;
-        var py = (sh - ph) / 2;
+        var px = (client.right - PanelWidth) / 2;
+        var py = (client.bottom - PanelHeight) / 2;
 
-        var panel = CreateSolidBrush(ColorPanelBg);
-        var pr = new RECT { left = px, top = py, right = px + pw, bottom = py + ph };
-        FillRect(hdc, ref pr, panel);
-        DeleteObject(panel);
+        // Soft drop shadow: a slightly offset darker slab behind the card gives
+        // depth without needing alpha blending or a shadow bitmap.
+        FillSolid(hdc, px - 2, py + 6, PanelWidth + 4, PanelHeight + 4, ColorPanelShadow);
+
+        // Card: a 1px edge frame, then the surface inset by 1px. This fakes a
+        // crisp bordered panel since RoundRect/CreatePen are not available here.
+        FillSolid(hdc, px, py, PanelWidth, PanelHeight, ColorPanelEdge);
+        FillSolid(hdc, px + 1, py + 1, PanelWidth - 2, PanelHeight - 2, ColorPanelBg);
+
+        // Accent rule across the top of the card to anchor the title.
+        FillSolid(hdc, px, py, PanelWidth, 4, ColorAccent);
 
         SetBkMode(hdc, TRANSPARENT);
 
+        var innerX = px + 28;
+        var innerW = PanelWidth - 56;
+
         // Title reflects why we're locked.
-        var title = OverlayState.BudgetBlocked ? "Time's Up!" : "Outside Allowed Hours";
-        DrawCentered(hdc, title, px, py + 30, pw, 50, 40, true, ColorWhite);
+        var title = OverlayState.BudgetBlocked ? "Time's Up" : "Outside Allowed Hours";
+        DrawText(hdc, _fontTitle, title, innerX, py + 34, innerW, 56, ColorWhite, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-        var countdownText = _shutdownCountdown switch
+        // Shutdown countdown — escalates colour as the clock runs out.
+        var (countdownText, countdownColor) = _shutdownCountdown switch
         {
-            <= 60 and >= 0 => $"SHUTDOWN IN: {_shutdownCountdown}s",
-            > 60 => $"Shutdown in: {TimeMath.FormatDuration(_shutdownCountdown)}",
-            _ => "Time limit exceeded",
+            >= 0 and <= 60 => ($"Shutting down in {_shutdownCountdown}s", ColorRed),
+            <= 120 and > 60 => ($"Shutdown in {TimeMath.FormatDuration(_shutdownCountdown)}", ColorWarn),
+            > 120 => ($"Shutdown in {TimeMath.FormatDuration(_shutdownCountdown)}", ColorAccent),
+            _ => ("Time limit exceeded", ColorAccent),
         };
-        var countdownColor = _shutdownCountdown is <= 60 and >= 0 ? ColorRed : ColorAccent;
-        DrawCentered(hdc, countdownText, px, py + 90, pw, 36, 28, true, countdownColor);
+        DrawText(hdc, _fontCountdown, countdownText, innerX, py + 98, innerW, 40, countdownColor, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-        var message = OverlayState.Settings.Get("blocking_message") ?? "Screen time limit reached.";
-        DrawCentered(hdc, message, px + 20, py + 140, pw - 40, 30, 18, false, ColorLight);
+        var message = OverlayState.Settings.Get("blocking_message");
+        if (string.IsNullOrWhiteSpace(message)) message = "Screen time limit reached for today.";
+        DrawText(hdc, _fontBody, message, innerX, py + 150, innerW, 48, ColorLight, DT_CENTER | DT_WORDBREAK);
 
-        DrawCentered(hdc, "Extend time (requires passcode):", px, py + 175, pw, 20, 15, false, ColorLight);
-        DrawCentered(hdc, "Enter passcode to unlock:", px, py + 250, pw, 20, 15, false, ColorLight);
+        // Section captions sit directly above their controls.
+        DrawText(hdc, _fontCaption, "EXTEND TIME (REQUIRES PASSCODE)", innerX, py + 200, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
+        DrawText(hdc, _fontCaption, "ENTER PASSCODE TO UNLOCK", innerX, py + 296, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
 
+        // Inline error feedback below the field, replacing the unlock caption gap.
         if (_error)
-            DrawCentered(hdc, "Incorrect passcode!", px, py + ph - 36, pw, 24, 16, true, ColorRed);
+            DrawText(hdc, _fontError, "Incorrect passcode — try again", innerX, py + 296, innerW, 20, ColorRed, DT_CENTER | DT_SINGLELINE);
 
         EndPaint(hwnd, ref ps);
     }
 
-    private static void DrawCentered(IntPtr hdc, string text, int x, int y, int w, int h, int fontSize, bool bold, uint color)
+    private static void FillSolid(IntPtr hdc, int x, int y, int w, int h, uint color)
     {
-        var font = CreateFontW(fontSize, 0, 0, 0, bold ? 700 : 400, 0, 0, 0, 0, 0, 0, 0, 0, "Segoe UI");
+        var brush = CreateSolidBrush(color);
+        var rect = new RECT { left = x, top = y, right = x + w, bottom = y + h };
+        FillRect(hdc, ref rect, brush);
+        DeleteObject(brush);
+    }
+
+    private static void DrawText(IntPtr hdc, IntPtr font, string text, int x, int y, int w, int h, uint color, int format)
+    {
         var old = SelectObject(hdc, font);
         SetTextColor(hdc, color);
         var rect = new RECT { left = x, top = y, right = x + w, bottom = y + h };
-        DrawTextW(hdc, text, text.Length, ref rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        DrawTextW(hdc, text, text.Length, ref rect, format);
         SelectObject(hdc, old);
-        DeleteObject(font);
     }
 
     private static IntPtr KeyboardHookProc(int code, IntPtr wParam, IntPtr lParam)
     {
         if (code == HC_ACTION && OverlayState.Locked)
         {
-            var info = System.Runtime.InteropServices.Marshal
-                .PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+            var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
             var vk = (int)info.vkCode;
             var alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
             var win = ((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) != 0;

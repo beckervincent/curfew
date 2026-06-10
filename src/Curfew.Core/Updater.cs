@@ -1,24 +1,71 @@
+using System.Net.Http.Headers;
+
 namespace Curfew.Core;
 
 /// <summary>
-/// Checks GitHub for a newer Curfew release. The HTTP fetch is injected so the
-/// decision logic can be unit-tested without network access.
+/// Checks GitHub for a newer Curfew release and builds the script that installs it.
 /// </summary>
+/// <remarks>
+/// The HTTP fetch is injected into <see cref="CheckForUpdateAsync"/> so the decision
+/// logic can be unit-tested without network access. Production callers pass
+/// <see cref="HttpFetchAsync"/>.
+/// </remarks>
 public static class Updater
 {
+    /// <summary>GitHub REST endpoint for the most recent published Curfew release.</summary>
     public const string LatestReleaseUrl =
         "https://api.github.com/repos/beckervincent/curfew/releases/latest";
 
+    /// <summary>User-Agent sent with update requests; GitHub rejects requests without one.</summary>
+    private const string UserAgent = "curfew-updater";
+
+    /// <summary>How long an update fetch may run before it is abandoned.</summary>
+    private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>
-    /// Returns the release to install when it is newer than <paramref name="currentVersion"/>,
-    /// otherwise null. <paramref name="fetchJson"/> retrieves the GitHub
-    /// "latest release" JSON.
+    /// Shared client for <see cref="HttpFetchAsync"/>. A single long-lived instance
+    /// avoids the socket-exhaustion that results from creating one client per call.
     /// </summary>
+    private static readonly HttpClient SharedClient = CreateClient();
+
+    private static HttpClient CreateClient()
+    {
+        var client = new HttpClient { Timeout = FetchTimeout };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
+        client.DefaultRequestHeaders.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        return client;
+    }
+
+    /// <summary>
+    /// Returns the release to install when it is strictly newer than
+    /// <paramref name="currentVersion"/>, otherwise <see langword="null"/>.
+    /// </summary>
+    /// <param name="currentVersion">
+    /// The version currently installed, e.g. "1.2.3" or "v1.2.3". When this cannot be
+    /// parsed as a version the method returns <see langword="null"/> rather than
+    /// assuming an update is needed, so a malformed local version never triggers an
+    /// unwanted reinstall.
+    /// </param>
+    /// <param name="fetchJson">
+    /// Retrieves the GitHub "latest release" JSON for a given URL. Network or HTTP
+    /// failures are expected and treated as "no update available"; only cancellation
+    /// is allowed to propagate.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the fetch.</param>
+    /// <returns>
+    /// The newer <see cref="ReleaseInfo"/>, or <see langword="null"/> when there is no
+    /// newer release, the response is unusable, or the fetch fails.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="fetchJson"/> is null.</exception>
+    /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>
     public static async Task<ReleaseInfo?> CheckForUpdateAsync(
         string currentVersion,
         Func<string, CancellationToken, Task<string>> fetchJson,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(fetchJson);
+
         var current = SemVer.Parse(currentVersion);
         if (current is null) return null;
 
@@ -27,8 +74,14 @@ public static class Updater
         {
             json = await fetchJson(LatestReleaseUrl, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cancellation is a caller decision, not a failed update check: re-throw it.
+            throw;
+        }
         catch
         {
+            // Offline, DNS failure, HTTP error, rate limit, etc. — simply no update.
             return null;
         }
 
@@ -41,21 +94,54 @@ public static class Updater
         return latest > current ? release : null;
     }
 
-    /// <summary>Default fetcher using HttpClient with the User-Agent GitHub requires.</summary>
-    public static async Task<string> HttpFetchAsync(string url, CancellationToken cancellationToken)
-    {
-        using var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
-        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-        return await client.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
-    }
+    /// <summary>
+    /// Default fetcher: issues a GET against <paramref name="url"/> with the
+    /// User-Agent and Accept headers GitHub expects, and returns the response body.
+    /// </summary>
+    /// <param name="url">The URL to fetch.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The response body as a string.</returns>
+    /// <exception cref="HttpRequestException">The request failed or returned a non-success status.</exception>
+    /// <exception cref="OperationCanceledException">The request was cancelled or timed out.</exception>
+    public static Task<string> HttpFetchAsync(string url, CancellationToken cancellationToken) =>
+        SharedClient.GetStringAsync(url, cancellationToken);
 
-    /// <summary>PowerShell that schedules a silent install via a detached task,
-    /// so the install survives the service stopping mid-update.</summary>
+    /// <summary>
+    /// Builds a PowerShell script that runs the installer through a detached, one-shot
+    /// SYSTEM scheduled task.
+    /// </summary>
+    /// <param name="installerPath">Full path to the downloaded installer executable.</param>
+    /// <returns>A PowerShell script that creates, runs, and self-deletes the task.</returns>
+    /// <exception cref="ArgumentException"><paramref name="installerPath"/> is null, blank, or contains a double quote.</exception>
+    /// <remarks>
+    /// Running the install from a detached task lets it survive the calling service
+    /// stopping mid-update (the installer typically stops and restarts that service).
+    /// The task action also deletes the task afterwards so it does not linger and
+    /// re-fire at its scheduled start time.
+    /// </remarks>
     public static string BuildScheduledInstallScript(string installerPath)
     {
+        if (string.IsNullOrWhiteSpace(installerPath))
+        {
+            throw new ArgumentException("Installer path must be provided.", nameof(installerPath));
+        }
+
+        // The path is embedded inside a quoted schtasks /tr argument; an embedded
+        // double quote would break that quoting and cannot be escaped safely here.
+        if (installerPath.Contains('"'))
+        {
+            throw new ArgumentException("Installer path must not contain a double quote.", nameof(installerPath));
+        }
+
         const string taskName = "CurfewAutoUpdate";
-        var action = $"\\\"{installerPath}\\\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
+
+        // The task command: run the installer silently, then delete the task so it
+        // does not persist and re-run at its scheduled time. Inner quotes are escaped
+        // (\") because this whole command is itself passed inside a quoted /tr value.
+        var action =
+            $"\\\"{installerPath}\\\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART " +
+            $"& schtasks /delete /tn \\\"{taskName}\\\" /f";
+
         return string.Join('\n', new[]
         {
             "$ErrorActionPreference = 'SilentlyContinue'",
