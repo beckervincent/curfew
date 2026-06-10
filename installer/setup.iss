@@ -121,6 +121,20 @@ begin
   end;
 end;
 
+{ Stop a previous install's service and processes before any file work, so its
+  binaries are not locked during copy. Runs first, before the wizard. }
+function InitializeSetup(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := True;
+  Exec('sc.exe', 'stop {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(3000);
+  Exec('taskkill.exe', '/f /im {#ServiceExeName} /im {#AppExeName} /im Curfew.Overlay.exe',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1000);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   AppDir: String;

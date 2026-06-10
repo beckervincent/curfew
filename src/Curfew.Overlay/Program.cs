@@ -1,16 +1,26 @@
+using System.Runtime.InteropServices;
 using Curfew.Core;
 using Curfew.Overlay;
 using static Curfew.Overlay.Native;
 
 // One overlay per session. "Local\" scopes the mutex to the session, so each
 // logged-in user gets one and the watchdog respawn never stacks duplicates.
+OverlayLog.Write("process start");
 using var instance = new Mutex(true, @"Local\CurfewOverlayInstance", out var createdNew);
 if (!createdNew)
 {
+    OverlayLog.Write("another instance already running; exiting");
     return;
 }
 
-OverlayApp.Run();
+try
+{
+    OverlayApp.Run();
+}
+catch (Exception ex)
+{
+    OverlayLog.Write($"unhandled: {ex}");
+}
 
 namespace Curfew.Overlay
 {
@@ -43,6 +53,7 @@ namespace Curfew.Overlay
             _remaining = TimeKeeper.InitialRemaining(saved, _settings.GetDailyLimit(weekday));
 
             var hInstance = GetModuleHandleW(null);
+            OverlayLog.Write($"settings opened, remaining={_remaining}, hInstance={hInstance}");
 
             var wc = new WNDCLASSW
             {
@@ -51,7 +62,8 @@ namespace Curfew.Overlay
                 lpszClassName = ClassName,
                 hbrBackground = CreateSolidBrush(ColorBg),
             };
-            RegisterClassW(ref wc);
+            var atom = RegisterClassW(ref wc);
+            OverlayLog.Write($"RegisterClassW atom={atom} err={Marshal.GetLastWin32Error()}");
 
             var screenWidth = GetSystemMetrics(SM_CXSCREEN);
             var hwnd = CreateWindowExW(
@@ -59,20 +71,27 @@ namespace Curfew.Overlay
                 ClassName, "Curfew", WS_POPUP,
                 screenWidth - Width - Margin, Margin, Width, Height,
                 IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+            OverlayLog.Write($"CreateWindowExW hwnd={hwnd} err={Marshal.GetLastWin32Error()} screenW={screenWidth}");
 
-            if (hwnd == IntPtr.Zero) return;
+            if (hwnd == IntPtr.Zero)
+            {
+                OverlayLog.Write("window creation failed; exiting");
+                return;
+            }
 
             // Semi-transparent so it reads as a gentle reminder.
             SetLayeredWindowAttributes(hwnd, 0, 220, LWA_ALPHA);
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             SetTimer(hwnd, new IntPtr(1), 1000, IntPtr.Zero);
+            OverlayLog.Write("entering message loop");
 
             while (GetMessageW(out var msg, IntPtr.Zero, 0, 0) > 0)
             {
                 TranslateMessage(ref msg);
                 DispatchMessageW(ref msg);
             }
+            OverlayLog.Write("message loop exited");
         }
 
         private static IntPtr WindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
