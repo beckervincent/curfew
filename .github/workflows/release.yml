@@ -32,10 +32,11 @@ jobs:
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | ForEach-Object { $_.Matches.Groups[1].Value })
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
 
+      # NSSM is built and released from beckervincent/nssm; we always bundle its latest release.
       - name: Download NSSM
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.NSSM_DOWNLOAD_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $latestTag = gh release list --repo beckervincent/nssm --limit 1 --json tagName |
             ConvertFrom-Json | Select-Object -ExpandProperty tagName

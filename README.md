@@ -27,7 +27,7 @@ Requires Windows 10/11 (64-bit).
 .\build.ps1   # release build + lint
 ```
 
-Every push is checked by CI. Pushing a `v*` tag (or running `./release.sh`) builds the installer and publishes a GitHub release automatically.
+Every push is checked by CI. Pushing a `v*` tag (or running `./release.sh`) builds the installer and publishes a GitHub release automatically. The bundled service wrapper comes from [beckervincent/nssm](https://github.com/beckervincent/nssm) — its latest release is pulled in during the installer build.
 
 ## Thanks
 
