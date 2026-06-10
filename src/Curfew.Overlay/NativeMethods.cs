@@ -31,6 +31,7 @@ internal static class Native
 
     public static readonly IntPtr HWND_TOPMOST = new(-1);
 
+    public const uint WM_CREATE = 0x0001;
     public const uint WM_DESTROY = 0x0002;
     public const uint WM_PAINT = 0x000F;
     public const uint WM_TIMER = 0x0113;

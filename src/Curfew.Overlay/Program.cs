@@ -40,20 +40,19 @@ namespace Curfew.Overlay
 
         // Keep the delegate alive for the window's lifetime.
         private static readonly WndProc Proc = WindowProc;
-        private static SettingsStore _settings = null!;
-        private static int _remaining;
 
         public static void Run()
         {
             var today = DateOnly.FromDateTime(DateTime.Now);
-            _settings = SettingsStore.Open(CurfewPaths.DatabaseFile, today);
+            OverlayState.Settings = SettingsStore.Open(CurfewPaths.DatabaseFile, today);
 
-            int? saved = int.TryParse(_settings.Get(RemainingKey(today)), out var s) ? s : null;
+            int? saved = int.TryParse(OverlayState.Settings.Get(RemainingKey(today)), out var s) ? s : null;
             var weekday = TimeMath.MondayBasedWeekday(today);
-            _remaining = TimeKeeper.InitialRemaining(saved, _settings.GetDailyLimit(weekday));
+            OverlayState.Remaining =
+                TimeKeeper.InitialRemaining(saved, OverlayState.Settings.GetDailyLimit(weekday));
 
             var hInstance = GetModuleHandleW(null);
-            OverlayLog.Write($"settings opened, remaining={_remaining}, hInstance={hInstance}");
+            OverlayLog.Write($"settings opened, remaining={OverlayState.Remaining}, hInstance={hInstance}");
 
             var wc = new WNDCLASSW
             {
@@ -78,12 +77,18 @@ namespace Curfew.Overlay
                 OverlayLog.Write("window creation failed; exiting");
                 return;
             }
+            OverlayState.MiniHwnd = hwnd;
 
             // Semi-transparent so it reads as a gentle reminder.
             SetLayeredWindowAttributes(hwnd, 0, 220, LWA_ALPHA);
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             SetTimer(hwnd, new IntPtr(1), 1000, IntPtr.Zero);
+
+            // Pre-create the lock window; show it immediately if already exhausted.
+            LockScreen.Register(hInstance);
+            if (TimeKeeper.IsExhausted(OverlayState.Remaining)) LockScreen.Show();
+
             OverlayLog.Write("entering message loop");
 
             while (GetMessageW(out var msg, IntPtr.Zero, 0, 0) > 0)
@@ -117,13 +122,14 @@ namespace Curfew.Overlay
 
         private static void Tick(IntPtr hwnd)
         {
-            _remaining = TimeKeeper.Tick(_remaining);
-            if (TimeKeeper.ShouldPersist(_remaining))
-            {
-                _settings.Set(RemainingKey(DateOnly.FromDateTime(DateTime.Now)), _remaining.ToString());
-            }
+            // Time is frozen while the lock screen is up.
+            if (OverlayState.Locked) return;
+
+            OverlayState.Remaining = TimeKeeper.Tick(OverlayState.Remaining);
+            if (TimeKeeper.ShouldPersist(OverlayState.Remaining)) OverlayState.Persist();
             InvalidateRect(hwnd, IntPtr.Zero, true);
-            // Lock screen at zero is wired up in the next increment.
+
+            if (TimeKeeper.IsExhausted(OverlayState.Remaining)) LockScreen.Show();
         }
 
         private static void Paint(IntPtr hwnd)
@@ -137,10 +143,10 @@ namespace Curfew.Overlay
 
             var font = CreateFontW(24, 0, 0, 0, 700, 0, 0, 0, 0, 0, 0, 0, 0, "Consolas");
             var oldFont = SelectObject(hdc, font);
-            SetTextColor(hdc, ColorForRemaining(_remaining));
             SetBkMode(hdc, TRANSPARENT);
 
-            var text = TimeMath.FormatCompact(_remaining);
+            var text = TimeMath.FormatCompact(OverlayState.Remaining);
+            SetTextColor(hdc, ColorForRemaining(OverlayState.Remaining));
             DrawTextW(hdc, text, text.Length, ref rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
             SelectObject(hdc, oldFont);
