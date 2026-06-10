@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Curfew.App.MiniOverlayWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="Root" Background="#E6202020" CornerRadius="8">
+        <TextBlock x:Name="TimeText"
+                   Text="--:--"
+                   FontFamily="Consolas"
+                   FontSize="22"
+                   FontWeight="Bold"
+                   Foreground="White"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center" />
+    </Grid>
+</Window>
