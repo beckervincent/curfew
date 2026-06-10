@@ -32,15 +32,15 @@ jobs:
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | ForEach-Object { $_.Matches.Groups[1].Value })
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
 
-      # NSSM is built and released from beckervincent/nssm; we always bundle its latest release.
+      # NSSM is built and released from beckervincent/nssm-fork; we always bundle its latest release.
       - name: Download NSSM
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $latestTag = gh release list --repo beckervincent/nssm --limit 1 --json tagName |
+          $latestTag = gh release list --repo beckervincent/nssm-fork --limit 1 --json tagName |
             ConvertFrom-Json | Select-Object -ExpandProperty tagName
-          gh release download $latestTag --repo beckervincent/nssm --pattern "nssm-win64.exe" --output nssm.exe
+          gh release download $latestTag --repo beckervincent/nssm-fork --pattern "nssm-win64.exe" --output nssm.exe
           if (-not (Test-Path "nssm.exe") -or (Get-Item "nssm.exe").Length -eq 0) {
             throw "Failed to download nssm.exe"
           }
