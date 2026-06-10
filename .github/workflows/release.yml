@@ -1,37 +1,26 @@
-name: Build and Release
+name: Release
 
 on:
   push:
-    branches:
-      - release
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build Windows Release
+  release:
+    name: Build installer and publish release
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
         run: cargo build --release
@@ -42,122 +31,49 @@ jobs:
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | ForEach-Object { $_.Matches.Groups[1].Value })
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-          echo "Version: $version"
-
-      - name: Get short commit hash
-        id: commit
-        shell: pwsh
-        run: |
-          $hash = git rev-parse --short HEAD
-          echo "HASH=$hash" >> $env:GITHUB_OUTPUT
-          echo "Commit: $hash"
 
       - name: Download NSSM
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.NSSM_DOWNLOAD_TOKEN }}
         run: |
-          # Find the latest release tag in the nssm repo
           $latestTag = gh release list --repo beckervincent/nssm --limit 1 --json tagName |
             ConvertFrom-Json | Select-Object -ExpandProperty tagName
-          Write-Host "Downloading NSSM $latestTag"
           gh release download $latestTag --repo beckervincent/nssm --pattern "nssm-win64.exe" --output nssm.exe
           if (-not (Test-Path "nssm.exe") -or (Get-Item "nssm.exe").Length -eq 0) {
             throw "Failed to download nssm.exe"
           }
 
-      - name: Stage installer source files
+      - name: Build installer
         shell: pwsh
         run: |
           Copy-Item "target\release\screen-time-manager.exe" -Destination "installer\screen-time-manager.exe"
           Copy-Item "nssm.exe" -Destination "installer\nssm.exe"
-
-      - name: Build installer
-        shell: pwsh
-        run: |
           $version = "${{ steps.version.outputs.VERSION }}"
-          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          & $iscc /DMyAppVersion="$version" "installer\setup.iss"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion="$version" "installer\setup.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
-      - name: Generate release notes
-        id: notes
+      - name: Publish release
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
-          $hash = "${{ steps.commit.outputs.HASH }}"
-          $date = Get-Date -Format "yyyy-MM-dd"
-          $installerName = "screen-time-manager-setup-v$version.exe"
-
+          $tag = "v$version"
+          $installer = "screen-time-manager-setup-v$version.exe"
           $notes = @"
-          ## Screen Time Manager v$version
-
-          **Release Date:** $date
-          **Commit:** $hash
-
           ### Installation
 
-          1. Download ``$installerName``
-          2. Run it as Administrator
-          3. Follow the setup wizard — the service installs and starts automatically
+          1. Download ``$installer``
+          2. Run it as Administrator and follow the setup wizard
 
-          ### Uninstalling
-
-          Run the uninstaller from *Settings → Apps* or *Control Panel → Programs*.
-          You will be asked whether to delete all stored data (time limits, passcode, history).
-
-          ### Requirements
-
-          - Windows 10 or later (64-bit)
-          - Administrator rights during install/uninstall
+          Requires Windows 10/11 (64-bit). Uninstall via *Settings -> Apps*.
           "@
-
           $notes | Out-File -FilePath "RELEASE_NOTES.md" -Encoding utf8
-          $installerFile = "screen-time-manager-setup-v$version.exe"
-          echo "INSTALLER_FILE=$installerFile" >> $env:GITHUB_ENV
 
-      - name: Check if release exists
-        id: check_release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-          $tagName = "v$version"
-          $releases = gh release list --json tagName | ConvertFrom-Json
-          $exists = $releases | Where-Object { $_.tagName -eq $tagName }
-          if ($exists) {
-            echo "EXISTS=true" >> $env:GITHUB_OUTPUT
-          } else {
-            echo "EXISTS=false" >> $env:GITHUB_OUTPUT
+          # Create the release, or just refresh the asset if it already exists.
+          gh release create $tag --title "Curfew v$version" --notes-file "RELEASE_NOTES.md" --latest $installer
+          if ($LASTEXITCODE -ne 0) {
+            gh release upload $tag $installer --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
           }
-
-      - name: Create GitHub Release
-        if: steps.check_release.outputs.EXISTS == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-          $tagName = "v$version"
-          gh release create $tagName `
-            --title "Screen Time Manager v$version" `
-            --notes-file "RELEASE_NOTES.md" `
-            $env:INSTALLER_FILE
-
-      - name: Update existing release
-        if: steps.check_release.outputs.EXISTS == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-          $tagName = "v$version"
-          $installerFile = $env:INSTALLER_FILE
-          $assets = gh release view $tagName --json assets | ConvertFrom-Json
-          foreach ($asset in $assets.assets) {
-            if ($asset.name -eq $installerFile) {
-              gh release delete-asset $tagName $asset.name --yes
-            }
-          }
-          gh release upload $tagName $installerFile --clobber
