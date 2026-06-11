@@ -41,6 +41,9 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Window width at or above which cards reflow into three columns.</summary>
     private const double ThreeColumnWidth = 1480;
 
+    /// <summary>Upper bound on the update download (installer is ~95 MB); guards against a hostile asset.</summary>
+    private const long MaxInstallerBytes = 150_000_000;
+
     private readonly SettingsStore _settings;
 
     /// <summary>The seven per-day hour spinners, created in <see cref="LoadDailyLimits"/>.</summary>
@@ -401,8 +404,26 @@ public sealed partial class SettingsWindow : Window
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
 
-        var bytes = await client.GetByteArrayAsync(url);
-        if (bytes.Length < 500_000 || bytes.Length < 2 || bytes[0] != 0x4D || bytes[1] != 0x5A)
+        // Stream with an explicit cap rather than GetByteArrayAsync (which buffers
+        // up to 2 GB by default): a compromised or malformed release asset must not
+        // be able to exhaust memory. Mirrors the service-side download hardening.
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is long advertised && advertised > MaxInstallerBytes)
+            return null;
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81_920];
+        int read;
+        while ((read = await stream.ReadAsync(chunk)) > 0)
+        {
+            if (buffer.Length + read > MaxInstallerBytes) return null;
+            buffer.Write(chunk, 0, read);
+        }
+
+        var bytes = buffer.ToArray();
+        if (bytes.Length < 500_000 || bytes[0] != 0x4D || bytes[1] != 0x5A)
             return null;
 
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "curfew-update.exe");

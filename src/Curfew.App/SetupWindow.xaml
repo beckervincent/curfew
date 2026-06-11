@@ -162,7 +162,7 @@
             </Expander>
 
             <!-- Content filtering -->
-            <Expander HorizontalAlignment="Stretch" TabIndex="7">
+            <Expander HorizontalAlignment="Stretch" TabIndex="8">
                 <Expander.Header>
                     <StackPanel Spacing="2" Padding="0,8">
                         <TextBlock Text="{local:Loc Key=setup.filter.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -174,7 +174,7 @@
                 <StackPanel Spacing="12" Padding="0,4,0,8">
                     <RadioButtons x:Name="FilterChoices"
                                   Header="{local:Loc Key=setup.filter.level}"
-                                  TabIndex="8"
+                                  TabIndex="9"
                                   AutomationProperties.Name="Content filter level">
                         <RadioButton x:Name="FilterOff"
                                      Content="{local:Loc Key=filter.none}"
@@ -207,7 +207,7 @@
                                       Grid.Column="1"
                                       IsOn="True"
                                       VerticalAlignment="Center"
-                                      TabIndex="9"
+                                      TabIndex="10"
                                       AutomationProperties.Name="Block DNS-over-HTTPS bypass"
                                       ToolTipService.ToolTip="Also block DNS-over-HTTPS bypass" />
                     </Grid>
@@ -215,7 +215,7 @@
             </Expander>
 
             <!-- Protection -->
-            <Expander HorizontalAlignment="Stretch" TabIndex="10">
+            <Expander HorizontalAlignment="Stretch" TabIndex="11">
                 <Expander.Header>
                     <StackPanel Spacing="2" Padding="0,8">
                         <TextBlock Text="{local:Loc Key=setup.protection.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -240,7 +240,7 @@
                                   Grid.Column="1"
                                   IsOn="True"
                                   VerticalAlignment="Center"
-                                  TabIndex="11"
+                                  TabIndex="12"
                                   AutomationProperties.Name="Time Manipulation Guarding"
                                   ToolTipService.ToolTip="Time Manipulation Guarding" />
                 </Grid>
@@ -261,7 +261,7 @@
                     Click="OnContinue"
                     HorizontalAlignment="Right"
                     MinWidth="120"
-                    TabIndex="12"
+                    TabIndex="13"
                     Margin="0,4,0,0"
                     AutomationProperties.Name="Continue and save setup" />
         </StackPanel>
