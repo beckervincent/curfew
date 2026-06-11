@@ -12,9 +12,13 @@ namespace Curfew.Core;
 /// </remarks>
 public static class Updater
 {
-    /// <summary>GitHub REST endpoint for the most recent published Curfew release.</summary>
+    /// <summary>GitHub REST endpoint for the most recent published Curfew release (excludes pre-releases).</summary>
     public const string LatestReleaseUrl =
         "https://api.github.com/repos/beckervincent/curfew/releases/latest";
+
+    /// <summary>GitHub REST endpoint for all releases (newest first, includes pre-releases).</summary>
+    public const string ReleasesUrl =
+        "https://api.github.com/repos/beckervincent/curfew/releases?per_page=30";
 
     /// <summary>User-Agent sent with update requests; GitHub rejects requests without one.</summary>
     private const string UserAgent = "curfew-updater";
@@ -62,6 +66,21 @@ public static class Updater
     public static async Task<ReleaseInfo?> CheckForUpdateAsync(
         string currentVersion,
         Func<string, CancellationToken, Task<string>> fetchJson,
+        CancellationToken cancellationToken = default) =>
+        await CheckForUpdateAsync(currentVersion, fetchJson, includePrereleases: false, cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// As <see cref="CheckForUpdateAsync(string, Func{string, CancellationToken, Task{string}}, CancellationToken)"/>,
+    /// but when <paramref name="includePrereleases"/> is true it considers the whole
+    /// release list (pre-releases included) and returns the newest one strictly
+    /// above the current version. Otherwise it uses the stable "latest" endpoint,
+    /// which GitHub already filters to non-pre-release builds.
+    /// </summary>
+    public static async Task<ReleaseInfo?> CheckForUpdateAsync(
+        string currentVersion,
+        Func<string, CancellationToken, Task<string>> fetchJson,
+        bool includePrereleases,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(fetchJson);
@@ -69,10 +88,12 @@ public static class Updater
         var current = SemVer.Parse(currentVersion);
         if (current is null) return null;
 
+        var url = includePrereleases ? ReleasesUrl : LatestReleaseUrl;
+
         string json;
         try
         {
-            json = await fetchJson(LatestReleaseUrl, cancellationToken).ConfigureAwait(false);
+            json = await fetchJson(url, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -85,13 +106,39 @@ public static class Updater
             return null;
         }
 
+        return includePrereleases ? NewestOf(json, current.Value) : NewerLatest(json, current.Value);
+    }
+
+    /// <summary>Picks the highest-version release (pre-releases included) strictly above current.</summary>
+    private static ReleaseInfo? NewestOf(string json, SemVer current)
+    {
+        ReleaseInfo? best = null;
+        SemVer? bestVersion = null;
+
+        foreach (var release in ReleaseInfo.ListFromGitHubJson(json))
+        {
+            var version = SemVer.Parse(release.Tag);
+            if (version is null || !(version.Value > current)) continue;
+            if (bestVersion is null || version.Value > bestVersion.Value)
+            {
+                best = release;
+                bestVersion = version;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Returns the single "latest" release when it is newer than current.</summary>
+    private static ReleaseInfo? NewerLatest(string json, SemVer current)
+    {
         var release = ReleaseInfo.FromGitHubJson(json);
         if (release is null) return null;
 
         var latest = SemVer.Parse(release.Value.Tag);
         if (latest is null) return null;
 
-        return latest > current ? release : null;
+        return latest.Value > current ? release : null;
     }
 
     /// <summary>

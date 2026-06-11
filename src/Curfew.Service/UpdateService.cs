@@ -29,6 +29,12 @@ internal static class UpdateService
     /// <summary>Settings flag that gates automatic updates; absent means "enabled".</summary>
     private const string AutoUpdateEnabledKey = "auto_update_enabled";
 
+    /// <summary>Settings key choosing the update channel; <see cref="PrereleaseChannel"/> opts into pre-releases.</summary>
+    private const string UpdateChannelKey = "update_channel";
+
+    /// <summary>Value of <see cref="UpdateChannelKey"/> that includes pre-releases.</summary>
+    private const string PrereleaseChannel = "prerelease";
+
     /// <summary>File name the downloaded installer is staged under in the update folder.</summary>
     private const string InstallerFileName = "curfew-update.exe";
 
@@ -66,7 +72,9 @@ internal static class UpdateService
 
         if (!settings.GetBool(AutoUpdateEnabledKey, true)) return;
 
-        var release = await Updater.CheckForUpdateAsync(currentVersion, Updater.HttpFetchAsync, ct)
+        // Pre-releases are only auto-installed when the parent opts into that channel.
+        var includePrereleases = settings.Get(UpdateChannelKey) == PrereleaseChannel;
+        var release = await Updater.CheckForUpdateAsync(currentVersion, Updater.HttpFetchAsync, includePrereleases, ct)
             .ConfigureAwait(false);
         if (release is null) return;
 

@@ -60,37 +60,77 @@ public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
         using (doc)
         {
             var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) return null;
+            return root.ValueKind == JsonValueKind.Object ? ParseRelease(root) : null;
+        }
+    }
 
-            if (!root.TryGetProperty("tag_name", out var tagProp)
-                || tagProp.ValueKind != JsonValueKind.String)
+    /// <summary>
+    /// Parses the GitHub "list releases" JSON (an array, newest first, that — unlike
+    /// the "latest release" endpoint — includes pre-releases) into every release
+    /// that carries a trusted installer asset. The caller picks the newest by
+    /// version; ordering and pre-release filtering are not done here.
+    /// </summary>
+    /// <param name="json">The raw JSON array body. Null/empty/malformed yields an empty list.</param>
+    public static IReadOnlyList<ReleaseInfo> ListFromGitHubJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<ReleaseInfo>();
+
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<ReleaseInfo>();
+        }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Array) return Array.Empty<ReleaseInfo>();
+
+            var results = new List<ReleaseInfo>();
+            foreach (var element in root.EnumerateArray())
             {
-                return null;
+                if (element.ValueKind == JsonValueKind.Object && ParseRelease(element) is { } release)
+                    results.Add(release);
             }
+            return results;
+        }
+    }
 
-            var tag = tagProp.GetString();
-            if (string.IsNullOrEmpty(tag)) return null;
-
-            if (!root.TryGetProperty("assets", out var assets)
-                || assets.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            foreach (var asset in assets.EnumerateArray())
-            {
-                if (asset.ValueKind == JsonValueKind.Object
-                    && asset.TryGetProperty("browser_download_url", out var urlProp)
-                    && urlProp.ValueKind == JsonValueKind.String
-                    && urlProp.GetString() is { } url
-                    && IsInstallerUrl(url))
-                {
-                    return new ReleaseInfo(tag, url);
-                }
-            }
-
+    /// <summary>Extracts the tag and first trusted installer asset from one release object.</summary>
+    private static ReleaseInfo? ParseRelease(JsonElement release)
+    {
+        if (!release.TryGetProperty("tag_name", out var tagProp)
+            || tagProp.ValueKind != JsonValueKind.String)
+        {
             return null;
         }
+
+        var tag = tagProp.GetString();
+        if (string.IsNullOrEmpty(tag)) return null;
+
+        if (!release.TryGetProperty("assets", out var assets)
+            || assets.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (asset.ValueKind == JsonValueKind.Object
+                && asset.TryGetProperty("browser_download_url", out var urlProp)
+                && urlProp.ValueKind == JsonValueKind.String
+                && urlProp.GetString() is { } url
+                && IsInstallerUrl(url))
+            {
+                return new ReleaseInfo(tag, url);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

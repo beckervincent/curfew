@@ -253,6 +253,14 @@
                         <ToggleSwitch x:Name="AutoUpdate" Header="{local:Loc Key=settings.autoupdate}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
 
+                        <!-- Update channel: pre-releases are only installed when explicitly chosen. -->
+                        <ComboBox x:Name="UpdateChannel"
+                                  Header="{local:Loc Key=settings.update.channel}"
+                                  MinWidth="260">
+                            <ComboBoxItem Content="{local:Loc Key=settings.update.channel.stable}" Tag="stable" />
+                            <ComboBoxItem Content="{local:Loc Key=settings.update.channel.prerelease}" Tag="prerelease" />
+                        </ComboBox>
+
                         <!-- Manual update check: same place as the auto-update toggle.
                              Automatic checks run on boot and every six hours. -->
                         <StackPanel Spacing="8">

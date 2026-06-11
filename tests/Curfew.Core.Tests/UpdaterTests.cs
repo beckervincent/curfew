@@ -245,6 +245,41 @@ public class UpdaterTests
         Assert.Equal("installerPath", ex.ParamName);
     }
 
+    [Fact]
+    public async Task Prerelease_channel_fetches_the_release_list_and_picks_the_newest()
+    {
+        const string releasesJson = """
+        [
+          { "tag_name": "v1.6.0", "prerelease": true, "assets": [
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.6.0/curfew-setup-v1.6.0.exe" } ] },
+          { "tag_name": "v1.5.0", "prerelease": false, "assets": [
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.5.0/curfew-setup-v1.5.0.exe" } ] }
+        ]
+        """;
+
+        string? requested = null;
+        var result = await Updater.CheckForUpdateAsync(
+            "1.5.0",
+            (url, _) => { requested = url; return Task.FromResult(releasesJson); },
+            includePrereleases: true);
+
+        Assert.Equal(Updater.ReleasesUrl, requested);   // used the list endpoint, not "latest"
+        Assert.NotNull(result);
+        Assert.Equal("v1.6.0", result.Value.Tag);
+    }
+
+    [Fact]
+    public async Task Stable_channel_uses_the_latest_endpoint()
+    {
+        string? requested = null;
+        await Updater.CheckForUpdateAsync(
+            "1.5.0",
+            (url, _) => { requested = url; return Task.FromResult("{}"); },
+            includePrereleases: false);
+
+        Assert.Equal(Updater.LatestReleaseUrl, requested);
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

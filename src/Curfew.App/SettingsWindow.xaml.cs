@@ -333,7 +333,13 @@ public sealed partial class SettingsWindow : Window
     {
         TimeGuard.IsOn = _settings.GetBool("time_guard_enabled", true);
         AutoUpdate.IsOn = _settings.GetBool("auto_update_enabled", true);
+        // Default to the stable channel; pre-releases are opt-in.
+        UpdateChannel.SelectedIndex = _settings.Get("update_channel") == "prerelease" ? 1 : 0;
     }
+
+    /// <summary>The chosen update channel's tag ("stable"/"prerelease").</summary>
+    private string SelectedChannel() =>
+        (UpdateChannel.SelectedItem as ComboBoxItem)?.Tag as string ?? "stable";
 
     /// <summary>
     /// Queries GitHub for a newer release and reports the result inline. On success
@@ -347,7 +353,8 @@ public sealed partial class SettingsWindow : Window
         UpdateStatus.Text = Loc.T("settings.update.checking");
         try
         {
-            var release = await Updater.CheckForUpdateAsync(CurrentVersion, Updater.HttpFetchAsync);
+            var release = await Updater.CheckForUpdateAsync(
+                CurrentVersion, Updater.HttpFetchAsync, includePrereleases: SelectedChannel() == "prerelease");
             _pendingUpdate = release;
             if (release is null)
             {
@@ -573,6 +580,7 @@ public sealed partial class SettingsWindow : Window
     {
         _settings.Set("time_guard_enabled", ToFlag(TimeGuard.IsOn));
         _settings.Set("auto_update_enabled", ToFlag(AutoUpdate.IsOn));
+        _settings.Set("update_channel", SelectedChannel());
     }
 
     /// <summary>
