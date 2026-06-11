@@ -516,6 +516,19 @@ internal static class LockScreen
         switch (id)
         {
             case IdUnlock:
+                // New, unprovisioned user: activate via the service (device code or
+                // parent passcode). Handled before the normal unlock paths.
+                if (OverlayState.NewUserBlocked)
+                {
+                    if (ConfigClient.Provision(OverlayState.CurrentSid, EnteredText()))
+                    {
+                        ConfigClient.ResetFailures();
+                        if (!OverlayState.ShouldBlock) Hide();
+                    }
+                    else Reject(hwnd);
+                    break;
+                }
+
                 // In schedule mode the parent's passcode ignores the weekly schedule
                 // for the rest of the session; in budget mode it lifts a schedule
                 // override only. Either way a valid unlock code still works.

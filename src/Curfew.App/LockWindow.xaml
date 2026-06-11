@@ -42,7 +42,7 @@
                 </StackPanel>
 
                 <!-- Add time (requires passcode) -->
-                <StackPanel Spacing="6">
+                <StackPanel x:Name="AddTimePanel" Spacing="6">
                     <TextBlock Text="{local:Loc Key=lock.addtime.caption}"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"

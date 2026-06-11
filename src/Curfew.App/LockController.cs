@@ -38,8 +38,8 @@ internal sealed class LockController
     /// <summary>Builds and shows the lock windows; returns the primary window.</summary>
     public LockWindow Start()
     {
-        var budgetMode = _settings.Get("lock_reason") != "schedule";
-        _primary = new LockWindow(_settings, budgetMode);
+        var reason = _settings.Get("lock_reason") ?? "budget";
+        _primary = new LockWindow(_settings, reason);
         _primary.ActionConfirmed += OnAction;
 
         var displays = DisplayArea.FindAll();

@@ -87,6 +87,10 @@ public static class Loc
             ["lock.extend.hour"] = "+1 hr",
             ["lock.move.here"] = "Move lock here",
             ["lock.secondary.caption"] = "Locked",
+            ["lock.title.newuser"] = "Activate this user",
+            ["lock.newuser.message"] = "This account hasn't been set up yet. Enter the device code (or the parent passcode) to activate it.",
+            ["lock.activate"] = "Activate",
+            ["lock.lockedout"] = "Too many attempts — wait {0}s.",
 
             // System tray + warnings
             ["tray.settings"] = "Settings…",
@@ -281,6 +285,10 @@ public static class Loc
             ["lock.extend.hour"] = "+1 Std",
             ["lock.move.here"] = "Sperre hierher holen",
             ["lock.secondary.caption"] = "Gesperrt",
+            ["lock.title.newuser"] = "Benutzer aktivieren",
+            ["lock.newuser.message"] = "Dieses Konto ist noch nicht eingerichtet. Geräte-Code (oder Eltern-PIN) eingeben, um es zu aktivieren.",
+            ["lock.activate"] = "Aktivieren",
+            ["lock.lockedout"] = "Zu viele Versuche – {0}s warten.",
 
             ["tray.settings"] = "Einstellungen…",
             ["tray.left"] = "Curfew · {0} übrig",
