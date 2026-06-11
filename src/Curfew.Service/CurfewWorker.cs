@@ -49,6 +49,12 @@ public sealed class CurfewWorker : BackgroundService
     private readonly ILogger<CurfewWorker> _logger;
     private readonly SessionManager _sessions = new();
 
+    /// <summary>Settings store used to read the lock state for the Task Manager lockdown.</summary>
+    private SettingsStore? _policyStore;
+
+    /// <summary>The SID Task Manager is currently disabled for, or null if none.</summary>
+    private string? _policyAppliedSid;
+
     /// <summary>
     /// Serialises content-filter applies. The filter is applied from the startup
     /// task and again on every <see cref="NetworkChange.NetworkAddressChanged"/>
@@ -94,6 +100,7 @@ public sealed class CurfewWorker : BackgroundService
             while (!stoppingToken.IsCancellationRequested)
             {
                 SafeTickSessions();
+                SafeReconcileTaskManagerPolicy();
 
                 if (DateTimeOffset.UtcNow - lastSlow >= SlowInterval && !_slowCycleRunning)
                 {
@@ -112,6 +119,9 @@ public sealed class CurfewWorker : BackgroundService
         {
             NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
             await DrainOnShutdownAsync(startupFilter).ConfigureAwait(false);
+            // Never leave Task Manager disabled when the service stops.
+            if (_policyAppliedSid is not null) TaskManagerPolicy.Clear(_policyAppliedSid);
+            _policyStore?.Dispose();
             _logger.LogInformation("Curfew service stopped");
             ServiceLog.Write("service stopped");
         }
@@ -170,6 +180,50 @@ public sealed class CurfewWorker : BackgroundService
             _logger.LogWarning(ex, "Session tick failed");
             ServiceLog.Write($"session tick threw: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Keeps the per-user Task Manager lockdown in sync with the lock state the
+    /// overlay publishes (<c>lock_active</c> / <c>lock_sid</c>). Fully guarded so a
+    /// registry or DB hiccup can never disturb the overlay watchdog.
+    /// </summary>
+    private void SafeReconcileTaskManagerPolicy()
+    {
+        try
+        {
+            ReconcileTaskManagerPolicy();
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"taskmgr reconcile threw: {ex.Message}");
+        }
+    }
+
+    private void ReconcileTaskManagerPolicy()
+    {
+        _policyStore ??= SettingsStore.Open(CurfewPaths.DatabaseFile, DateOnly.FromDateTime(DateTime.Now));
+
+        var active = _policyStore.Get("lock_active") == "1";
+        var sid = _policyStore.Get("lock_sid");
+
+        if (active && !string.IsNullOrEmpty(sid))
+        {
+            if (_policyAppliedSid != sid)
+            {
+                // A different session became locked — restore the previous one first.
+                if (_policyAppliedSid is not null) TaskManagerPolicy.Clear(_policyAppliedSid);
+                TaskManagerPolicy.Apply(sid);
+                _policyAppliedSid = sid;
+            }
+            return;
+        }
+
+        // Not locked. Clear whatever we applied; as a startup failsafe also clear a
+        // SID left recorded by a previous (possibly crashed) run so Task Manager is
+        // never stranded in the disabled state.
+        var stale = _policyAppliedSid ?? (string.IsNullOrEmpty(sid) ? null : sid);
+        if (stale is not null) TaskManagerPolicy.Clear(stale);
+        _policyAppliedSid = null;
     }
 
     private void OnNetworkChanged(object? sender, EventArgs e) => ApplyContentFilter();
