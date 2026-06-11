@@ -67,6 +67,8 @@ public sealed partial class SettingsWindow : Window
     {
         InitializeComponent();
         _settings = settings;
+        // Config writes go through the SYSTEM service (config.db is read-only here).
+        ConfigBridge.Attach(_settings);
 
         AppWindow.Resize(new Windows.Graphics.SizeInt32(WindowWidth, WindowHeight));
         WindowEffects.Apply(this, Loc.T("settings.title"), TitleBar);
@@ -566,6 +568,7 @@ public sealed partial class SettingsWindow : Window
     private void OnSave(object sender, RoutedEventArgs e)
     {
         ClearError();
+        ConfigBridge.ResetWriteStatus();
         if (!TrySavePasscode()) return;
 
         SaveToggles();
@@ -575,6 +578,14 @@ public sealed partial class SettingsWindow : Window
         SaveContentFilter();
         SaveProtection();
         _settings.Set("unlock_bonus_minutes", Clamp(UnlockBonus, 1, 600, 30).ToString());
+
+        // If any config write could not reach the service, keep the dialog open and
+        // tell the parent rather than silently losing the change.
+        if (!ConfigBridge.LastWriteOk)
+        {
+            ShowError(Loc.T("settings.err.savefailed"));
+            return;
+        }
 
         Close();
     }

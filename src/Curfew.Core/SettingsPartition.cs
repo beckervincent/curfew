@@ -31,7 +31,10 @@ public static class SettingsPartition
     /// </summary>
     private static readonly string[] StatePrefixes =
     {
-        "remaining_time_", "used_time_", "pause_used_", "pause_log_", "session_active_", "lock_",
+        "remaining_time_", "used_time_", "pause_used_", "pause_log_", "session_active_",
+        // Runtime coordination written by the child-side processes (not policy):
+        // the lock handshake, the tray command, and the offline-code replay counter.
+        "lock_", "tray_", "unlock_last_counter",
     };
 
     /// <summary>

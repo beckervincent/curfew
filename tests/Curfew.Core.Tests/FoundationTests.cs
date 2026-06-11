@@ -11,6 +11,8 @@ public class SettingsPartitionTests
     [InlineData("pause_used_2026-06-11", SettingsStoreKind.State)]
     [InlineData("lock_active", SettingsStoreKind.State)]
     [InlineData("lock_action", SettingsStoreKind.State)]
+    [InlineData("tray_command", SettingsStoreKind.State)]
+    [InlineData("unlock_last_counter", SettingsStoreKind.State)]
     [InlineData("passcode", SettingsStoreKind.Config)]
     [InlineData("schedule", SettingsStoreKind.Config)]
     [InlineData("limit_enabled", SettingsStoreKind.Config)]

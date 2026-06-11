@@ -202,6 +202,7 @@ public static class Loc
             ["settings.passcode.confirm"] = "Confirm",
             ["settings.passcode.help.new"] = "At least 4 characters",
             ["settings.err.currentwrong"] = "Current passcode is incorrect.",
+            ["settings.err.savefailed"] = "Couldn't save — the Curfew service isn't reachable. Try again.",
             ["settings.err.newmatch"] = "New passcode and confirmation do not match.",
             ["settings.err.newlen"] = "Passcode must be at least {0} characters.",
 
@@ -388,6 +389,7 @@ public static class Loc
             ["settings.passcode.confirm"] = "Bestätigen",
             ["settings.passcode.help.new"] = "Mindestens 4 Zeichen",
             ["settings.err.currentwrong"] = "Aktuelle PIN ist falsch.",
+            ["settings.err.savefailed"] = "Speichern fehlgeschlagen — der Curfew-Dienst ist nicht erreichbar. Erneut versuchen.",
             ["settings.err.newmatch"] = "Neue PIN und Bestätigung stimmen nicht überein.",
             ["settings.err.newlen"] = "Passwort muss mindestens {0} Zeichen haben.",
 

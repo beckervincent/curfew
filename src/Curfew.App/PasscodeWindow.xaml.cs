@@ -54,6 +54,9 @@ public sealed partial class PasscodeWindow : Window
     {
         if (IsPasscodeCorrect(PinBox.Password))
         {
+            // Remember the verified passcode so config writes can be authorised by
+            // the service (config.db is read-only for the app).
+            ConfigBridge.Passcode = PinBox.Password;
             RaiseResult(true);
             Close();
         }

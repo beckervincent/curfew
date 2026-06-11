@@ -161,16 +161,25 @@ public sealed class SettingsStore : IDisposable
     /// <param name="statePath">Path to state.db (per-day rows purged here).</param>
     /// <param name="legacyPath">Optional pre-split database to migrate from, or null.</param>
     /// <param name="today">Current local date, for the per-day purge.</param>
-    public static SettingsStore OpenSplit(string configPath, string statePath, string? legacyPath, DateOnly today)
+    /// <param name="configWritable">
+    /// True for the SYSTEM service (creates/seeds/migrates config.db). False for the
+    /// app/overlay, which open config.db read-only (it is ACL'd read-only for them);
+    /// they never migrate — the service does that on boot.
+    /// </param>
+    public static SettingsStore OpenSplit(
+        string configPath, string statePath, string? legacyPath, DateOnly today, bool configWritable = true)
     {
         if (string.IsNullOrWhiteSpace(configPath))
             throw new ArgumentException("Config path must be provided.", nameof(configPath));
         if (string.IsNullOrWhiteSpace(statePath))
             throw new ArgumentException("State path must be provided.", nameof(statePath));
 
-        var migrate = !string.IsNullOrEmpty(legacyPath) && File.Exists(legacyPath) && !File.Exists(configPath);
+        var migrate = configWritable && !string.IsNullOrEmpty(legacyPath)
+            && File.Exists(legacyPath) && !File.Exists(configPath);
 
-        var config = OpenResilient(configPath, c => Prepare(c, seedDefaults: true, today, purge: false));
+        var config = configWritable
+            ? OpenResilient(configPath, c => Prepare(c, seedDefaults: true, today, purge: false))
+            : OpenConfigReadOnly(configPath, today);
         var state = OpenResilient(statePath, c => Prepare(c, seedDefaults: false, today, purge: true));
 
         if (migrate)
@@ -199,11 +208,12 @@ public sealed class SettingsStore : IDisposable
         }
     }
 
-    private static SqliteConnection InitConnection(string path, Action<SqliteConnection> setup)
+    private static SqliteConnection InitConnection(string path, Action<SqliteConnection> setup, bool readOnly = false)
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = path,
+            Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
             // Wait a few seconds for a lock instead of failing instantly when
             // another process (App/Overlay/Service) is mid-write.
             DefaultTimeout = 5,
@@ -212,11 +222,14 @@ public sealed class SettingsStore : IDisposable
         try
         {
             connection.Open();
-            // WAL lets readers and a writer proceed concurrently (several processes
-            // share these files) and forces a header check, surfacing corruption here.
-            Execute(connection, "PRAGMA journal_mode = WAL");
-            Execute(connection,
-                "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+            if (!readOnly)
+            {
+                // WAL lets readers and a writer proceed concurrently (several processes
+                // share these files) and forces a header check, surfacing corruption.
+                Execute(connection, "PRAGMA journal_mode = WAL");
+                Execute(connection,
+                    "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+            }
             setup(connection);
             return connection;
         }
@@ -225,6 +238,24 @@ public sealed class SettingsStore : IDisposable
             connection.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Opens config.db read-only for a non-privileged process (app/overlay). Falls
+    /// back to a writable open + seed if the file does not exist yet — the case
+    /// before the SYSTEM service has created it, or before the ACL is applied. This
+    /// keeps unlock working (a direct read of the passcode hash) even though the
+    /// app can no longer WRITE config once the ACL is on.
+    /// </summary>
+    private static SqliteConnection OpenConfigReadOnly(string path, DateOnly today)
+    {
+        if (File.Exists(path))
+        {
+            try { return InitConnection(path, static _ => { }, readOnly: true); }
+            catch (SqliteException) { /* fall through and try to bootstrap it */ }
+        }
+
+        return OpenResilient(path, c => Prepare(c, seedDefaults: true, today, purge: false));
     }
 
     private static void Prepare(SqliteConnection connection, bool seedDefaults, DateOnly today, bool purge)

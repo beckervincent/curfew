@@ -95,7 +95,10 @@ public sealed class CurfewWorker : BackgroundService
         // Host the config-write pipe as SYSTEM so the app can change write-protected
         // config.db through us. Its own settings store (separate connection) keeps it
         // off the loop thread's connection.
-        var pipeStore = CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
+        var pipeStore = CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
+        // config.db now exists (created by the open above) — lock it down so users
+        // can read it but not write or delete it.
+        ConfigFileGuard.Protect(CurfewPaths.ConfigFile);
         var pipeServer = Task.Run(() => new ConfigPipeServer(pipeStore).RunAsync(stoppingToken), CancellationToken.None);
 
         // MinValue forces the first slow cycle to run immediately on startup
@@ -210,7 +213,7 @@ public sealed class CurfewWorker : BackgroundService
 
     private void ReconcileTaskManagerPolicy()
     {
-        _policyStore ??= CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
+        _policyStore ??= CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
 
         var active = _policyStore.Get("lock_active") == "1";
         var sid = _policyStore.Get("lock_sid");
@@ -308,5 +311,5 @@ public sealed class CurfewWorker : BackgroundService
     /// corrupt database, so callers only have to handle I/O/permission failures.
     /// </summary>
     private static SettingsStore OpenSettings() =>
-        CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
+        CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
 }

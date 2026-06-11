@@ -176,6 +176,12 @@ public sealed partial class SetupWindow : Window
     /// <summary>Writes every wizard choice to the store and marks setup complete.</summary>
     private void PersistConfiguration(string pin)
     {
+        // First run writes config through the service too (config.db is read-only).
+        // The new PIN authorises the writes; the service lets the very first
+        // passcode through before any passcode exists (bootstrap).
+        ConfigBridge.Passcode = pin;
+        ConfigBridge.Attach(_settings);
+
         _settings.Set("passcode", PasscodeHash.Hash(pin));
         _settings.Set("limit_enabled", ToFlag(LimitEnabled.IsOn));
         _settings.Set("schedule_enabled", ToFlag(ScheduleEnabled.IsOn));

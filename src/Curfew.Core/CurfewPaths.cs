@@ -90,8 +90,8 @@ public static class CurfewPaths
     /// Opens the split settings stores, migrating from the legacy single-file
     /// database on first run. The one place that wires the production paths together.
     /// </summary>
-    public static SettingsStore OpenSettings(DateOnly today) =>
-        SettingsStore.OpenSplit(ConfigFile, StateFile, DatabaseFile, today);
+    public static SettingsStore OpenSettings(DateOnly today, bool configWritable = false) =>
+        SettingsStore.OpenSplit(ConfigFile, StateFile, DatabaseFile, today, configWritable);
 
     /// <summary>
     /// Absolute path to the activity/tamper event log
