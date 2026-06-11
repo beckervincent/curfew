@@ -47,7 +47,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "service\*"; DestDir: "{app}\service"; Flags: recursesubdirs ignoreversion
 Source: "app\*";     DestDir: "{app}\app";     Flags: recursesubdirs ignoreversion
 Source: "overlay\*"; DestDir: "{app}\overlay"; Flags: recursesubdirs ignoreversion
-Source: "nssm.exe";  DestDir: "{app}";         Flags: ignoreversion
 
 [Icons]
 Name: "{commonprograms}\{#MyAppName}\Curfew Settings";  Filename: "{app}\app\{#AppExeName}"; Parameters: "--settings"; Comment: "Open Curfew settings"
@@ -82,35 +81,23 @@ end;
   can be replaced or deleted. }
 procedure RunCleanupScript(const AppDir: String);
 var
-  NssmExe, ScriptPath, Script: String;
+  ScriptPath, Script: String;
 begin
-  NssmExe    := AppDir + '\nssm.exe';
   ScriptPath := ExpandConstant('{tmp}\curfew_cleanup.ps1');
 
   Script :=
     '$svc  = "{#ServiceName}"' + #13#10 +
-    '$nssm = "' + NssmExe + '"' + #13#10 +
     '$dir  = "' + AppDir  + '"' + #13#10 +
     '' + #13#10 +
-    '# 1. Stop and remove the service first (nssm, with sc.exe as a fallback).' + #13#10 +
-    'if (Test-Path $nssm) {' + #13#10 +
-    '    & $nssm stop   $svc 2>$null' + #13#10 +
-    '    Start-Sleep -Seconds 2' + #13#10 +
-    '    & $nssm remove $svc confirm 2>$null' + #13#10 +
-    '    Start-Sleep -Seconds 1' + #13#10 +
-    '}' + #13#10 +
+    '# 1. Stop and delete the native Windows service.' + #13#10 +
     'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
-    'Start-Sleep -Seconds 1' + #13#10 +
+    'Start-Sleep -Seconds 2' + #13#10 +
     'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Milliseconds 500' + #13#10 +
     '' + #13#10 +
-    '# 2. Kill any leftover nssm.exe host so the service stops and its file unlocks.' + #13#10 +
-    'Get-Process -Name nssm -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
-    'taskkill /f /im nssm.exe 2>$null | Out-Null' + #13#10 +
-    'Start-Sleep -Milliseconds 500' + #13#10 +
-    '' + #13#10 +
-    '# 3. Kill the app/overlay/service processes and the overlay task.' + #13#10 +
+    '# 2. Kill the app/overlay/service processes and the overlay task so files unlock.' + #13#10 +
     'Get-Process -Name "Curfew.App","Curfew.Overlay","Curfew.Service" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
+    'taskkill /f /im "{#ServiceExeName}" 2>$null | Out-Null' + #13#10 +
     'schtasks /delete /tn "CurfewOverlay" /f 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Milliseconds 500' + #13#10 +
     '' + #13#10 +
@@ -164,39 +151,30 @@ end;
 procedure InstallService();
 var
   ScriptPath: String;
-  AppDir, NssmExe, ServiceExe, LogDir: String;
+  AppDir, ServiceExe: String;
   Script: String;
   ResultCode: Integer;
 begin
   AppDir     := ExpandConstant('{app}');
-  NssmExe    := AppDir + '\nssm.exe';
   ServiceExe := AppDir + '\service\{#ServiceExeName}';
-  LogDir     := AppDir + '\logs';
   ScriptPath := ExpandConstant('{tmp}\curfew_install_svc.ps1');
 
   Script :=
     '$svc   = "{#ServiceName}"' + #13#10 +
-    '$nssm  = "' + NssmExe    + '"' + #13#10 +
     '$exe   = "' + ServiceExe + '"' + #13#10 +
     '$dir   = "' + AppDir     + '"' + #13#10 +
-    '$logs  = "' + LogDir     + '"' + #13#10 +
     '' + #13#10 +
-    '& $nssm stop   $svc 2>$null' + #13#10 +
-    '& $nssm remove $svc confirm 2>$null' + #13#10 +
+    '# Remove any prior registration, then create the .NET app as a native' + #13#10 +
+    '# LocalSystem auto-start Windows service (it uses AddWindowsService()).' + #13#10 +
+    'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
+    'Start-Sleep -Seconds 1' + #13#10 +
+    'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Seconds 1' + #13#10 +
     '' + #13#10 +
-    '& $nssm install $svc $exe' + #13#10 +
-    '& $nssm set $svc AppDirectory  (Split-Path $exe)' + #13#10 +
-    '& $nssm set $svc ObjectName    "LocalSystem"' + #13#10 +
-    '& $nssm set $svc DisplayName   "Curfew"' + #13#10 +
-    '& $nssm set $svc Description   "Curfew - Manages daily computer time limits"' + #13#10 +
-    '& $nssm set $svc Start         SERVICE_AUTO_START' + #13#10 +
+    'New-Service -Name $svc -BinaryPathName ("`"" + $exe + "`"") -DisplayName "Curfew" -Description "Curfew - Manages daily computer time limits" -StartupType Automatic | Out-Null' + #13#10 +
     '' + #13#10 +
-    'New-Item -ItemType Directory -Path $logs -Force | Out-Null' + #13#10 +
-    '& $nssm set $svc AppStdout       "$logs\stdout.log"' + #13#10 +
-    '& $nssm set $svc AppStderr       "$logs\stderr.log"' + #13#10 +
-    '& $nssm set $svc AppRotateFiles  1' + #13#10 +
-    '& $nssm set $svc AppRotateSeconds 86400' + #13#10 +
+    '# Restart automatically on crash (5s, 5s, then every 60s); reset count daily.' + #13#10 +
+    'sc.exe failure $svc reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null' + #13#10 +
     '' + #13#10 +
     '# Lock down install dir (read-only for users); DB dir writable for the app' + #13#10 +
     'function AclRule($sidStr,$rights,$inherit,$prop,$type){' + #13#10 +
@@ -219,7 +197,7 @@ begin
     '$dbAcl.AddAccessRule((AclRule "S-1-5-32-545" "Modify"      "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     'Set-Acl $dbDir $dbAcl' + #13#10 +
     '' + #13#10 +
-    '& $nssm start $svc' + #13#10 +
+    'Start-Service $svc' + #13#10 +
     '' + #13#10 +
     '# Overlay launches via a logon scheduled task: a .NET app fails to start' + #13#10 +
     '# under the service CreateProcessAsUser, but starts cleanly from Task' + #13#10 +

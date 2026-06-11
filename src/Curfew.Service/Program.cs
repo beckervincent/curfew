@@ -3,21 +3,21 @@ using Microsoft.Extensions.Logging.EventLog;
 
 // Curfew background service entry point.
 //
-// Runs as the SYSTEM account, hosted by nssm (see installer/setup.iss), which
-// captures stdout/stderr to rotating log files. Its job is to keep the
-// per-session overlay alive, apply the DNS content filter, run the NTP-based
-// time-manipulation guard and check for updates. All of that lives in
-// CurfewWorker; this file is only the host wiring.
+// Runs as the SYSTEM account as a native Windows service (registered with
+// sc.exe / New-Service by installer/setup.iss; the SCM integration comes from
+// AddWindowsService() below). Its job is to keep the per-session overlay alive,
+// apply the DNS content filter, run the NTP-based time-manipulation guard and
+// check for updates. All of that lives in CurfewWorker; this file is only the
+// host wiring.
 //
-// Because nssm hosts a plain console exe, the standard logging providers are
-// visible in the redirected logs, and the Windows Event Log gives operators a
-// second, tamper-resistant trail. Any failure that escapes Build()/Run() is
-// also appended to the on-device diagnostics file (ServiceLog), which is the
-// most reliable place to look when the process refuses to start.
+// Operational logging goes to the Windows Event Log (a tamper-resistant trail
+// for operators). Any failure that escapes Build()/Run() is also appended to
+// the on-device diagnostics file (ServiceLog), which is the most reliable place
+// to look when the process refuses to start.
 
-// The service name must match the name nssm registers and the installer/
-// uninstaller scripts reference ("Curfew"). Do not change this literal without
-// updating installer/setup.iss in lockstep.
+// The service name must match the name the installer/uninstaller scripts
+// register ("Curfew"). Do not change this literal without updating
+// installer/setup.iss in lockstep.
 const string ServiceName = "Curfew";
 
 try
