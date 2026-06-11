@@ -76,7 +76,7 @@ public partial class App : Application
 
         if (args.Contains(SetupArgument))
         {
-            ShowWindow(new SetupWindow(OpenSettings()));
+            ShowSetupGated();
         }
         else if (args.Contains(SettingsArgument))
         {
@@ -126,6 +126,26 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Opens the first-run wizard, but only behind the parental PIN once one
+    /// exists. The wizard can rewrite limits, the schedule AND the passcode
+    /// itself, so an unauthenticated <c>--setup</c> relaunch must never be able
+    /// to reset parental controls. Only a genuine first run (no passcode set
+    /// yet) is allowed straight through, so the very first passcode can be set.
+    /// </summary>
+    private void ShowSetupGated()
+    {
+        var settings = OpenSettings();
+
+        if (!settings.HasPasscode)
+        {
+            ShowWindow(new SetupWindow(settings));
+            return;
+        }
+
+        RequirePasscode(settings, () => ShowWindow(new SetupWindow(settings)));
+    }
+
+    /// <summary>
     /// Opens Settings, but only behind the parental PIN. Launching the Start
     /// Menu / Search shortcut must never bypass the prompt. If no PIN has been
     /// configured yet, fall back to the setup wizard rather than exposing the
@@ -141,16 +161,27 @@ public partial class App : Application
             return;
         }
 
+        RequirePasscode(settings, () => ShowWindow(new SettingsWindow(settings)));
+    }
+
+    /// <summary>
+    /// Shows the passcode prompt and runs <paramref name="onVerified"/> only on a
+    /// correct passcode. A wrong or cancelled prompt closes the app without
+    /// revealing anything. Shared by every passcode-gated entry point so none can
+    /// drift out of sync and accidentally open unauthenticated.
+    /// </summary>
+    private void RequirePasscode(SettingsStore settings, Action onVerified)
+    {
         var prompt = new PasscodeWindow(settings);
         prompt.Result += verified =>
         {
             if (verified)
             {
-                ShowWindow(new SettingsWindow(settings));
+                onVerified();
             }
             else
             {
-                // Wrong PIN or cancelled — close the app without revealing settings.
+                // Wrong PIN or cancelled — close the app without revealing anything.
                 Exit();
             }
         };
