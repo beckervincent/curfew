@@ -191,6 +191,7 @@ public static class Loc
             ["settings.unlock.bonus"] = "Bonus minutes per code",
             ["settings.unlock.regenerate"] = "Generate new secret",
             ["settings.unlock.configure"] = "Configure",
+            ["settings.unlock.close"] = "Done",
             ["settings.unlock.scan"] = "Scan with an authenticator app",
             // Schedule grid (shared by Setup + Settings)
             ["schedule.tool"] = "Paint tool",
@@ -335,6 +336,7 @@ public static class Loc
             ["settings.unlock.bonus"] = "Bonusminuten pro Code",
             ["settings.unlock.regenerate"] = "Neues Geheimnis erzeugen",
             ["settings.unlock.configure"] = "Einstellen",
+            ["settings.unlock.close"] = "Fertig",
             ["settings.unlock.scan"] = "Mit einer Authenticator-App scannen",
             // Schedule grid (shared by Setup + Settings)
             ["schedule.tool"] = "Malwerkzeug",

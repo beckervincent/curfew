@@ -4,6 +4,7 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using Curfew.Core;
 using Curfew.Core.Localization;
 using Curfew.Core.Security;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -72,6 +73,11 @@ public sealed partial class SettingsWindow : Window
 
         InitCards();
         Load();
+
+        // Default to a maximised window so the cards reflow into the full 3 columns;
+        // the user can restore it down to collapse back to 2 or 1 column.
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+            presenter.Maximize();
     }
 
     /// <summary>
@@ -252,12 +258,18 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>Reveals or hides the advanced unlock-code details (bonus, secret, regenerate).</summary>
+    /// <summary>
+    /// Reveals or hides the advanced unlock-code details (bonus, secret, regenerate).
+    /// The button itself flips to an accent "Done" state while open and back again,
+    /// so a second press visibly undoes the first.
+    /// </summary>
     private void OnToggleUnlockAdvanced(object sender, RoutedEventArgs e)
     {
-        UnlockAdvanced.Visibility = UnlockAdvanced.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        var show = UnlockAdvanced.Visibility != Visibility.Visible;
+        UnlockAdvanced.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        UnlockConfigureButton.Content = Loc.T(show ? "settings.unlock.close" : "settings.unlock.configure");
+        UnlockConfigureButton.Style = (Style)Application.Current.Resources[
+            show ? "AccentButtonStyle" : "DefaultButtonStyle"];
     }
 
     /// <summary>Issues a fresh secret and resets the replay counter so old codes stop working.</summary>
