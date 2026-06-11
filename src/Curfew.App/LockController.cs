@@ -1,0 +1,156 @@
+using Curfew.Core;
+using Curfew.Core.Localization;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Windows.Graphics;
+
+namespace Curfew.App;
+
+/// <summary>
+/// Drives the WinUI lock surface for the <c>--lock</c> activation: a full-screen
+/// interactive card on the primary monitor and a cover on every other monitor.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is only the visual + input layer. The robust enforcement (the instant
+/// black cover, the low-level keyboard hook, the watchdog) lives in the Win32
+/// overlay, which launches this app while a session is blocked and relaunches it
+/// if it is killed. The two coordinate through settings keys:
+/// </para>
+/// <list type="bullet">
+/// <item>read: <c>lock_reason</c> (budget|schedule), <c>lock_deadline_unix</c>
+/// (logoff countdown), <c>lock_active</c> (1 while the overlay still wants the
+/// lock up — this app exits when it clears).</item>
+/// <item>write: <c>lock_action</c> + <c>lock_action_at</c> (+ <c>lock_code</c> for
+/// an unlock-code redemption), which the overlay consumes and applies.</item>
+/// </list>
+/// </remarks>
+internal sealed class LockController
+{
+    private readonly SettingsStore _settings;
+    private readonly List<LockCoverWindow> _covers = new();
+    private LockWindow? _primary;
+    private DispatcherTimer? _timer;
+    private bool _closing;
+
+    public LockController(SettingsStore settings) => _settings = settings;
+
+    /// <summary>Builds and shows the lock windows; returns the primary window.</summary>
+    public LockWindow Start()
+    {
+        var budgetMode = _settings.Get("lock_reason") != "schedule";
+        _primary = new LockWindow(_settings, budgetMode);
+        _primary.ActionConfirmed += OnAction;
+
+        var displays = DisplayArea.FindAll();
+        var primaryArea = PrimaryDisplay(displays);
+
+        if (primaryArea is not null) PlaceFullScreen(_primary, primaryArea);
+        _primary.Activate();
+        _primary.FocusInput();
+
+        foreach (var display in displays)
+        {
+            if (primaryArea is not null && display.DisplayId.Value == primaryArea.DisplayId.Value) continue;
+
+            var cover = new LockCoverWindow();
+            var target = display;
+            cover.MoveHereRequested += () => MovePrimaryTo(target);
+            PlaceFullScreen(cover, display);
+            cover.Activate();
+            _covers.Add(cover);
+        }
+
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _timer.Tick += OnTick;
+        _timer.Start();
+        UpdateCountdown();
+
+        return _primary;
+    }
+
+    private static DisplayArea? PrimaryDisplay(IReadOnlyList<DisplayArea> displays)
+    {
+        foreach (var d in displays)
+            if (d.IsPrimary) return d;
+        return displays.Count > 0 ? displays[0] : null;
+    }
+
+    private static void PlaceFullScreen(Window window, DisplayArea area)
+    {
+        var appWindow = window.AppWindow;
+        var bounds = area.OuterBounds;
+        // Move onto the target monitor first, then go full-screen so the presenter
+        // fills that monitor. Hide from Alt+Tab / the taskbar so the lock cannot be
+        // switched away from.
+        appWindow.Move(new PointInt32(bounds.X, bounds.Y));
+        appWindow.IsShownInSwitchers = false;
+        appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+    }
+
+    private void MovePrimaryTo(DisplayArea area)
+    {
+        if (_primary is null) return;
+        PlaceFullScreen(_primary, area);
+        _primary.Activate();
+        _primary.FocusInput();
+    }
+
+    private void OnTick(object? sender, object e)
+    {
+        // The overlay clears lock_active when it decides the session is no longer
+        // blocked; exit so it can drop its black cover.
+        if (_settings.Get("lock_active") != "1")
+        {
+            Close();
+            return;
+        }
+
+        UpdateCountdown();
+    }
+
+    private void UpdateCountdown()
+    {
+        if (_primary is null) return;
+
+        if (!long.TryParse(_settings.Get("lock_deadline_unix"), out var deadline))
+        {
+            _primary.SetCountdown(string.Empty);
+            return;
+        }
+
+        var remaining = (int)(deadline - DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        if (remaining <= 0)
+        {
+            _primary.SetCountdown(Loc.T("lock.exceeded"));
+            return;
+        }
+
+        _primary.SetCountdown(remaining <= 60
+            ? Loc.T("lock.shutdown.in.short", remaining)
+            : Loc.T("lock.shutdown.in.long", TimeMath.FormatDuration(remaining)));
+    }
+
+    private void OnAction(string action, string? code)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        _settings.Set("lock_action_at", now.ToString());
+        if (action == "redeem" && code is not null) _settings.Set("lock_code", code);
+        // Written last so the overlay never pairs a fresh action with a stale
+        // timestamp (same ordering rule as the tray command).
+        _settings.Set("lock_action", action);
+        Close();
+    }
+
+    private void Close()
+    {
+        if (_closing) return;
+        _closing = true;
+
+        _timer?.Stop();
+        try { foreach (var cover in _covers) cover.Close(); } catch { /* tearing down */ }
+        try { _primary?.Close(); } catch { /* tearing down */ }
+
+        Application.Current.Exit();
+    }
+}

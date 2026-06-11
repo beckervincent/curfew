@@ -30,6 +30,9 @@ public partial class App : Application
     /// <summary>Launches the passcode-gated settings editor.</summary>
     private const string SettingsArgument = "--settings";
 
+    /// <summary>Launches the full-screen WinUI lock surface (driven by the overlay).</summary>
+    private const string LockArgument = "--lock";
+
     /// <summary>Prefix for a passcode-gated tray command, e.g. <c>--tray=extend15</c>.</summary>
     private const string TrayArgumentPrefix = "--tray=";
 
@@ -74,7 +77,14 @@ public partial class App : Application
     {
         var args = Environment.GetCommandLineArgs();
 
-        if (args.Contains(SetupArgument))
+        if (args.Contains(LockArgument))
+        {
+            // The lock surface is launched by the overlay while a session is
+            // blocked. It is intentionally NOT passcode-gated to open — the lock IS
+            // the gate; the passcode is verified inside it to dismiss it.
+            ShowLock();
+        }
+        else if (args.Contains(SetupArgument))
         {
             ShowSetupGated();
         }
@@ -92,6 +102,13 @@ public partial class App : Application
             // to present, so shut down instead of leaving an invisible process.
             Exit();
         }
+    }
+
+    /// <summary>Builds and shows the full-screen WinUI lock surface.</summary>
+    private void ShowLock()
+    {
+        var controller = new LockController(OpenSettings());
+        _window = controller.Start();
     }
 
     /// <summary>Extracts a validated tray command from the command line, or null if none.</summary>

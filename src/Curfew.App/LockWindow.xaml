@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Curfew.App.LockWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Curfew.App">
+
+    <!-- Solid black backdrop (no Mica): the lock must hide the desktop, and the
+         overlay's black Win32 cover sits underneath as the hard enforcement floor. -->
+    <Grid x:Name="RootGrid" Background="#000000">
+        <Border MaxWidth="460"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Padding="32,28"
+                CornerRadius="12"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1">
+            <StackPanel Spacing="16" MinWidth="360">
+
+                <!-- Header: title + logoff countdown + message -->
+                <StackPanel Spacing="6" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE72E;"
+                              FontSize="30"
+                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                              HorizontalAlignment="Center" />
+                    <TextBlock x:Name="TitleText"
+                               Style="{StaticResource TitleTextBlockStyle}"
+                               TextAlignment="Center"
+                               HorizontalAlignment="Center" />
+                    <TextBlock x:Name="CountdownText"
+                               Style="{StaticResource SubtitleTextBlockStyle}"
+                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                               TextAlignment="Center"
+                               HorizontalAlignment="Center" />
+                    <TextBlock x:Name="MessageText"
+                               Style="{StaticResource BodyTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Add time (requires passcode) -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="{local:Loc Key=lock.addtime.caption}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <Button x:Name="Add15" MinWidth="104" Click="OnAdd15" />
+                        <Button x:Name="Add30" MinWidth="104" Click="OnAdd30" />
+                        <Button x:Name="Add60" MinWidth="104" Click="OnAdd60" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Passcode entry -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="{local:Loc Key=lock.enter.caption}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Center" />
+                    <PasswordBox x:Name="PinBox"
+                                 MaxLength="64"
+                                 Width="260"
+                                 HorizontalAlignment="Center"
+                                 PlaceholderText="••••••••"
+                                 TabIndex="0"
+                                 KeyDown="OnKeyDown"
+                                 AutomationProperties.Name="Passcode" />
+                </StackPanel>
+
+                <InfoBar x:Name="ErrorBar"
+                         Severity="Error"
+                         IsOpen="False"
+                         IsClosable="False"
+                         Message="{local:Loc Key=lock.incorrect}" />
+
+                <!-- Actions -->
+                <StackPanel Spacing="8">
+                    <Button x:Name="UnlockButton"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Style="{StaticResource AccentButtonStyle}"
+                            TabIndex="1"
+                            Click="OnUnlock" />
+                    <Button x:Name="LogoffButton"
+                            Content="{local:Loc Key=lock.shutdown}"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            TabIndex="2"
+                            Click="OnLogoff" />
+                </StackPanel>
+
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

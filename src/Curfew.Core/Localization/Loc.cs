@@ -85,6 +85,8 @@ public static class Loc
             ["lock.addtime.caption"] = "ADD TIME (REQUIRES PASSCODE)",
             ["lock.extend.minutes"] = "+{0} min",
             ["lock.extend.hour"] = "+1 hr",
+            ["lock.move.here"] = "Move lock here",
+            ["lock.secondary.caption"] = "Locked",
 
             // System tray + warnings
             ["tray.settings"] = "Settings…",
@@ -257,6 +259,8 @@ public static class Loc
             ["lock.addtime.caption"] = "ZEIT HINZUFÜGEN (PIN ERFORDERLICH)",
             ["lock.extend.minutes"] = "+{0} Min",
             ["lock.extend.hour"] = "+1 Std",
+            ["lock.move.here"] = "Sperre hierher holen",
+            ["lock.secondary.caption"] = "Gesperrt",
 
             ["tray.settings"] = "Einstellungen…",
             ["tray.left"] = "Curfew · {0} übrig",
