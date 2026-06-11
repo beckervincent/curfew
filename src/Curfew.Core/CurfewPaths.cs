@@ -20,8 +20,14 @@ public static class CurfewPaths
     /// </summary>
     public const string AppFolderName = "Curfew";
 
-    /// <summary>File name of the SQLite settings/usage database.</summary>
+    /// <summary>File name of the legacy single-file settings/usage database (pre-split; migration source).</summary>
     private const string DatabaseFileName = "data.db";
+
+    /// <summary>File name of the write-protected config store (policy + secrets).</summary>
+    private const string ConfigFileName = "config.db";
+
+    /// <summary>File name of the child-writable state store (per-day counters, lock coordination).</summary>
+    private const string StateFileName = "state.db";
 
     /// <summary>File name of the parent-facing activity/tamper event log.</summary>
     private const string EventLogFileName = "events.log";
@@ -73,6 +79,19 @@ public static class CurfewPaths
     /// <see cref="DataDirectory"/> exists, but does not create the file itself.
     /// </summary>
     public static string DatabaseFile => Path.Combine(DataDirectory, DatabaseFileName);
+
+    /// <summary>Absolute path to the write-protected config store (<c>%ProgramData%\Curfew\config.db</c>).</summary>
+    public static string ConfigFile => Path.Combine(DataDirectory, ConfigFileName);
+
+    /// <summary>Absolute path to the child-writable state store (<c>%ProgramData%\Curfew\state.db</c>).</summary>
+    public static string StateFile => Path.Combine(DataDirectory, StateFileName);
+
+    /// <summary>
+    /// Opens the split settings stores, migrating from the legacy single-file
+    /// database on first run. The one place that wires the production paths together.
+    /// </summary>
+    public static SettingsStore OpenSettings(DateOnly today) =>
+        SettingsStore.OpenSplit(ConfigFile, StateFile, DatabaseFile, today);
 
     /// <summary>
     /// Absolute path to the activity/tamper event log

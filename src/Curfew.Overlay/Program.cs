@@ -69,7 +69,7 @@ namespace Curfew.Overlay
             Curfew.Core.Security.ProcessHardening.Apply();
 
             var today = DateOnly.FromDateTime(DateTime.Now);
-            OverlayState.Settings = SettingsStore.Open(CurfewPaths.DatabaseFile, today);
+            OverlayState.Settings = CurfewPaths.OpenSettings(today);
 
             int? saved = int.TryParse(OverlayState.Settings.Get(RemainingKey(today)), out var s) ? s : null;
             var weekday = TimeMath.MondayBasedWeekday(today);

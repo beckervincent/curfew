@@ -223,7 +223,7 @@ public partial class App : Application
     /// <summary>Opens the shared settings store, scoped to today's date so the
     /// per-day budget rows resolve correctly.</summary>
     private static SettingsStore OpenSettings() =>
-        SettingsStore.Open(CurfewPaths.DatabaseFile, DateOnly.FromDateTime(DateTime.Now));
+        CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
 
     /// <summary>
     /// Appends an exception to the crash log. Best-effort only: a failure while

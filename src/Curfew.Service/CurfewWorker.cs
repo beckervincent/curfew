@@ -201,7 +201,7 @@ public sealed class CurfewWorker : BackgroundService
 
     private void ReconcileTaskManagerPolicy()
     {
-        _policyStore ??= SettingsStore.Open(CurfewPaths.DatabaseFile, DateOnly.FromDateTime(DateTime.Now));
+        _policyStore ??= CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
 
         var active = _policyStore.Get("lock_active") == "1";
         var sid = _policyStore.Get("lock_sid");
@@ -299,5 +299,5 @@ public sealed class CurfewWorker : BackgroundService
     /// corrupt database, so callers only have to handle I/O/permission failures.
     /// </summary>
     private static SettingsStore OpenSettings() =>
-        SettingsStore.Open(CurfewPaths.DatabaseFile, DateOnly.FromDateTime(DateTime.Now));
+        CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
 }

@@ -24,7 +24,12 @@ namespace Curfew.Core;
 /// </remarks>
 public sealed class SettingsStore : IDisposable
 {
-    private readonly SqliteConnection _connection;
+    // Two backing connections. In single-file mode (Open) both reference the same
+    // connection. In split mode (OpenSplit) _config is the write-protected
+    // config.db and _state is the child-writable state.db; each key is routed to
+    // one of them by SettingsPartition.StoreFor.
+    private readonly SqliteConnection _config;
+    private readonly SqliteConnection _state;
 
     /// <summary>
     /// Settings keys for the per-weekday time limit, ordered Monday-first
@@ -102,11 +107,16 @@ public sealed class SettingsStore : IDisposable
 
     private readonly DateOnly _today;
 
-    private SettingsStore(SqliteConnection connection, DateOnly today)
+    private SettingsStore(SqliteConnection config, SqliteConnection state, DateOnly today)
     {
-        _connection = connection;
+        _config = config;
+        _state = state;
         _today = today;
     }
+
+    /// <summary>Picks the connection a key is routed to.</summary>
+    private SqliteConnection ConnectionFor(string key) =>
+        SettingsPartition.StoreFor(key) == SettingsStoreKind.State ? _state : _config;
 
     /// <summary>
     /// Opens (or creates) the database at <paramref name="databasePath"/>,
@@ -123,27 +133,65 @@ public sealed class SettingsStore : IDisposable
         if (string.IsNullOrWhiteSpace(databasePath))
             throw new ArgumentException("Database path must be provided.", nameof(databasePath));
 
+        // Single-file mode: one connection backs both config and state. Defaults are
+        // seeded and stale per-day rows purged on the same file.
+        var connection = OpenResilient(databasePath, c => Prepare(c, seedDefaults: true, today, purge: true));
+        return new SettingsStore(connection, connection, today);
+    }
+
+    /// <summary>
+    /// Opens the split stores: <paramref name="configPath"/> for the write-protected
+    /// policy/secrets and <paramref name="statePath"/> for the child-writable per-day
+    /// counters. On the first split open, if <paramref name="legacyPath"/> still
+    /// holds a single-file database its keys are migrated into the correct store.
+    /// </summary>
+    /// <param name="configPath">Path to config.db (defaults seeded here).</param>
+    /// <param name="statePath">Path to state.db (per-day rows purged here).</param>
+    /// <param name="legacyPath">Optional pre-split database to migrate from, or null.</param>
+    /// <param name="today">Current local date, for the per-day purge.</param>
+    public static SettingsStore OpenSplit(string configPath, string statePath, string? legacyPath, DateOnly today)
+    {
+        if (string.IsNullOrWhiteSpace(configPath))
+            throw new ArgumentException("Config path must be provided.", nameof(configPath));
+        if (string.IsNullOrWhiteSpace(statePath))
+            throw new ArgumentException("State path must be provided.", nameof(statePath));
+
+        var migrate = !string.IsNullOrEmpty(legacyPath) && File.Exists(legacyPath) && !File.Exists(configPath);
+
+        var config = OpenResilient(configPath, c => Prepare(c, seedDefaults: true, today, purge: false));
+        var state = OpenResilient(statePath, c => Prepare(c, seedDefaults: false, today, purge: true));
+
+        if (migrate)
+        {
+            // Best-effort: a failed migration just leaves the freshly-seeded defaults.
+            try { MigrateFromLegacy(legacyPath!, config, state); }
+            catch (SqliteException) { /* corrupt legacy file — ignore */ }
+        }
+
+        return new SettingsStore(config, state, today);
+    }
+
+    /// <summary>Opens a connection and runs <paramref name="setup"/>, recreating the file once if it is corrupt.</summary>
+    private static SqliteConnection OpenResilient(string path, Action<SqliteConnection> setup)
+    {
         try
         {
-            return Initialize(databasePath, today);
+            return InitConnection(path, setup);
         }
         catch (SqliteException)
         {
-            // The file exists but is not a usable database (corrupt, truncated,
-            // or not SQLite at all). Drop it and start fresh from defaults so
-            // the controls keep working. If the second attempt also fails we let
-            // the exception propagate — at that point the problem is the
-            // directory/permissions, not the file contents.
-            TryDeleteDatabaseFiles(databasePath);
-            return Initialize(databasePath, today);
+            // Corrupt/truncated/not-SQLite: drop it and recreate from defaults so the
+            // controls keep working. A second failure propagates (it's the directory).
+            TryDeleteDatabaseFiles(path);
+            return InitConnection(path, setup);
         }
     }
 
-    private static SettingsStore Initialize(string databasePath, DateOnly today)
+    private static SqliteConnection InitConnection(string path, Action<SqliteConnection> setup)
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = databasePath,
+            DataSource = path,
             // Wait a few seconds for a lock instead of failing instantly when
             // another process (App/Overlay/Service) is mid-write.
             DefaultTimeout = 5,
@@ -152,29 +200,58 @@ public sealed class SettingsStore : IDisposable
         try
         {
             connection.Open();
-
-            // Write-ahead logging lets readers and a writer proceed concurrently,
-            // which matters because several processes share this file. It also
-            // forces SQLite to validate the header, surfacing corruption here as
-            // a SqliteException that Open() can recover from.
+            // WAL lets readers and a writer proceed concurrently (several processes
+            // share these files) and forces a header check, surfacing corruption here.
             Execute(connection, "PRAGMA journal_mode = WAL");
-
             Execute(connection,
                 "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-
-            using (var transaction = connection.BeginTransaction())
-            {
-                SeedDefaults(connection, transaction);
-                PurgeStaleDailyRows(connection, transaction, today);
-                transaction.Commit();
-            }
-
-            return new SettingsStore(connection, today);
+            setup(connection);
+            return connection;
         }
         catch
         {
             connection.Dispose();
             throw;
+        }
+    }
+
+    private static void Prepare(SqliteConnection connection, bool seedDefaults, DateOnly today, bool purge)
+    {
+        using var transaction = connection.BeginTransaction();
+        if (seedDefaults) SeedDefaults(connection, transaction);
+        if (purge) PurgeStaleDailyRows(connection, transaction, today);
+        transaction.Commit();
+    }
+
+    /// <summary>Copies every key from a pre-split single-file database into the right store.</summary>
+    private static void MigrateFromLegacy(string legacyPath, SqliteConnection config, SqliteConnection state)
+    {
+        using var legacy = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = legacyPath,
+            Mode = SqliteOpenMode.ReadOnly,
+            DefaultTimeout = 5,
+        }.ToString());
+        legacy.Open();
+
+        var rows = new List<(string Key, string Value)>();
+        using (var read = legacy.CreateCommand())
+        {
+            read.CommandText = "SELECT key, value FROM settings";
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+                rows.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        // Overwrite the seeded config defaults with the parent's real values.
+        foreach (var (key, value) in rows)
+        {
+            var target = SettingsPartition.StoreFor(key) == SettingsStoreKind.State ? state : config;
+            using var cmd = target.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO settings (key, value) VALUES ($k, $v)";
+            cmd.Parameters.AddWithValue("$k", key);
+            cmd.Parameters.AddWithValue("$v", value);
+            cmd.ExecuteNonQuery();
         }
     }
 
@@ -243,7 +320,7 @@ public sealed class SettingsStore : IDisposable
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        using var cmd = _connection.CreateCommand();
+        using var cmd = ConnectionFor(key).CreateCommand();
         cmd.CommandText = "SELECT value FROM settings WHERE key = $k";
         cmd.Parameters.AddWithValue("$k", key);
         return cmd.ExecuteScalar() as string;
@@ -255,7 +332,7 @@ public sealed class SettingsStore : IDisposable
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
 
-        using var cmd = _connection.CreateCommand();
+        using var cmd = ConnectionFor(key).CreateCommand();
         cmd.CommandText = "INSERT OR REPLACE INTO settings (key, value) VALUES ($k, $v)";
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", value);
@@ -320,6 +397,10 @@ public sealed class SettingsStore : IDisposable
         return history;
     }
 
-    /// <summary>Closes the underlying database connection.</summary>
-    public void Dispose() => _connection.Dispose();
+    /// <summary>Closes the underlying database connection(s).</summary>
+    public void Dispose()
+    {
+        _config.Dispose();
+        if (!ReferenceEquals(_state, _config)) _state.Dispose();
+    }
 }
