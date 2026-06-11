@@ -205,6 +205,15 @@ public static class Loc
             // Setup advanced options
             ["setup.advanced"] = "Advanced",
             ["setup.perday.hint"] = "Set a different limit for each day.",
+            // Manual update check
+            ["settings.update.check"] = "Check for updates",
+            ["settings.update.now"] = "Update now",
+            ["settings.update.checking"] = "Checking for updates…",
+            ["settings.update.current"] = "Current version: {0}",
+            ["settings.update.uptodate"] = "Up to date (version {0}).",
+            ["settings.update.available"] = "Version {0} is available.",
+            ["settings.update.downloading"] = "Downloading update…",
+            ["settings.update.failed"] = "Update check failed. Try again later.",
         },
         ["de"] = new()
         {
@@ -338,6 +347,15 @@ public static class Loc
             // Setup advanced options
             ["setup.advanced"] = "Erweitert",
             ["setup.perday.hint"] = "Lege für jeden Tag ein eigenes Limit fest.",
+            // Manual update check
+            ["settings.update.check"] = "Nach Updates suchen",
+            ["settings.update.now"] = "Jetzt aktualisieren",
+            ["settings.update.checking"] = "Suche nach Updates…",
+            ["settings.update.current"] = "Aktuelle Version: {0}",
+            ["settings.update.uptodate"] = "Aktuell (Version {0}).",
+            ["settings.update.available"] = "Version {0} ist verfügbar.",
+            ["settings.update.downloading"] = "Update wird heruntergeladen…",
+            ["settings.update.failed"] = "Update-Prüfung fehlgeschlagen. Bitte später erneut versuchen.",
         },
     };
 }

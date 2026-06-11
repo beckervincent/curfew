@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Net.Http;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Curfew.Core;
 using Curfew.Core.Localization;
@@ -49,6 +51,13 @@ public sealed partial class SettingsWindow : Window
 
     /// <summary>Column count applied by the last <see cref="Relayout"/>, to skip redundant work.</summary>
     private int _columns;
+
+    /// <summary>The newer release found by the last successful check, enabling "Update now".</summary>
+    private ReleaseInfo? _pendingUpdate;
+
+    /// <summary>The running build's version, stamped at publish time (e.g. "1.5.0").</summary>
+    private static string CurrentVersion =>
+        typeof(SettingsWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     public SettingsWindow(SettingsStore settings)
     {
@@ -120,6 +129,7 @@ public sealed partial class SettingsWindow : Window
         LoadProtection();
         LoadUnlock();
         LoadUsageHistory();
+        UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
     }
 
     /// <summary>Draws a 7-day bar chart of active screen time from usage history.</summary>
@@ -305,6 +315,99 @@ public sealed partial class SettingsWindow : Window
     {
         TimeGuard.IsOn = _settings.GetBool("time_guard_enabled", true);
         AutoUpdate.IsOn = _settings.GetBool("auto_update_enabled", true);
+    }
+
+    /// <summary>
+    /// Queries GitHub for a newer release and reports the result inline. On success
+    /// it remembers the release so <see cref="OnUpdateNow"/> can install it.
+    /// (Automatic checks still run in the service on boot and every six hours.)
+    /// </summary>
+    private async void OnCheckForUpdate(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        UpdateNowButton.IsEnabled = false;
+        UpdateStatus.Text = Loc.T("settings.update.checking");
+        try
+        {
+            var release = await Updater.CheckForUpdateAsync(CurrentVersion, Updater.HttpFetchAsync);
+            _pendingUpdate = release;
+            if (release is null)
+            {
+                UpdateStatus.Text = Loc.T("settings.update.uptodate", CurrentVersion);
+            }
+            else
+            {
+                UpdateNowButton.IsEnabled = true;
+                UpdateStatus.Text = Loc.T("settings.update.available", release.Value.Tag.TrimStart('v', 'V'));
+            }
+        }
+        catch
+        {
+            UpdateStatus.Text = Loc.T("settings.update.failed");
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Downloads the pending release's installer and launches it elevated (silent),
+    /// then closes Settings. The installer stops and restarts the Curfew service.
+    /// </summary>
+    private async void OnUpdateNow(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is null) return;
+
+        CheckUpdateButton.IsEnabled = false;
+        UpdateNowButton.IsEnabled = false;
+        UpdateStatus.Text = Loc.T("settings.update.downloading");
+        try
+        {
+            var installer = await DownloadInstallerAsync(_pendingUpdate.Value.InstallerUrl);
+            if (installer is null)
+            {
+                UpdateStatus.Text = Loc.T("settings.update.failed");
+                CheckUpdateButton.IsEnabled = true;
+                UpdateNowButton.IsEnabled = true;
+                return;
+            }
+
+            // UseShellExecute + runas raises the UAC prompt the installer needs.
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = installer,
+                Arguments = "/SILENT /SUPPRESSMSGBOXES",
+                UseShellExecute = true,
+                Verb = "runas",
+            });
+            Close();
+        }
+        catch
+        {
+            // Download error or the user dismissed the UAC prompt.
+            UpdateStatus.Text = Loc.T("settings.update.failed");
+            CheckUpdateButton.IsEnabled = true;
+            UpdateNowButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Downloads the installer to the temp folder, rejecting anything that is too
+    /// small or is not a Windows executable. Returns the path, or null on failure.
+    /// </summary>
+    private static async Task<string?> DownloadInstallerAsync(string url)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
+
+        var bytes = await client.GetByteArrayAsync(url);
+        if (bytes.Length < 500_000 || bytes.Length < 2 || bytes[0] != 0x4D || bytes[1] != 0x5A)
+            return null;
+
+        var path = Path.Combine(Path.GetTempPath(), "curfew-update.exe");
+        await File.WriteAllBytesAsync(path, bytes);
+        return path;
     }
 
     /// <summary>

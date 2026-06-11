@@ -6,6 +6,16 @@
     xmlns:local="using:Curfew.App">
 
     <Grid x:Name="RootGrid">
+        <!-- Window-scoped styles live here (not on the Window, which has no
+             Resources) so they reach both the ScrollViewer content and the
+             CardSource cards that Relayout re-parents into the columns. -->
+        <Grid.Resources>
+            <Style x:Key="SectionDescriptionStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+        </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -22,15 +32,6 @@
         <ScrollViewer Grid.Row="1" Padding="24,8,24,24"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollMode="Disabled">
-        <!-- WinUI 3 Window has no Resources property, so window-scoped styles live
-             on the root content element instead. -->
-        <ScrollViewer.Resources>
-            <Style x:Key="SectionDescriptionStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="12" />
-                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-                <Setter Property="TextWrapping" Value="Wrap" />
-            </Style>
-        </ScrollViewer.Resources>
 
         <!-- ContentRoot stays centred; its MaxWidth grows as the window widens so
              the cards reflow into 2 or 3 columns (see Relayout in code-behind). -->
@@ -251,6 +252,19 @@
                                       ToolTipService.ToolTip="Detect and block attempts to change the system clock" />
                         <ToggleSwitch x:Name="AutoUpdate" Header="{local:Loc Key=settings.autoupdate}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+
+                        <!-- Manual update check: same place as the auto-update toggle.
+                             Automatic checks run on boot and every six hours. -->
+                        <StackPanel Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="CheckUpdateButton" Content="{local:Loc Key=settings.update.check}"
+                                        Click="OnCheckForUpdate" />
+                                <Button x:Name="UpdateNowButton" Content="{local:Loc Key=settings.update.now}"
+                                        Style="{StaticResource AccentButtonStyle}"
+                                        Click="OnUpdateNow" IsEnabled="False" />
+                            </StackPanel>
+                            <TextBlock x:Name="UpdateStatus" Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
                     </StackPanel>
                 </Expander>
 
