@@ -17,17 +17,18 @@ internal static class LockScreen
     private const string ClassName = "CurfewLockClass";
 
     // GDI colours are 0x00BBGGRR (COLORREF byte order is R, G, B low-to-high).
-    private const uint ColorOverlayBg = 0x00211B14; // deep desaturated navy backdrop
-    private const uint ColorPanelBg = 0x00302622;   // card surface, a touch lighter than the backdrop
-    private const uint ColorPanelEdge = 0x004A3C36;  // subtle card border / inset highlight
-    private const uint ColorPanelShadow = 0x00171210; // soft drop-shadow band under the card
+    // Palette mirrors the WinUI dark theme so the lock reads as part of the app.
+    private const uint ColorOverlayBg = 0x001C1C1C;  // dark Mica-like backdrop (#1C1C1C)
+    private const uint ColorPanelBg = 0x002A2A2A;    // card surface (#2A2A2A)
+    private const uint ColorPanelEdge = 0x003C3C3C;  // subtle card border / inset highlight (#3C3C3C)
+    private const uint ColorPanelShadow = 0x00141414; // soft drop-shadow band under the card
     private const uint ColorWhite = 0x00FFFFFF;
-    private const uint ColorLight = 0x00C8C2BD;       // muted body text
-    private const uint ColorMuted = 0x008A847F;       // captions / hints
-    private const uint ColorAccent = 0x00E06C75;      // brand accent (BGR of a soft red/violet)
+    private const uint ColorLight = 0x00C8C8C8;       // body text (#C8C8C8)
+    private const uint ColorMuted = 0x008A8A8A;       // captions / hints (#8A8A8A)
+    private const uint ColorAccent = 0x00F0A04C;      // app accent blue #4CA0F0 (BGR)
     private const uint ColorWarn = 0x000A7FFF;        // amber warning (BGR)
     private const uint ColorRed = 0x000000FF;         // urgent red
-    private const uint ColorFieldBg = 0x001C1614;     // passcode field well
+    private const uint ColorFieldBg = 0x001F1F1F;     // passcode field well (#1F1F1F)
 
     private const int IdEdit = 101;
     private const int IdUnlock = 102;
@@ -51,6 +52,16 @@ internal static class LockScreen
     private static IntPtr _hwnd;
     private static IntPtr _edit;
     private static IntPtr _hook;
+
+    // Toggleable child controls, captured at creation so Show() can switch the
+    // action area between budget mode (extend time) and schedule mode (allow now).
+    private static IntPtr _btnExtend15;
+    private static IntPtr _btnExtend30;
+    private static IntPtr _btnExtend60;
+    private static IntPtr _btnUnlock;
+
+    /// <summary>True while the current lock is a schedule block (outside allowed hours), not a budget block.</summary>
+    private static bool _scheduleMode;
 
     // Cached fonts/brushes created once and reused on every paint, then freed in
     // Dispose. Reusing GDI handles avoids per-frame churn and keeps the countdown
@@ -96,6 +107,16 @@ internal static class LockScreen
 
         _error = false;
         _shutdownCountdown = OverlayState.Settings.GetInt("lock_screen_timeout", 600);
+
+        // Schedule block (outside allowed hours) when the budget is not the cause.
+        // Adding minutes is meaningless then, so the extend row is hidden and the
+        // primary action becomes "ignore the weekly schedule until restart".
+        _scheduleMode = !OverlayState.BudgetBlocked;
+        var extendVisibility = _scheduleMode ? SW_HIDE : SW_SHOW;
+        ShowWindow(_btnExtend15, extendVisibility);
+        ShowWindow(_btnExtend30, extendVisibility);
+        ShowWindow(_btnExtend60, extendVisibility);
+        SetWindowTextW(_btnUnlock, _scheduleMode ? Loc.T("lock.schedule.ignore") : Loc.T("lock.unlock"));
 
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
         ShowWindow(_hwnd, SW_SHOW);
@@ -262,9 +283,9 @@ internal static class LockScreen
         var rowW = extW * 3 + gap * 2;
         var rowX = cx - rowW / 2;
         var extY = py + 224;
-        AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 15), IdExtend15, rowX, extY, extW, extH);
-        AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 30), IdExtend30, rowX + extW + gap, extY, extW, extH);
-        AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 60), IdExtend60, rowX + (extW + gap) * 2, extY, extW, extH);
+        _btnExtend15 = AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 15), IdExtend15, rowX, extY, extW, extH);
+        _btnExtend30 = AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 30), IdExtend30, rowX + extW + gap, extY, extW, extH);
+        _btnExtend60 = AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 60), IdExtend60, rowX + (extW + gap) * 2, extY, extW, extH);
 
         // Passcode field, centred and generously sized.
         const int fieldW = 240, fieldH = 44;
@@ -280,18 +301,19 @@ internal static class LockScreen
             SendMessageW(_edit, WM_SETFONT, _fontControl, new IntPtr(1));
 
         // Primary unlock action, then the destructive shutdown action below it.
-        const int actW = 240, actH = 44;
-        AddButton(hwnd, hInstance, Loc.T("lock.unlock"), IdUnlock, cx - actW / 2, py + 376, actW, actH);
+        const int actW = 280, actH = 44;
+        _btnUnlock = AddButton(hwnd, hInstance, Loc.T("lock.unlock"), IdUnlock, cx - actW / 2, py + 376, actW, actH);
         AddButton(hwnd, hInstance, Loc.T("lock.shutdown"), IdShutdown, cx - actW / 2, py + 428, actW, actH);
     }
 
-    private static void AddButton(IntPtr parent, IntPtr hInstance, string text, int id, int x, int y, int w, int h)
+    private static IntPtr AddButton(IntPtr parent, IntPtr hInstance, string text, int id, int x, int y, int w, int h)
     {
         var btn = CreateWindowExW(0, "BUTTON", text,
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
             x, y, w, h, parent, new IntPtr(id), hInstance, IntPtr.Zero);
         if (btn != IntPtr.Zero && _fontControl != IntPtr.Zero)
             SendMessageW(btn, WM_SETFONT, _fontControl, new IntPtr(1));
+        return btn;
     }
 
     private static void HandleCommand(IntPtr hwnd, int id, int notify)
@@ -299,7 +321,15 @@ internal static class LockScreen
         switch (id)
         {
             case IdUnlock:
-                if (PasscodeMatches()) { OverlayState.ScheduleOverride = true; Hide(); }
+                // In schedule mode the parent's passcode ignores the weekly schedule
+                // for the rest of the session; in budget mode it lifts a schedule
+                // override only. Either way a valid unlock code still works.
+                if (PasscodeMatches())
+                {
+                    if (_scheduleMode) OverlayState.IgnoreScheduleUntilRestart = true;
+                    OverlayState.ScheduleOverride = true;
+                    Hide();
+                }
                 else if (TryRedeemUnlockCode()) { if (OverlayState.ShouldBlock) ClearEdit(); else Hide(); }
                 else Reject(hwnd);
                 break;
@@ -413,8 +443,10 @@ internal static class LockScreen
         if (string.IsNullOrWhiteSpace(message)) message = Loc.T("lock.default.message");
         DrawText(hdc, _fontBody, message, innerX, py + 150, innerW, 48, ColorLight, DT_CENTER | DT_WORDBREAK);
 
-        // Section captions sit directly above their controls.
-        DrawText(hdc, _fontCaption, Loc.T("lock.extend.caption"), innerX, py + 200, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
+        // Section captions sit directly above their controls. In schedule mode the
+        // extend row is hidden, so this slot explains why instead.
+        var actionCaption = _scheduleMode ? Loc.T("lock.schedule.caption") : Loc.T("lock.extend.caption");
+        DrawText(hdc, _fontCaption, actionCaption, innerX, py + 200, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
         DrawText(hdc, _fontCaption, Loc.T("lock.enter.caption"), innerX, py + 296, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
 
         // Inline error feedback below the field, replacing the unlock caption gap.

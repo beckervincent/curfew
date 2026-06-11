@@ -75,6 +75,15 @@ internal static class OverlayState
     public static bool ScheduleOverride;
 
     /// <summary>
+    /// Set when the parent chooses to ignore the weekly schedule for the rest of
+    /// the session. Unlike <see cref="ScheduleOverride"/> it is never cleared when
+    /// an allowed window arrives, so later blocked windows do not re-lock. Being a
+    /// plain in-memory field it resets to <c>false</c> on the next overlay restart
+    /// (reboot / logon) — exactly the "until next restart" lifetime intended.
+    /// </summary>
+    public static bool IgnoreScheduleUntilRestart;
+
+    /// <summary>
     /// (Re)loads the parent's enforcement choices from the settings store. Each
     /// accessor falls back to a safe default when its key is missing or malformed,
     /// so a partially written database never throws here.
@@ -107,8 +116,9 @@ internal static class OverlayState
     /// <summary>True when the daily budget is enabled and exhausted.</summary>
     public static bool BudgetBlocked => LimitEnabled && Remaining <= 0;
 
-    /// <summary>True when the schedule is enabled, the current slot is blocked, and the parent has not overridden it.</summary>
-    public static bool ScheduleBlocked => ScheduleEnabled && !ScheduleAllows() && !ScheduleOverride;
+    /// <summary>True when the schedule is enabled, the current slot is blocked, and the parent has neither overridden it nor ignored it for the session.</summary>
+    public static bool ScheduleBlocked =>
+        ScheduleEnabled && !ScheduleAllows() && !ScheduleOverride && !IgnoreScheduleUntilRestart;
 
     /// <summary>True when any enforcement reason currently requires the lock screen.</summary>
     public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked;
