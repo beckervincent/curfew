@@ -405,7 +405,7 @@ public sealed partial class SettingsWindow : Window
         if (bytes.Length < 500_000 || bytes.Length < 2 || bytes[0] != 0x4D || bytes[1] != 0x5A)
             return null;
 
-        var path = Path.Combine(Path.GetTempPath(), "curfew-update.exe");
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "curfew-update.exe");
         await File.WriteAllBytesAsync(path, bytes);
         return path;
     }
