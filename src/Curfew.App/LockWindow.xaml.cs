@@ -98,6 +98,7 @@ public sealed partial class LockWindow : Window
             return;
         }
 
+        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, "lock");
         ErrorBar.IsOpen = true;
         PinBox.Password = string.Empty;
         PinBox.Focus(FocusState.Programmatic);

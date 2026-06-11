@@ -166,6 +166,9 @@ internal static class LockScreen
         _winui = LockAppHost.Launch();
         SetControlsVisible(!_winui);
 
+        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked,
+            OverlayState.BudgetBlocked ? "budget" : "schedule");
+
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
         ShowWindow(_hwnd, SW_SHOW);
         SetForegroundWindow(_hwnd);
@@ -303,17 +306,23 @@ internal static class LockScreen
             case "extend60": ExtendApply(60); break;
             case "unlock":
                 OverlayState.ScheduleOverride = true;
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "passcode");
                 if (!OverlayState.ShouldBlock) Hide();
                 break;
             case "ignore_schedule":
                 OverlayState.IgnoreScheduleUntilRestart = true;
                 OverlayState.ScheduleOverride = true;
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ScheduleIgnored, "until restart");
                 if (!OverlayState.ShouldBlock) Hide();
                 break;
             case "redeem":
                 var code = OverlayState.Settings.Get("lock_code") ?? string.Empty;
                 OverlayState.Settings.Set("lock_code", string.Empty);
-                if (TryRedeemCode(code) && !OverlayState.ShouldBlock) Hide();
+                if (TryRedeemCode(code))
+                {
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, "unlock code");
+                    if (!OverlayState.ShouldBlock) Hide();
+                }
                 break;
             case "logoff":
                 LockNative.Logoff();
@@ -326,6 +335,7 @@ internal static class LockScreen
         OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
         OverlayState.ScheduleOverride = true;
         OverlayState.Persist();
+        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"+{minutes} min");
         if (!OverlayState.ShouldBlock) Hide();
     }
 
@@ -527,6 +537,7 @@ internal static class LockScreen
 
     private static void Reject(IntPtr hwnd)
     {
+        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, "lock");
         _error = true;
         ClearEdit();
         SetFocus(_edit);

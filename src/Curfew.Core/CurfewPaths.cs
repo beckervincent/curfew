@@ -23,6 +23,9 @@ public static class CurfewPaths
     /// <summary>File name of the SQLite settings/usage database.</summary>
     private const string DatabaseFileName = "data.db";
 
+    /// <summary>File name of the parent-facing activity/tamper event log.</summary>
+    private const string EventLogFileName = "events.log";
+
     /// <summary>Subfolder that holds a downloaded installer awaiting a silent update.</summary>
     private const string UpdateFolderName = "update";
 
@@ -70,6 +73,13 @@ public static class CurfewPaths
     /// <see cref="DataDirectory"/> exists, but does not create the file itself.
     /// </summary>
     public static string DatabaseFile => Path.Combine(DataDirectory, DatabaseFileName);
+
+    /// <summary>
+    /// Absolute path to the activity/tamper event log
+    /// (<c>%ProgramData%\Curfew\events.log</c>), written by the service and overlay
+    /// and shown to the parent in Settings.
+    /// </summary>
+    public static string EventLogFile => Path.Combine(DataDirectory, EventLogFileName);
 
     /// <summary>
     /// Absolute path to the staging folder for downloaded updates

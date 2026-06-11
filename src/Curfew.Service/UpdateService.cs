@@ -98,7 +98,10 @@ internal static class UpdateService
 
         var exitCode = PowerShellRunner.Run(script);
         if (exitCode == 0)
+        {
             ServiceLog.Write($"update {release.Value.Tag} scheduled for silent install");
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.UpdateInstalled, release.Value.Tag);
+        }
         else
             ServiceLog.Write($"update scheduling failed (powershell exit {exitCode})");
     }

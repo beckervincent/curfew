@@ -67,6 +67,7 @@ internal static class ContentFilterApplier
         int exitCode = PowerShellRunner.Run(script);
         if (exitCode != 0)
         {
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FilterFailure, $"{description} ({exitCode})");
             // PowerShellRunner returns -1 when the process could not be launched
             // or had to be killed after timing out; any other non-zero value is
             // the script's own exit code. The generated scripts use

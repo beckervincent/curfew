@@ -122,6 +122,7 @@ internal static class TimeGuardService
 
         if (SetSystemClock(trustedUtc))
         {
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ClockTamper, verdict.ToString());
             // Re-anchor the Windows Time service so it does not drift the clock
             // back toward the tampered value on its next sync.
             PowerShellRunner.Run("w32tm /resync /force");
