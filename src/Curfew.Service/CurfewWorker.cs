@@ -92,6 +92,12 @@ public sealed class CurfewWorker : BackgroundService
             NetworkChange.NetworkAddressChanged += OnNetworkChanged;
         }, CancellationToken.None);
 
+        // Host the config-write pipe as SYSTEM so the app can change write-protected
+        // config.db through us. Its own settings store (separate connection) keeps it
+        // off the loop thread's connection.
+        var pipeStore = CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
+        var pipeServer = Task.Run(() => new ConfigPipeServer(pipeStore).RunAsync(stoppingToken), CancellationToken.None);
+
         // MinValue forces the first slow cycle to run immediately on startup
         // rather than waiting a full SlowInterval for the clock check.
         var lastSlow = DateTimeOffset.MinValue;
@@ -119,6 +125,9 @@ public sealed class CurfewWorker : BackgroundService
         {
             NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
             await DrainOnShutdownAsync(startupFilter).ConfigureAwait(false);
+            // Let the config pipe drain, then release its store.
+            try { await Task.WhenAny(pipeServer, Task.Delay(ShutdownDrainTimeout)).ConfigureAwait(false); } catch { /* shutting down */ }
+            pipeStore.Dispose();
             // Never leave Task Manager disabled when the service stops.
             if (_policyAppliedSid is not null) TaskManagerPolicy.Clear(_policyAppliedSid);
             _policyStore?.Dispose();

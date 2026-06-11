@@ -119,6 +119,18 @@ public sealed class SettingsStore : IDisposable
         SettingsPartition.StoreFor(key) == SettingsStoreKind.State ? _state : _config;
 
     /// <summary>
+    /// Optional sink for CONFIG writes. When set and it returns <c>true</c> for a
+    /// key, that write is considered handled (e.g. forwarded to the SYSTEM service
+    /// over the config pipe) and is NOT written to the local config connection.
+    /// Returning <c>false</c> (or leaving this null) falls through to a direct
+    /// write. State writes never use this. The app sets this so its config changes
+    /// go through the service once config.db is write-protected; the service and
+    /// overlay leave it null (the service owns config.db; the overlay only writes
+    /// state).
+    /// </summary>
+    public Func<string, string, bool>? ConfigWriter { get; set; }
+
+    /// <summary>
     /// Opens (or creates) the database at <paramref name="databasePath"/>,
     /// seeding any missing defaults and purging per-day rows that do not belong
     /// to <paramref name="today"/>. If the existing file is corrupt it is
@@ -331,6 +343,14 @@ public sealed class SettingsStore : IDisposable
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
+
+        // Route config writes through the config writer (the SYSTEM service) when one
+        // is set and it accepts the write; otherwise fall through to a direct write.
+        if (SettingsPartition.StoreFor(key) == SettingsStoreKind.Config
+            && ConfigWriter is { } writer && writer(key, value))
+        {
+            return;
+        }
 
         using var cmd = ConnectionFor(key).CreateCommand();
         cmd.CommandText = "INSERT OR REPLACE INTO settings (key, value) VALUES ($k, $v)";
