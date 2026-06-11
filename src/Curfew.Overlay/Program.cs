@@ -169,6 +169,15 @@ namespace Curfew.Overlay
         /// <summary>Duration of a parent-granted pause (break), in seconds.</summary>
         private const long PauseDurationSeconds = 600; // 10 minutes
 
+        /// <summary>How often the overlay reloads enforcement settings, in seconds (ticks).</summary>
+        private const int ReloadEverySeconds = 30;
+        private static int _reloadCounter;
+
+        /// <summary>Whether the foreground app is allow-listed, so this second is exempt from the budget.</summary>
+        private static bool ForegroundExempt() =>
+            OverlayState.AllowedApps.Count > 0
+            && AppAllowlist.Allows(OverlayState.AllowedApps, ForegroundApp.ProcessName());
+
         private static void Tick(IntPtr hwnd)
         {
             // Apply any parent-approved tray action. The command is written by
@@ -184,12 +193,21 @@ namespace Curfew.Overlay
                 return;
             }
 
+            // Pick up parent changes (limits/schedule/allow-list) without a restart,
+            // roughly twice a minute so the SQLite reads stay cheap.
+            if (++_reloadCounter >= ReloadEverySeconds)
+            {
+                _reloadCounter = 0;
+                OverlayState.LoadEnforcement();
+            }
+
             // Count this second of active (unlocked) screen time for usage history.
             OverlayState.RecordActiveSecond();
 
-            // The budget only ticks down when it is the active control and no
-            // parent-granted pause (break) is in effect.
-            if (OverlayState.LimitEnabled && !OverlayState.IsPaused)
+            // The budget only ticks down when it is the active control, no
+            // parent-granted pause is in effect, and the foreground app is not on the
+            // allow-list (homework/IDE time is exempt).
+            if (OverlayState.LimitEnabled && !OverlayState.IsPaused && !ForegroundExempt())
             {
                 OverlayState.Remaining = TimeKeeper.Tick(OverlayState.Remaining);
                 if (TimeKeeper.ShouldPersist(OverlayState.Remaining)) OverlayState.Persist();

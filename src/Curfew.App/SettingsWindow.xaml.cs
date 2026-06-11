@@ -345,6 +345,8 @@ public sealed partial class SettingsWindow : Window
             _dailyLimits[i] = box;
             DailyLimitsPanel.Children.Add(box);
         }
+
+        AppAllowlistBox.Text = _settings.Get("app_allowlist") ?? string.Empty;
     }
 
     private void LoadWarnings()
@@ -594,6 +596,10 @@ public sealed partial class SettingsWindow : Window
             var minutes = (int)Math.Round(Math.Clamp(hours, 0, 24) * 60);
             _settings.Set(SettingsStore.WeekdayKeys[i], minutes.ToString());
         }
+
+        // Apps whose foreground time is exempt from the budget. Stored as the raw
+        // text; the overlay parses it (AppAllowlist.Parse) when enforcing.
+        _settings.Set("app_allowlist", AppAllowlistBox.Text ?? string.Empty);
     }
 
     private void SaveWarnings()

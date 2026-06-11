@@ -124,7 +124,16 @@
                                           ToolTipService.ToolTip="Enforce a maximum amount of screen time each day" />
                         </Grid>
                     </Expander.Header>
-                    <StackPanel x:Name="DailyLimitsPanel" Spacing="12" Padding="0,4,0,4" />
+                    <StackPanel Spacing="12" Padding="0,4,0,4">
+                        <StackPanel x:Name="DailyLimitsPanel" Spacing="12" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.allowlist.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.allowlist.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <TextBox x:Name="AppAllowlistBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
+                                     PlaceholderText="code.exe&#x0A;winword.exe" />
+                        </StackPanel>
+                    </StackPanel>
                 </Expander>
 
                 <!-- Weekly schedule -->

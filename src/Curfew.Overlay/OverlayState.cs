@@ -78,6 +78,12 @@ internal static class OverlayState
     public static Schedule Schedule = Schedule.AllAllowed();
 
     /// <summary>
+    /// Process names whose foreground time does not consume the daily budget
+    /// (cat-3 app allow-list). Loaded from config in <see cref="LoadEnforcement"/>.
+    /// </summary>
+    public static IReadOnlySet<string> AllowedApps = new HashSet<string>();
+
+    /// <summary>
     /// Set when the parent unlocks during a blocked schedule window; cleared once
     /// an allowed window is reached, so the next blocked window re-locks.
     /// </summary>
@@ -102,6 +108,7 @@ internal static class OverlayState
         LimitEnabled = Settings.GetBool(KeyLimitEnabled, true);
         ScheduleEnabled = Settings.GetBool(KeyScheduleEnabled, false);
         Schedule = Schedule.Parse(Settings.Get(KeySchedule));
+        AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
     }
 
     /// <summary>
