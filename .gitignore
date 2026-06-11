@@ -22,3 +22,10 @@ TestResults/
 logs/
 *.log
 *.backup
+
+## Secrets — code-signing cert + password live here locally, NEVER committed
+.secrets/
+*.pfx
+*.p12
+*.pem
+*-password.txt
