@@ -159,16 +159,25 @@ namespace Curfew.Overlay
             }
         }
 
+        /// <summary>Duration of a parent-granted pause (break), in seconds.</summary>
+        private const long PauseDurationSeconds = 600; // 10 minutes
+
         private static void Tick(IntPtr hwnd)
         {
+            // Apply any parent-approved tray action. The command is written by
+            // Curfew.App only after the parent passcode is verified, so the overlay
+            // itself needs no passcode UI of its own.
+            ExecutePendingTrayCommand(hwnd);
+
             // Time is frozen while the lock screen is up.
             if (OverlayState.Locked) return;
 
             // Count this second of active (unlocked) screen time for usage history.
             OverlayState.RecordActiveSecond();
 
-            // The budget only ticks down when it is the active control.
-            if (OverlayState.LimitEnabled)
+            // The budget only ticks down when it is the active control and no
+            // parent-granted pause (break) is in effect.
+            if (OverlayState.LimitEnabled && !OverlayState.IsPaused)
             {
                 OverlayState.Remaining = TimeKeeper.Tick(OverlayState.Remaining);
                 if (TimeKeeper.ShouldPersist(OverlayState.Remaining)) OverlayState.Persist();
@@ -186,14 +195,59 @@ namespace Curfew.Overlay
             if (OverlayState.ShouldBlock) LockScreen.Show();
         }
 
+        /// <summary>
+        /// Consumes a one-shot command left by the passcode-gated tray menu in
+        /// Curfew.App and applies it. The command is cleared immediately so it runs
+        /// once, and ignored if it is older than a minute (e.g. written while the
+        /// overlay was not running).
+        /// </summary>
+        private static void ExecutePendingTrayCommand(IntPtr hwnd)
+        {
+            var cmd = OverlayState.Settings.Get("tray_command");
+            if (string.IsNullOrEmpty(cmd)) return;
+
+            OverlayState.Settings.Set("tray_command", string.Empty); // consume once
+            long.TryParse(OverlayState.Settings.Get("tray_command_at"), out var at);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (now - at > 60) return; // stale
+
+            switch (cmd)
+            {
+                case "extend15": ApplyExtend(15); break;
+                case "extend45": ApplyExtend(45); break;
+                case "pause":
+                    OverlayState.PausedUntilUnix = now + PauseDurationSeconds;
+                    OverlayLog.Write("tray: paused");
+                    break;
+                case "resume":
+                    OverlayState.PausedUntilUnix = 0;
+                    OverlayLog.Write("tray: resumed");
+                    break;
+                case "quit":
+                    OverlayLog.Write("tray: quit requested");
+                    DestroyWindow(hwnd); // triggers WM_DESTROY -> tray removal + PostQuitMessage
+                    break;
+            }
+        }
+
+        /// <summary>Adds bonus minutes and lifts any schedule block, as the lock-screen extend does.</summary>
+        private static void ApplyExtend(int minutes)
+        {
+            OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
+            OverlayState.ScheduleOverride = true;
+            OverlayState.Persist();
+            OverlayLog.Write($"tray: extended +{minutes} min");
+        }
+
         /// <summary>Refreshes the tray tooltip and raises a balloon at each warning threshold.</summary>
         private static void UpdateTray()
         {
-            TrayIcon.UpdateTooltip(OverlayState.LimitEnabled
-                ? Loc.T("tray.left", TimeMath.FormatCompact(OverlayState.Remaining))
+            TrayIcon.UpdateTooltip(
+                OverlayState.IsPaused ? Loc.T("tray.paused")
+                : OverlayState.LimitEnabled ? Loc.T("tray.left", TimeMath.FormatCompact(OverlayState.Remaining))
                 : Loc.T("tray.idle"));
 
-            if (!OverlayState.LimitEnabled) return;
+            if (!OverlayState.LimitEnabled || OverlayState.IsPaused) return;
 
             var warn1 = OverlayState.Settings.GetInt("warning1_minutes", 10);
             var warn2 = OverlayState.Settings.GetInt("warning2_minutes", 5);

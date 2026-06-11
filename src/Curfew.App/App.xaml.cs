@@ -30,6 +30,12 @@ public partial class App : Application
     /// <summary>Launches the passcode-gated settings editor.</summary>
     private const string SettingsArgument = "--settings";
 
+    /// <summary>Prefix for a passcode-gated tray command, e.g. <c>--tray=extend15</c>.</summary>
+    private const string TrayArgumentPrefix = "--tray=";
+
+    /// <summary>Tray commands accepted from the overlay (validated before being written through).</summary>
+    private static readonly string[] AllowedTrayCommands = { "extend15", "extend45", "pause", "resume", "quit" };
+
     /// <summary>The single top-level window owned by this process, if any.</summary>
     private Window? _window;
 
@@ -72,12 +78,47 @@ public partial class App : Application
         {
             ShowSettingsGated();
         }
+        else if (TrayCommand(args) is { } command)
+        {
+            RunTrayCommandGated(command);
+        }
         else
         {
             // Launched with no recognised arguments: there is no foreground UI
             // to present, so shut down instead of leaving an invisible process.
             Exit();
         }
+    }
+
+    /// <summary>Extracts a validated tray command from the command line, or null if none.</summary>
+    private static string? TrayCommand(IEnumerable<string> args)
+    {
+        var arg = args.FirstOrDefault(a => a.StartsWith(TrayArgumentPrefix, StringComparison.Ordinal));
+        var command = arg?[TrayArgumentPrefix.Length..];
+        return command is not null && AllowedTrayCommands.Contains(command) ? command : null;
+    }
+
+    /// <summary>
+    /// Verifies the parent passcode, then records the tray command for the overlay
+    /// to pick up and apply. The overlay has no passcode UI of its own, so this is
+    /// where extend/pause/quit are authorised. Closes as soon as it is done.
+    /// </summary>
+    private void RunTrayCommandGated(string command)
+    {
+        var settings = OpenSettings();
+        if (!settings.HasPasscode) { Exit(); return; }
+
+        var prompt = new PasscodeWindow(settings);
+        prompt.Result += verified =>
+        {
+            if (verified)
+            {
+                settings.Set("tray_command", command);
+                settings.Set("tray_command_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
+            }
+            Exit();
+        };
+        ShowWindow(prompt);
     }
 
     /// <summary>

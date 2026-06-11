@@ -4,6 +4,7 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using Curfew.Core;
 using Curfew.Core.Localization;
 using Curfew.Core.Security;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -72,6 +73,11 @@ public sealed partial class SettingsWindow : Window
 
         InitCards();
         Load();
+
+        // Default to a maximised window so the cards reflow into the full 3 columns;
+        // the user can restore it down to collapse back to 2 or 1 column.
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+            presenter.Maximize();
     }
 
     /// <summary>
@@ -230,6 +236,9 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Renders the enrolment URI as a QR bitmap. Best-effort: failures leave the image blank.</summary>
     private async void RenderQr(string uri)
     {
+        // Clear first so a failed rerender (e.g. after regenerating the secret)
+        // leaves the image blank instead of showing the previous secret's QR.
+        UnlockQr.Source = null;
         try
         {
             var generator = new QRCodeGenerator();
@@ -249,12 +258,18 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>Reveals or hides the advanced unlock-code details (bonus, secret, regenerate).</summary>
+    /// <summary>
+    /// Reveals or hides the advanced unlock-code details (bonus, secret, regenerate).
+    /// The button itself flips to an accent "Done" state while open and back again,
+    /// so a second press visibly undoes the first.
+    /// </summary>
     private void OnToggleUnlockAdvanced(object sender, RoutedEventArgs e)
     {
-        UnlockAdvanced.Visibility = UnlockAdvanced.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        var show = UnlockAdvanced.Visibility != Visibility.Visible;
+        UnlockAdvanced.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        UnlockConfigureButton.Content = Loc.T(show ? "settings.unlock.close" : "settings.unlock.configure");
+        UnlockConfigureButton.Style = (Style)Application.Current.Resources[
+            show ? "AccentButtonStyle" : "DefaultButtonStyle"];
     }
 
     /// <summary>Issues a fresh secret and resets the replay counter so old codes stop working.</summary>
@@ -396,40 +411,88 @@ public sealed partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// Downloads the installer to the temp folder, rejecting anything that is too
-    /// small or is not a Windows executable. Returns the path, or null on failure.
+    /// Streams the installer to the temp folder, rejecting anything from an
+    /// untrusted host, too large, too small, or not a Windows executable. Returns
+    /// the path, or null on failure (any partial download is deleted).
     /// </summary>
+    /// <remarks>
+    /// The asset is fetched over HTTPS from GitHub, which authenticates the source.
+    /// The installer is not Authenticode-signed and no hash is published, so signer
+    /// or hash-pin verification is not yet possible; <see cref="IsTrustedInstallerUrl"/>
+    /// plus the size and PE-header checks are the available defences.
+    /// </remarks>
     private static async Task<string?> DownloadInstallerAsync(string url)
     {
+        if (!IsTrustedInstallerUrl(url)) return null;
+
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
 
-        // Stream with an explicit cap rather than GetByteArrayAsync (which buffers
-        // up to 2 GB by default): a compromised or malformed release asset must not
-        // be able to exhaust memory. Mirrors the service-side download hardening.
-        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength is long advertised && advertised > MaxInstallerBytes)
-            return null;
-
-        await using var stream = await response.Content.ReadAsStreamAsync();
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81_920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk)) > 0)
+        // Stage under an app-specific dir with an unguessable name so another
+        // same-user process cannot pre-create or swap the file between the download
+        // and the elevated launch (TOCTOU). CreateNew fails if the name ever clashes.
+        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Curfew");
+        Directory.CreateDirectory(tempDir);
+        var path = System.IO.Path.Combine(tempDir, $"curfew-update-{Guid.NewGuid():N}.exe");
+        try
         {
-            if (buffer.Length + read > MaxInstallerBytes) return null;
-            buffer.Write(chunk, 0, read);
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            // HttpClient follows redirects (github.com -> *.githubusercontent.com),
+            // so re-validate the URL actually fetched, not just the input.
+            if (response.RequestMessage?.RequestUri is { } finalUri && !IsTrustedInstallerUrl(finalUri.ToString()))
+                return null;
+
+            if (response.Content.Headers.ContentLength is long advertised && advertised > MaxInstallerBytes)
+                return null;
+
+            // Stream straight to disk (capped) rather than buffering ~95 MB in memory.
+            await using (var source = await response.Content.ReadAsStreamAsync())
+            await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                var chunk = new byte[81_920];
+
+                // Validate the "MZ" PE signature on the first chunk before writing more.
+                var first = await source.ReadAsync(chunk);
+                if (first < 2 || chunk[0] != 0x4D || chunk[1] != 0x5A)
+                    throw new InvalidDataException("not a Windows executable");
+                await file.WriteAsync(chunk.AsMemory(0, first));
+
+                long total = first;
+                int read;
+                while ((read = await source.ReadAsync(chunk)) > 0)
+                {
+                    total += read;
+                    if (total > MaxInstallerBytes)
+                        throw new InvalidDataException("installer exceeds size cap");
+                    await file.WriteAsync(chunk.AsMemory(0, read));
+                }
+
+                if (total < 500_000)
+                    throw new InvalidDataException("download too small to be the installer");
+            }
+
+            return path;
         }
-
-        var bytes = buffer.ToArray();
-        if (bytes.Length < 500_000 || bytes[0] != 0x4D || bytes[1] != 0x5A)
+        catch
+        {
+            // Network/HTTP error, oversize, or a failed validation: drop the partial file.
+            try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ }
             return null;
-
-        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "curfew-update.exe");
-        await File.WriteAllBytesAsync(path, bytes);
-        return path;
+        }
     }
+
+    /// <summary>
+    /// Whether the installer URL is an HTTPS GitHub address, so the elevated launch
+    /// can only ever run something fetched from the release host.
+    /// </summary>
+    private static bool IsTrustedInstallerUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps
+        && (uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Save handler wired to the Save button. Validates the optional passcode

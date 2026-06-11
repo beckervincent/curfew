@@ -57,6 +57,15 @@ internal static class OverlayState
     /// <summary>True while the full-screen lock is up. The budget is frozen and timers paused in this state.</summary>
     public static bool Locked;
 
+    /// <summary>
+    /// Unix-seconds timestamp until which the budget countdown is paused (a
+    /// parent-granted break). In-memory only, so it resets on the next restart.
+    /// </summary>
+    public static long PausedUntilUnix;
+
+    /// <summary>True while a parent-granted pause is in effect; the budget is frozen.</summary>
+    public static bool IsPaused => DateTimeOffset.UtcNow.ToUnixTimeSeconds() < PausedUntilUnix;
+
     // ---- Parent's enforcement choices --------------------------------------
 
     /// <summary>Whether the daily hours budget is enforced.</summary>
