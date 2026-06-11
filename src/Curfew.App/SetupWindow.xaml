@@ -56,8 +56,8 @@
                                  TabIndex="1"
                                  PlaceholderText="••••"
                                  AutomationProperties.Name="Administrator PIN"
-                                 AutomationProperties.HelpText="Enter a 4-digit numeric PIN"
-                                 ToolTipService.ToolTip="Enter a 4-digit numeric PIN" />
+                                 AutomationProperties.HelpText="Enter a PIN or password"
+                                 ToolTipService.ToolTip="Enter a PIN or password" />
                     <PasswordBox x:Name="ConfirmBox"
                                  Header="{local:Loc Key=setup.pin.confirm}"
                                  MaxLength="64"
@@ -66,8 +66,8 @@
                                  TabIndex="2"
                                  PlaceholderText="••••"
                                  AutomationProperties.Name="Confirm PIN"
-                                 AutomationProperties.HelpText="Re-enter the same 4-digit PIN to confirm"
-                                 ToolTipService.ToolTip="Re-enter the same PIN to confirm" />
+                                 AutomationProperties.HelpText="Re-enter the same PIN or password to confirm"
+                                 ToolTipService.ToolTip="Re-enter the same PIN or password to confirm" />
                 </StackPanel>
             </Expander>
 
@@ -137,13 +137,32 @@
                                       VerticalAlignment="Center"
                                       TabIndex="6"
                                       AutomationProperties.Name="Enforce a weekly schedule"
-                                      ToolTipService.ToolTip="Enforce a weekly schedule (set the grid in Settings)" />
+                                      ToolTipService.ToolTip="Enforce a weekly schedule (paint the grid under Advanced)" />
                     </Grid>
+
+                    <!-- Advanced: a per-day limit for each weekday plus the weekly schedule grid -->
+                    <Button x:Name="AdvancedButton"
+                            Content="{local:Loc Key=setup.advanced}"
+                            Click="OnToggleAdvanced"
+                            HorizontalAlignment="Left"
+                            TabIndex="7"
+                            AutomationProperties.Name="Show advanced time-limit options" />
+                    <StackPanel x:Name="AdvancedPanel" Spacing="16" Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{local:Loc Key=setup.perday.hint}"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <StackPanel x:Name="DailyPerDayPanel" Spacing="12" />
+                        </StackPanel>
+                        <local:ScheduleGrid x:Name="ScheduleGridControl" Height="300" HorizontalAlignment="Stretch"
+                                            AutomationProperties.Name="Weekly allowed-time schedule grid" />
+                    </StackPanel>
                 </StackPanel>
             </Expander>
 
             <!-- Content filtering -->
-            <Expander HorizontalAlignment="Stretch" TabIndex="7">
+            <Expander HorizontalAlignment="Stretch" TabIndex="8">
                 <Expander.Header>
                     <StackPanel Spacing="2" Padding="0,8">
                         <TextBlock Text="{local:Loc Key=setup.filter.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -155,7 +174,7 @@
                 <StackPanel Spacing="12" Padding="0,4,0,8">
                     <RadioButtons x:Name="FilterChoices"
                                   Header="{local:Loc Key=setup.filter.level}"
-                                  TabIndex="8"
+                                  TabIndex="9"
                                   AutomationProperties.Name="Content filter level">
                         <RadioButton x:Name="FilterOff"
                                      Content="{local:Loc Key=filter.none}"
@@ -188,7 +207,7 @@
                                       Grid.Column="1"
                                       IsOn="True"
                                       VerticalAlignment="Center"
-                                      TabIndex="9"
+                                      TabIndex="10"
                                       AutomationProperties.Name="Block DNS-over-HTTPS bypass"
                                       ToolTipService.ToolTip="Also block DNS-over-HTTPS bypass" />
                     </Grid>
@@ -196,7 +215,7 @@
             </Expander>
 
             <!-- Protection -->
-            <Expander HorizontalAlignment="Stretch" TabIndex="10">
+            <Expander HorizontalAlignment="Stretch" TabIndex="11">
                 <Expander.Header>
                     <StackPanel Spacing="2" Padding="0,8">
                         <TextBlock Text="{local:Loc Key=setup.protection.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -221,7 +240,7 @@
                                   Grid.Column="1"
                                   IsOn="True"
                                   VerticalAlignment="Center"
-                                  TabIndex="11"
+                                  TabIndex="12"
                                   AutomationProperties.Name="Time Manipulation Guarding"
                                   ToolTipService.ToolTip="Time Manipulation Guarding" />
                 </Grid>
@@ -242,7 +261,7 @@
                     Click="OnContinue"
                     HorizontalAlignment="Right"
                     MinWidth="120"
-                    TabIndex="12"
+                    TabIndex="13"
                     Margin="0,4,0,0"
                     AutomationProperties.Name="Continue and save setup" />
         </StackPanel>

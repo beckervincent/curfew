@@ -2,7 +2,8 @@
 <UserControl
     x:Class="Curfew.App.ScheduleGrid"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Curfew.App">
 
     <!-- Root grid so the paintable surface can stretch to fill the host's allotted height. -->
     <Grid RowSpacing="12">
@@ -22,7 +23,7 @@
 
             <!-- Paint tool: choose what a click/drag applies -->
             <StackPanel Grid.Column="0" Spacing="6">
-                <TextBlock Text="Paint tool"
+                <TextBlock Text="{local:Loc Key=schedule.tool}"
                            Style="{StaticResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <StackPanel Orientation="Horizontal"
@@ -30,14 +31,14 @@
                             AutomationProperties.Name="Paint tool"
                             AutomationProperties.HelpText="Choose whether dragging on the grid allows or blocks usage for that time.">
                     <RadioButton x:Name="ToolAllow"
-                                 Content="Allow"
+                                 Content="{local:Loc Key=schedule.allow}"
                                  GroupName="tool"
                                  IsChecked="True"
                                  TabIndex="0"
                                  ToolTipService.ToolTip="Drag to allow usage (shown in blue)."
                                  AutomationProperties.HelpText="Drag on the grid to allow usage during those times." />
                     <RadioButton x:Name="ToolBlock"
-                                 Content="Block"
+                                 Content="{local:Loc Key=schedule.block}"
                                  GroupName="tool"
                                  TabIndex="1"
                                  ToolTipService.ToolTip="Drag to block usage (shown in gray)."
@@ -56,7 +57,7 @@
                             <SolidColorBrush Color="#FF54ADF2" />
                         </Rectangle.Fill>
                     </Rectangle>
-                    <TextBlock Text="Allowed"
+                    <TextBlock Text="{local:Loc Key=schedule.allowed}"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                VerticalAlignment="Center" />
@@ -67,7 +68,7 @@
                             <SolidColorBrush Color="#28808080" />
                         </Rectangle.Fill>
                     </Rectangle>
-                    <TextBlock Text="Blocked"
+                    <TextBlock Text="{local:Loc Key=schedule.blocked}"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                VerticalAlignment="Center" />
@@ -77,16 +78,16 @@
 
         <!-- Quick-fill presets -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-            <TextBlock Text="Quick fill" VerticalAlignment="Center"
+            <TextBlock Text="{local:Loc Key=schedule.quickfill}" VerticalAlignment="Center"
                        Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            <Button Content="Allow all" Click="OnPresetAllowAll"
+            <Button Content="{local:Loc Key=schedule.preset.allowall}" Click="OnPresetAllowAll"
                     ToolTipService.ToolTip="Allow usage at every time of every day" />
-            <Button Content="Block all" Click="OnPresetBlockAll"
+            <Button Content="{local:Loc Key=schedule.preset.blockall}" Click="OnPresetBlockAll"
                     ToolTipService.ToolTip="Block usage at every time of every day" />
-            <Button Content="Weeknights 4–8 PM" Click="OnPresetWeeknights"
+            <Button Content="{local:Loc Key=schedule.preset.weeknights}" Click="OnPresetWeeknights"
                     ToolTipService.ToolTip="Allow Mon–Fri 4 PM to 8 PM only; everything else blocked" />
-            <Button Content="Weekends only" Click="OnPresetWeekends"
+            <Button Content="{local:Loc Key=schedule.preset.weekends}" Click="OnPresetWeekends"
                     ToolTipService.ToolTip="Allow all day Sat–Sun; weekdays blocked" />
         </StackPanel>
 
@@ -103,7 +104,7 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="44" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
@@ -158,7 +159,7 @@
 
         <!-- Helper caption -->
         <TextBlock Grid.Row="3"
-                   Text="Each cell is a 15-minute slot. Hold and drag across the grid to paint quickly."
+                   Text="{local:Loc Key=schedule.caption}"
                    Style="{StaticResource CaptionTextBlockStyle}"
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                    TextWrapping="Wrap" />

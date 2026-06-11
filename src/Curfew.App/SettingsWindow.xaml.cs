@@ -1,10 +1,16 @@
+using System.Diagnostics;
+using System.Net.Http;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Curfew.Core;
 using Curfew.Core.Localization;
 using Curfew.Core.Security;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
+using QRCoder;
+using Windows.Storage.Streams;
 using Windows.UI;
 
 namespace Curfew.App;
@@ -29,10 +35,32 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Minimum passcode length; any characters (PIN or password) are allowed.</summary>
     private const int PasscodeLength = PasscodeHash.MinLength;
 
+    /// <summary>Window width at or above which cards reflow into two columns.</summary>
+    private const double TwoColumnWidth = 1040;
+
+    /// <summary>Window width at or above which cards reflow into three columns.</summary>
+    private const double ThreeColumnWidth = 1480;
+
+    /// <summary>Upper bound on the update download (installer is ~95 MB); guards against a hostile asset.</summary>
+    private const long MaxInstallerBytes = 150_000_000;
+
     private readonly SettingsStore _settings;
 
     /// <summary>The seven per-day hour spinners, created in <see cref="LoadDailyLimits"/>.</summary>
     private readonly NumberBox[] _dailyLimits = new NumberBox[DayCount];
+
+    /// <summary>Section cards in display order, distributed across columns by <see cref="Relayout"/>.</summary>
+    private FrameworkElement[] _cards = System.Array.Empty<FrameworkElement>();
+
+    /// <summary>Column count applied by the last <see cref="Relayout"/>, to skip redundant work.</summary>
+    private int _columns;
+
+    /// <summary>The newer release found by the last successful check, enabling "Update now".</summary>
+    private ReleaseInfo? _pendingUpdate;
+
+    /// <summary>The running build's version, stamped at publish time (e.g. "1.5.0").</summary>
+    private static string CurrentVersion =>
+        typeof(SettingsWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     public SettingsWindow(SettingsStore settings)
     {
@@ -42,7 +70,52 @@ public sealed partial class SettingsWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(WindowWidth, WindowHeight));
         WindowEffects.Apply(this, Loc.T("settings.title"), TitleBar);
 
+        InitCards();
         Load();
+    }
+
+    /// <summary>
+    /// Detaches the declaratively-defined section cards from their authoring host
+    /// and starts watching the window size so they can reflow across 1–3 columns.
+    /// </summary>
+    private void InitCards()
+    {
+        _cards = new FrameworkElement[]
+        {
+            UsageExpander, DailyLimitsExpander, ScheduleExpander, WarningsExpander,
+            LockExpander, FilterExpander, ProtectionExpander, UnlockExpander, PasscodeExpander,
+        };
+        CardSource.Children.Clear();
+
+        RootGrid.SizeChanged += (_, e) => Relayout(e.NewSize.Width);
+        Relayout(WindowWidth);
+    }
+
+    /// <summary>
+    /// Re-parents the cards into one, two or three columns depending on the window
+    /// width, and widens the centred content area to match. Cards keep their
+    /// natural display order, filling columns round-robin.
+    /// </summary>
+    private void Relayout(double width)
+    {
+        var columns = width >= ThreeColumnWidth ? 3 : width >= TwoColumnWidth ? 2 : 1;
+        if (columns == _columns) return;
+        _columns = columns;
+
+        ColumnA.Children.Clear();
+        ColumnB.Children.Clear();
+        ColumnC.Children.Clear();
+        var lanes = new[] { ColumnA, ColumnB, ColumnC };
+
+        for (var i = 0; i < _cards.Length; i++)
+            lanes[i % columns].Children.Add(_cards[i]);
+
+        for (var c = 0; c < 3; c++)
+            CardsHost.ColumnDefinitions[c].Width = c < columns
+                ? new GridLength(1, GridUnitType.Star)
+                : new GridLength(0);
+
+        ContentRoot.MaxWidth = columns == 3 ? 1700 : columns == 2 ? 1160 : 680;
     }
 
     /// <summary>Populates every control from the persisted settings.</summary>
@@ -59,6 +132,7 @@ public sealed partial class SettingsWindow : Window
         LoadProtection();
         LoadUnlock();
         LoadUsageHistory();
+        UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
     }
 
     /// <summary>Draws a 7-day bar chart of active screen time from usage history.</summary>
@@ -147,8 +221,40 @@ public sealed partial class SettingsWindow : Window
 
     private void ShowUnlockSecret(string secret)
     {
+        var uri = $"otpauth://totp/Curfew:Device?secret={secret}&issuer=Curfew&digits=6&period=30";
         UnlockSecret.Text = secret;
-        UnlockUri.Text = $"otpauth://totp/Curfew:Device?secret={secret}&issuer=Curfew&digits=6&period=30";
+        UnlockUri.Text = uri;
+        RenderQr(uri);
+    }
+
+    /// <summary>Renders the enrolment URI as a QR bitmap. Best-effort: failures leave the image blank.</summary>
+    private async void RenderQr(string uri)
+    {
+        try
+        {
+            var generator = new QRCodeGenerator();
+            using var data = generator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.M);
+            var png = new PngByteQRCode(data).GetGraphic(10);
+
+            var bitmap = new BitmapImage();
+            using var stream = new InMemoryRandomAccessStream();
+            await stream.WriteAsync(png.AsBuffer());
+            stream.Seek(0);
+            await bitmap.SetSourceAsync(stream);
+            UnlockQr.Source = bitmap;
+        }
+        catch
+        {
+            // A QR rendering failure is cosmetic — the secret/URI are still shown under Configure.
+        }
+    }
+
+    /// <summary>Reveals or hides the advanced unlock-code details (bonus, secret, regenerate).</summary>
+    private void OnToggleUnlockAdvanced(object sender, RoutedEventArgs e)
+    {
+        UnlockAdvanced.Visibility = UnlockAdvanced.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     /// <summary>Issues a fresh secret and resets the replay counter so old codes stop working.</summary>
@@ -212,6 +318,117 @@ public sealed partial class SettingsWindow : Window
     {
         TimeGuard.IsOn = _settings.GetBool("time_guard_enabled", true);
         AutoUpdate.IsOn = _settings.GetBool("auto_update_enabled", true);
+    }
+
+    /// <summary>
+    /// Queries GitHub for a newer release and reports the result inline. On success
+    /// it remembers the release so <see cref="OnUpdateNow"/> can install it.
+    /// (Automatic checks still run in the service on boot and every six hours.)
+    /// </summary>
+    private async void OnCheckForUpdate(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        UpdateNowButton.IsEnabled = false;
+        UpdateStatus.Text = Loc.T("settings.update.checking");
+        try
+        {
+            var release = await Updater.CheckForUpdateAsync(CurrentVersion, Updater.HttpFetchAsync);
+            _pendingUpdate = release;
+            if (release is null)
+            {
+                UpdateStatus.Text = Loc.T("settings.update.uptodate", CurrentVersion);
+            }
+            else
+            {
+                UpdateNowButton.IsEnabled = true;
+                UpdateStatus.Text = Loc.T("settings.update.available", release.Value.Tag.TrimStart('v', 'V'));
+            }
+        }
+        catch
+        {
+            UpdateStatus.Text = Loc.T("settings.update.failed");
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Downloads the pending release's installer and launches it elevated (silent),
+    /// then closes Settings. The installer stops and restarts the Curfew service.
+    /// </summary>
+    private async void OnUpdateNow(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is null) return;
+
+        CheckUpdateButton.IsEnabled = false;
+        UpdateNowButton.IsEnabled = false;
+        UpdateStatus.Text = Loc.T("settings.update.downloading");
+        try
+        {
+            var installer = await DownloadInstallerAsync(_pendingUpdate.Value.InstallerUrl);
+            if (installer is null)
+            {
+                UpdateStatus.Text = Loc.T("settings.update.failed");
+                CheckUpdateButton.IsEnabled = true;
+                UpdateNowButton.IsEnabled = true;
+                return;
+            }
+
+            // UseShellExecute + runas raises the UAC prompt the installer needs.
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = installer,
+                Arguments = "/SILENT /SUPPRESSMSGBOXES",
+                UseShellExecute = true,
+                Verb = "runas",
+            });
+            Close();
+        }
+        catch
+        {
+            // Download error or the user dismissed the UAC prompt.
+            UpdateStatus.Text = Loc.T("settings.update.failed");
+            CheckUpdateButton.IsEnabled = true;
+            UpdateNowButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Downloads the installer to the temp folder, rejecting anything that is too
+    /// small or is not a Windows executable. Returns the path, or null on failure.
+    /// </summary>
+    private static async Task<string?> DownloadInstallerAsync(string url)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
+
+        // Stream with an explicit cap rather than GetByteArrayAsync (which buffers
+        // up to 2 GB by default): a compromised or malformed release asset must not
+        // be able to exhaust memory. Mirrors the service-side download hardening.
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is long advertised && advertised > MaxInstallerBytes)
+            return null;
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81_920];
+        int read;
+        while ((read = await stream.ReadAsync(chunk)) > 0)
+        {
+            if (buffer.Length + read > MaxInstallerBytes) return null;
+            buffer.Write(chunk, 0, read);
+        }
+
+        var bytes = buffer.ToArray();
+        if (bytes.Length < 500_000 || bytes[0] != 0x4D || bytes[1] != 0x5A)
+            return null;
+
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "curfew-update.exe");
+        await File.WriteAllBytesAsync(path, bytes);
+        return path;
     }
 
     /// <summary>

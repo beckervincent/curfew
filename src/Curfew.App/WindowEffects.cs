@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using Windows.Graphics;
 using Windows.UI;
 
 namespace Curfew.App;
@@ -43,6 +45,34 @@ internal static class WindowEffects
         }
 
         RoundCorners(window);
+        CenterOnScreen(window);
+    }
+
+    /// <summary>
+    /// Centres the window on the work area of the display it currently sits on, so
+    /// dialogs open in the middle of the screen instead of the top-left corner.
+    /// Assumes the window has already been sized (callers Resize before Apply).
+    /// </summary>
+    public static void CenterOnScreen(Window? window)
+    {
+        if (window is null) return;
+
+        try
+        {
+            var appWindow = window.AppWindow;
+            var area = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Nearest);
+            if (area is null) return;
+
+            var work = area.WorkArea;
+            var size = appWindow.Size;
+            var x = work.X + (work.Width - size.Width) / 2;
+            var y = work.Y + (work.Height - size.Height) / 2;
+            appWindow.Move(new PointInt32(x, y));
+        }
+        catch
+        {
+            // Positioning is cosmetic; a failure just leaves the default placement.
+        }
     }
 
     /// <summary>Prefer Mica; fall back to Acrylic; otherwise leave the default.</summary>

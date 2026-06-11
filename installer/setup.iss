@@ -50,7 +50,7 @@ Source: "overlay\*"; DestDir: "{app}\overlay"; Flags: recursesubdirs ignoreversi
 Source: "nssm.exe";  DestDir: "{app}";         Flags: ignoreversion
 
 [Icons]
-Name: "{commonprograms}\{#MyAppName}\Settings";  Filename: "{app}\app\{#AppExeName}"; Parameters: "--settings"; Comment: "Open Curfew settings"
+Name: "{commonprograms}\{#MyAppName}\Curfew Settings";  Filename: "{app}\app\{#AppExeName}"; Parameters: "--settings"; Comment: "Open Curfew settings"
 Name: "{commonprograms}\{#MyAppName}\Uninstall"; Filename: "{uninstallexe}";          Comment: "Uninstall Curfew"
 
 [Code]
