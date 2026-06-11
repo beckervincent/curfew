@@ -1,4 +1,5 @@
 using Curfew.Core;
+using Curfew.Core.Security;
 
 namespace Curfew.Service;
 
@@ -163,6 +164,17 @@ internal static class UpdateService
             var path = Path.Combine(CurfewPaths.UpdateDirectory, InstallerFileName);
             Directory.CreateDirectory(CurfewPaths.UpdateDirectory);
             await File.WriteAllBytesAsync(path, bytes, ct).ConfigureAwait(false);
+
+            // Last line of defence before this SYSTEM process schedules the installer
+            // to run: it must be Authenticode-signed by Curfew's own key. Anything
+            // else — unsigned, tampered, or signed by a different key — is discarded.
+            if (!InstallerSignature.Verify(path))
+            {
+                ServiceLog.Write("update download rejected: installer is not signed by Curfew's key");
+                try { File.Delete(path); } catch { /* best effort */ }
+                return null;
+            }
+
             return path;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

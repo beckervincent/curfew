@@ -477,6 +477,12 @@ public sealed partial class SettingsWindow : Window
                     throw new InvalidDataException("download too small to be the installer");
             }
 
+            // Refuse to hand an installer to the elevated launch unless it is
+            // Authenticode-signed by Curfew's own key. URL/host pinning guards where
+            // it came from; this guards what it actually is.
+            if (!Curfew.Core.Security.InstallerSignature.Verify(path))
+                throw new InvalidDataException("installer is not signed by Curfew's key");
+
             return path;
         }
         catch
