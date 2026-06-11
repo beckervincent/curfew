@@ -88,6 +88,8 @@ public sealed class CurfewWorker : BackgroundService
         // delay the first overlay spawn. The handler is removed in the finally.
         var startupFilter = Task.Run(() =>
         {
+            // Re-register the overlay logon task if a child removed it.
+            SelfHeal.EnsureOverlayTask();
             ApplyContentFilter();
             NetworkChange.NetworkAddressChanged += OnNetworkChanged;
         }, CancellationToken.None);
