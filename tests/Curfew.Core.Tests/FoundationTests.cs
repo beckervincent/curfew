@@ -1,0 +1,108 @@
+using Curfew.Core;
+using Xunit;
+
+namespace Curfew.Core.Tests;
+
+public class SettingsPartitionTests
+{
+    [Theory]
+    [InlineData("remaining_time_2026-06-11", SettingsStoreKind.State)]
+    [InlineData("used_time_2026-06-11", SettingsStoreKind.State)]
+    [InlineData("pause_used_2026-06-11", SettingsStoreKind.State)]
+    [InlineData("lock_active", SettingsStoreKind.State)]
+    [InlineData("lock_action", SettingsStoreKind.State)]
+    [InlineData("passcode", SettingsStoreKind.Config)]
+    [InlineData("schedule", SettingsStoreKind.Config)]
+    [InlineData("limit_enabled", SettingsStoreKind.Config)]
+    [InlineData("device_code", SettingsStoreKind.Config)]
+    public void StoreFor_routes_counters_to_state_and_policy_to_config(string key, SettingsStoreKind expected) =>
+        Assert.Equal(expected, SettingsPartition.StoreFor(key));
+
+    [Theory]
+    [InlineData("limit_enabled", true)]
+    [InlineData("schedule", true)]
+    [InlineData("unlock_secret", true)]
+    [InlineData("passcode", false)]        // device-wide
+    [InlineData("device_code", false)]     // device-wide
+    [InlineData("provisioned_users", false)]
+    [InlineData("app_allowlist", false)]
+    [InlineData("auto_update_enabled", false)]
+    [InlineData("lock_active", false)]     // state, not per-user config
+    public void IsPerUser_only_for_per_child_policy(string key, bool expected) =>
+        Assert.Equal(expected, SettingsPartition.IsPerUser(key));
+
+    [Fact]
+    public void Scope_prefixes_per_user_keys_and_passes_global_through()
+    {
+        const string sid = "S-1-5-21-1-2-3-1001";
+        Assert.Equal($"u:{sid}:limit_enabled", SettingsPartition.Scope("limit_enabled", sid));
+        Assert.Equal("passcode", SettingsPartition.Scope("passcode", sid));       // global
+        Assert.Equal("limit_enabled", SettingsPartition.Scope("limit_enabled", "")); // no sid
+    }
+}
+
+public class LockoutPolicyTests
+{
+    [Fact]
+    public void No_backoff_within_free_attempts()
+    {
+        for (var i = 0; i <= LockoutPolicy.FreeAttempts; i++)
+            Assert.Equal(0, LockoutPolicy.BackoffSeconds(i));
+    }
+
+    [Fact]
+    public void Backoff_grows_and_caps()
+    {
+        Assert.Equal(LockoutPolicy.BaseBackoffSeconds, LockoutPolicy.BackoffSeconds(LockoutPolicy.FreeAttempts + 1));
+        Assert.True(LockoutPolicy.BackoffSeconds(LockoutPolicy.FreeAttempts + 2) > LockoutPolicy.BaseBackoffSeconds);
+        Assert.Equal(LockoutPolicy.MaxBackoffSeconds, LockoutPolicy.BackoffSeconds(100));
+    }
+
+    [Fact]
+    public void IsLockedOut_blocks_until_backoff_elapses()
+    {
+        var state = new LockoutState(LockoutPolicy.FreeAttempts + 1, 1000);
+        Assert.True(LockoutPolicy.IsLockedOut(state, 1001, out var wait));
+        Assert.True(wait > 0);
+        Assert.False(LockoutPolicy.IsLockedOut(state, 1000 + LockoutPolicy.BaseBackoffSeconds, out _));
+    }
+
+    [Fact]
+    public void Backwards_clock_keeps_blocking()
+    {
+        var state = new LockoutState(LockoutPolicy.FreeAttempts + 3, 10_000);
+        // Clock rolled back to before the attempt — must still be locked (fail closed).
+        Assert.True(LockoutPolicy.IsLockedOut(state, 9_000, out _));
+    }
+}
+
+public class AppAllowlistTests
+{
+    [Fact]
+    public void Parse_normalizes_names_and_strips_exe_and_path()
+    {
+        var set = AppAllowlist.Parse("Code.exe; C:\\Program Files\\Word\\WINWORD.EXE\n  notepad  ");
+        Assert.True(AppAllowlist.Allows(set, "code"));
+        Assert.True(AppAllowlist.Allows(set, "CODE.EXE"));
+        Assert.True(AppAllowlist.Allows(set, @"D:\apps\winword.exe"));
+        Assert.True(AppAllowlist.Allows(set, "notepad.exe"));
+        Assert.False(AppAllowlist.Allows(set, "chrome.exe"));
+    }
+
+    [Fact]
+    public void Empty_list_allows_nothing()
+    {
+        var set = AppAllowlist.Parse("");
+        Assert.False(AppAllowlist.Allows(set, "code.exe"));
+    }
+
+    [Fact]
+    public void Serialize_round_trips_distinct_normalized_names()
+    {
+        var text = AppAllowlist.Serialize(new[] { "Code.exe", "code", "Word.exe" });
+        var set = AppAllowlist.Parse(text);
+        Assert.Equal(2, set.Count);
+        Assert.True(AppAllowlist.Allows(set, "code"));
+        Assert.True(AppAllowlist.Allows(set, "word"));
+    }
+}
