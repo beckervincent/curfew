@@ -106,8 +106,38 @@ internal sealed class LockController
             return;
         }
 
+        // Keep every lock window pinned to the top so nothing can cover it (the
+        // overlay's black cover deliberately does NOT fight us for the top spot).
+        ReassertTopmost(_primary);
+        foreach (var cover in _covers) ReassertTopmost(cover);
+
         UpdateCountdown();
     }
+
+    private static void ReassertTopmost(Window? window)
+    {
+        if (window is null) return;
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            // SWP_NOACTIVATE so reasserting never steals focus from the passcode field.
+            SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+        }
+        catch
+        {
+            // Best effort: the FullScreen presenter already keeps the window topmost.
+        }
+    }
+
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
     private void UpdateCountdown()
     {

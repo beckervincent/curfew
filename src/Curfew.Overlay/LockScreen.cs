@@ -93,6 +93,10 @@ internal static class LockScreen
     /// </summary>
     private static bool _winui;
 
+    /// <summary>Consecutive failed WinUI-lock (re)launches before falling back to GDI.</summary>
+    private const int MaxWinuiRelaunches = 2;
+    private static int _winuiRelaunchCount;
+
     // Cached fonts/brushes created once and reused on every paint, then freed in
     // Dispose. Reusing GDI handles avoids per-frame churn and keeps the countdown
     // repaint cheap (it fires once a second).
@@ -158,6 +162,7 @@ internal static class LockScreen
         OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
         OverlayState.Settings.Set("lock_active", "1");
+        _winuiRelaunchCount = 0;
         _winui = LockAppHost.Launch();
         SetControlsVisible(!_winui);
 
@@ -255,16 +260,24 @@ internal static class LockScreen
     {
         ConsumeLockAction();
 
-        if (_winui && OverlayState.Locked && !LockAppHost.IsRunning)
+        if (!_winui || !OverlayState.Locked) return;
+
+        if (LockAppHost.IsRunning)
         {
-            if (!LockAppHost.Launch())
-            {
-                // The WinUI surface is unavailable — reveal the GDI fallback so the
-                // parent can still unlock.
-                _winui = false;
-                SetControlsVisible(true);
-                InvalidateRect(_hwnd, IntPtr.Zero, false);
-            }
+            // Healthy — reset the relaunch budget so only *consecutive* failures count.
+            _winuiRelaunchCount = 0;
+            return;
+        }
+
+        // The surface died. Relaunch a bounded number of times; if it will not stay
+        // up (or cannot launch at all), fall back to the GDI controls so the lock can
+        // never be a dead black screen with no unlock path.
+        if (_winuiRelaunchCount++ >= MaxWinuiRelaunches || !LockAppHost.Launch())
+        {
+            OverlayLog.Write("WinUI lock unavailable; falling back to GDI lock");
+            _winui = false;
+            SetControlsVisible(true);
+            InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
     }
 
@@ -524,9 +537,13 @@ internal static class LockScreen
     {
         if (id == TimerReassert)
         {
-            // Stay clamped to the top of the Z-order without stealing focus from
-            // the passcode field on every tick.
-            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            // Stay clamped to the top of the Z-order — BUT NOT when the WinUI lock is
+            // up and running: re-topmosting this black cover would slam it OVER the
+            // WinUI window, hiding the unlock UI behind a black screen with no way
+            // out. Only reassert in GDI fallback mode, or to hold the floor while the
+            // WinUI surface is being (re)launched.
+            if (!_winui || !LockAppHost.IsRunning)
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
         else if (id == TimerCountdown)
         {
