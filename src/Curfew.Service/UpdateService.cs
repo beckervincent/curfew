@@ -105,6 +105,16 @@ internal static class UpdateService
     /// <exception cref="OperationCanceledException">The service is shutting down.</exception>
     private static async Task<string?> DownloadInstallerAsync(string url, CancellationToken ct)
     {
+        // Re-pin the URL before this SYSTEM process fetches anything: it must be the
+        // HTTPS GitHub release path of THIS repo (not just any "curfew-setup.exe").
+        // The parse step already enforced this, but the updater runs as SYSTEM and
+        // later runs the payload, so it re-checks rather than trusting its caller.
+        if (!ReleaseInfo.IsInstallerUrl(url))
+        {
+            ServiceLog.Write("update download rejected: untrusted installer URL");
+            return null;
+        }
+
         // A dedicated client with an explicit timeout: an updater download must never
         // stall the service for the default (effectively unbounded) duration.
         using var client = new HttpClient { Timeout = DownloadTimeout };
@@ -116,6 +126,15 @@ internal static class UpdateService
                 .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct)
                 .ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
+
+            // GitHub redirects the release path to *.githubusercontent.com; make sure
+            // a redirect chain never lands us on some other host before we save and
+            // (later) execute the payload as SYSTEM.
+            if (response.RequestMessage?.RequestUri is { } finalUri && !IsTrustedDownloadHost(finalUri))
+            {
+                ServiceLog.Write($"update download rejected: redirected to untrusted host {finalUri.Host}");
+                return null;
+            }
 
             // Reject an over-large body up front using the advertised length, before
             // reading a single byte of it.
@@ -184,6 +203,17 @@ internal static class UpdateService
 
         return buffer.ToArray();
     }
+
+    /// <summary>
+    /// Whether <paramref name="uri"/> is HTTPS on GitHub or its asset CDN. Used to
+    /// validate the final URL after redirects, which land on
+    /// <c>*.githubusercontent.com</c> and so cannot be matched by the repo-path pin.
+    /// </summary>
+    private static bool IsTrustedDownloadHost(Uri uri) =>
+        uri.Scheme == Uri.UriSchemeHttps
+        && (uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Returns whether <paramref name="bytes"/> begins with the "MZ" Portable Executable

@@ -423,7 +423,11 @@ public sealed partial class SettingsWindow : Window
     /// </remarks>
     private static async Task<string?> DownloadInstallerAsync(string url)
     {
-        if (!IsTrustedInstallerUrl(url)) return null;
+        // The initial URL must be THIS repo's pinned HTTPS release path, not merely
+        // some github.com address: otherwise any other account's release asset named
+        // curfew-setup*.exe would be accepted and then launched elevated. The
+        // post-redirect URL is re-checked host-only below (it lands on the asset CDN).
+        if (!ReleaseInfo.IsInstallerUrl(url)) return null;
 
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");

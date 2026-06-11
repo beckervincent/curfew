@@ -120,12 +120,13 @@ public class PauseRulesTests
             PauseRules.CanPause(Ready() with { LastPauseEndUnix = -5, NowUnix = 10_000, CooldownSeconds = 900 }));
 
     [Fact]
-    public void Backwards_clock_does_not_block_with_cooldown()
+    public void Backwards_clock_keeps_blocking_with_cooldown()
     {
-        // If the wall clock moved backwards the gap is negative; a negative gap must
-        // never block, otherwise a clock change could lock the user out indefinitely.
+        // If a recorded pause exists and the wall clock moved backwards (negative
+        // gap), that is the signature of a child rolling the clock back to escape
+        // the cooldown. Fail closed: keep blocking until enough real time elapses.
         var s = Ready() with { LastPauseEndUnix = 10_000, NowUnix = 9_000, CooldownSeconds = 900 };
-        Assert.Equal(PauseBlock.None, PauseRules.CanPause(s));
+        Assert.Equal(PauseBlock.Cooldown, PauseRules.CanPause(s));
     }
 
     // ----- Priority order ----------------------------------------------------

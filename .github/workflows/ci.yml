@@ -2,9 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main, winui-rewrite]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# CI only builds and tests; it never needs to write to the repo. Drop the default
+# token down to read-only so a compromised build step can't push or alter releases.
+permissions:
+  contents: read
 
 # Run JavaScript-based actions on Node.js 24 (Node.js 20 is deprecated).
 env:
@@ -17,6 +22,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Don't leave the checkout token persisted in .git/config for later steps.
+          persist-credentials: false
 
       - uses: actions/setup-dotnet@v5
         with:

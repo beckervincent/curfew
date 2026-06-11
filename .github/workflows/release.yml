@@ -45,10 +45,16 @@ jobs:
       - name: Resolve version
         id: ver
         shell: pwsh
+        env:
+          # Pass the ref through the environment, never interpolated into the script
+          # body, so a crafted branch/tag name cannot inject PowerShell.
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:REF_NAME
           $version = $tag -replace '^v', ''
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { $version = '1.0.0' }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Refusing to release: ref '$tag' is not a vMAJOR.MINOR.PATCH tag. Push a tag like v1.5.4."
+          }
           "VERSION=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Version: $version"
 
@@ -127,8 +133,13 @@ jobs:
           "@
           $notes | Out-File -FilePath "RELEASE_NOTES.md" -Encoding utf8
 
-          gh release create $tag --title "Curfew v$version" --notes-file "RELEASE_NOTES.md" --latest $installer
-          if ($LASTEXITCODE -ne 0) {
-            gh release upload $tag $installer --clobber
-            if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
-          }
+          # Publish a SHA-256 checksum alongside the installer so a download can be
+          # verified out-of-band (a step toward provenance for the unsigned-by-CA exe).
+          $sha = (Get-FileHash -Algorithm SHA256 -Path $installer).Hash.ToLower()
+          "$sha  $installer" | Out-File -FilePath "$installer.sha256" -Encoding ascii
+          Write-Host "SHA-256: $sha"
+
+          # No --clobber: never silently overwrite an already-published artifact. A
+          # re-run on an existing tag fails loudly instead of replacing the release.
+          gh release create $tag --title "Curfew v$version" --notes-file "RELEASE_NOTES.md" --latest $installer "$installer.sha256"
+          if ($LASTEXITCODE -ne 0) { throw "Release creation failed (does the tag already have a release?)" }

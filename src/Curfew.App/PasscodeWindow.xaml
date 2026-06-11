@@ -53,8 +53,8 @@
                              TabIndex="0"
                              KeyDown="OnKeyDown"
                              AutomationProperties.Name="Passcode"
-                             AutomationProperties.HelpText="Enter your 4-digit PIN, then press Enter or select OK."
-                             ToolTipService.ToolTip="4-digit PIN" />
+                             AutomationProperties.HelpText="Enter your passcode, then press Enter or select OK."
+                             ToolTipService.ToolTip="Passcode" />
 
                 <!-- Inline error -->
                 <InfoBar x:Name="ErrorText"

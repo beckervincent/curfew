@@ -67,13 +67,20 @@ public static class CurfewPaths
 
     /// <summary>
     /// The machine-wide application-data root (<c>%ProgramData%</c>), falling
-    /// back to a sensible default when the environment variable is unset or blank.
+    /// back to a sensible default when the folder cannot be resolved.
     /// </summary>
+    /// <remarks>
+    /// Resolved via <see cref="Environment.SpecialFolder.CommonApplicationData"/>
+    /// rather than the <c>ProgramData</c> environment variable: a non-admin child
+    /// can set a per-process/per-user <c>ProgramData</c> variable and redirect the
+    /// whole app onto an attacker-controlled database (enforcing nothing). The
+    /// known-folder API is not overridable that way.
+    /// </remarks>
     private static string ProgramDataRoot
     {
         get
         {
-            var root = Environment.GetEnvironmentVariable("ProgramData");
+            var root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             return string.IsNullOrWhiteSpace(root) ? DefaultProgramData : root;
         }
     }

@@ -67,28 +67,40 @@ public class DohGuardTests
     // ---- BuildBlockScript: Cloudflare must never be blocked -------------
 
     [Fact]
-    public void Cloudflare_is_never_blocked()
+    public void Unfiltered_cloudflare_is_blocked_but_filtered_family_is_not()
     {
-        // Blocking the resolver Curfew itself uses would break filtering, so the
-        // generated script must not reference any Cloudflare resolver address.
+        // The unfiltered Cloudflare endpoints (1.1.1.1 / 1.0.0.1 + IPv6 twins) are a
+        // first-class bypass and must be blocked. The filtered family Curfew pins
+        // for content filtering (1.1.1.2/1.1.1.3, 1.0.0.2/1.0.0.3) must stay usable.
         var script = DohGuard.BuildBlockScript();
 
-        Assert.DoesNotContain("1.1.1.", script);            // 1.1.1.1 / 1.1.1.2 / 1.1.1.3
-        Assert.DoesNotContain("1.0.0.", script);            // 1.0.0.1 / 1.0.0.2 / 1.0.0.3
-        Assert.DoesNotContain("2606:4700:4700", script);    // Cloudflare IPv6 range
+        Assert.Contains("'1.1.1.1'", script);
+        Assert.Contains("'1.0.0.1'", script);
+        Assert.Contains("2606:4700:4700::1111", script);
+        Assert.Contains("2606:4700:4700::1001", script);
+
+        Assert.DoesNotContain("1.1.1.2", script);
+        Assert.DoesNotContain("1.1.1.3", script);
+        Assert.DoesNotContain("1.0.0.2", script);
+        Assert.DoesNotContain("1.0.0.3", script);
+        Assert.DoesNotContain("2606:4700:4700::1112", script);
+        Assert.DoesNotContain("2606:4700:4700::1113", script);
     }
 
     [Fact]
-    public void Blocked_resolver_list_excludes_cloudflare()
+    public void Blocked_resolver_list_excludes_filtered_cloudflare_family()
     {
-        // Guard the source-of-truth list directly, independent of script shape,
-        // so a Cloudflare address can never slip into the data either.
+        // Guard the source-of-truth list directly: the filtered family resolvers
+        // must never slip into the blocklist, or content filtering would break.
+        string[] filtered = { "1.1.1.2", "1.1.1.3", "1.0.0.2", "1.0.0.3" };
         foreach (var resolver in DohGuard.BlockedResolvers)
         {
-            Assert.DoesNotContain("1.1.1.", resolver);
-            Assert.DoesNotContain("1.0.0.", resolver);
-            Assert.DoesNotContain("2606:4700:4700", resolver);
+            Assert.DoesNotContain(resolver, filtered);
         }
+
+        // The unfiltered pair must be present.
+        Assert.Contains("1.1.1.1", DohGuard.BlockedResolvers);
+        Assert.Contains("1.0.0.1", DohGuard.BlockedResolvers);
     }
 
     // ---- BuildBlockScript: rule shape and idempotency ------------------

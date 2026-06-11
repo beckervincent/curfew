@@ -16,6 +16,17 @@ public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
     private const string InstallerExtension = ".exe";
 
     /// <summary>
+    /// Required prefix of a trusted installer download URL: HTTPS, the canonical
+    /// GitHub releases host, and this repository's release-asset path. Pinning the
+    /// full prefix (not just a "curfew-setup" substring) stops an attacker-hosted
+    /// <c>http://evil/curfew-setup.exe</c> — or any other GitHub account's release
+    /// asset of the same name — from being accepted as an update by the SYSTEM
+    /// service. Kept in sync with the App-side check in SettingsWindow.
+    /// </summary>
+    public const string TrustedInstallerUrlPrefix =
+        "https://github.com/beckervincent/curfew/releases/download/";
+
+    /// <summary>
     /// Parses the GitHub "latest release" JSON, returning the tag and the first
     /// asset whose download URL looks like a Curfew installer.
     /// </summary>
@@ -83,11 +94,14 @@ public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
     }
 
     /// <summary>
-    /// Returns whether <paramref name="url"/> points at the Curfew Windows
-    /// installer: it must carry the installer extension and contain the
-    /// installer marker, both matched case-insensitively.
+    /// Returns whether <paramref name="url"/> is a trusted Curfew installer URL:
+    /// it must sit under <see cref="TrustedInstallerUrlPrefix"/> (HTTPS + this
+    /// repo's GitHub release path), carry the installer extension, and contain the
+    /// installer marker. The host/path prefix is matched case-sensitively (a
+    /// genuine GitHub URL is already lower-case); the name parts case-insensitively.
     /// </summary>
-    private static bool IsInstallerUrl(string url) =>
-        url.EndsWith(InstallerExtension, StringComparison.OrdinalIgnoreCase)
+    public static bool IsInstallerUrl(string url) =>
+        url.StartsWith(TrustedInstallerUrlPrefix, StringComparison.Ordinal)
+        && url.EndsWith(InstallerExtension, StringComparison.OrdinalIgnoreCase)
         && url.Contains(InstallerUrlMarker, StringComparison.OrdinalIgnoreCase);
 }

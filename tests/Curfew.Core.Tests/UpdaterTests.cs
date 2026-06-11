@@ -18,12 +18,12 @@ public class UpdaterTests
     {
       "tag_name": "v1.5.0",
       "assets": [
-        { "name": "curfew-setup-v1.5.0.exe", "browser_download_url": "https://example.com/curfew-setup-v1.5.0.exe" }
+        { "name": "curfew-setup-v1.5.0.exe", "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.5.0.exe" }
       ]
     }
     """;
 
-    private const string InstallerUrl = "https://example.com/curfew-setup-v1.5.0.exe";
+    private const string InstallerUrl = "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.5.0.exe";
 
     /// <summary>Builds a fetcher that always returns <paramref name="json"/>.</summary>
     private static Func<string, CancellationToken, Task<string>> Returns(string json) =>
@@ -115,7 +115,7 @@ public class UpdaterTests
         {
           "tag_name": "v9.9.9",
           "assets": [
-            { "name": "notes.txt", "browser_download_url": "https://example.com/notes.txt" }
+            { "name": "notes.txt", "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/notes.txt" }
           ]
         }
         """;
@@ -130,7 +130,7 @@ public class UpdaterTests
         {
           "tag_name": "nightly",
           "assets": [
-            { "name": "curfew-setup.exe", "browser_download_url": "https://example.com/curfew-setup.exe" }
+            { "name": "curfew-setup.exe", "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup.exe" }
           ]
         }
         """;

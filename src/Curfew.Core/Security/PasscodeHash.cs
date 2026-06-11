@@ -22,8 +22,14 @@ public static class PasscodeHash
     private const int HashBytes = 32;
     private const int Iterations = 100_000;
 
-    /// <summary>Minimum length of a passcode (any characters are allowed).</summary>
-    public const int MinLength = 4;
+    /// <summary>
+    /// Minimum length of a passcode (any characters are allowed). Set to 8 so a
+    /// numeric PIN spans at least a 10^8 keyspace: the PBKDF2 hash is stored in a
+    /// child-readable database, so a short PIN is crackable offline in seconds
+    /// regardless of the iteration count. Longer or alphanumeric passcodes are
+    /// always accepted (up to the 64-char UI cap).
+    /// </summary>
+    public const int MinLength = 8;
 
     /// <summary>Produces a salted PBKDF2 hash string for <paramref name="passcode"/>.</summary>
     public static string Hash(string passcode)

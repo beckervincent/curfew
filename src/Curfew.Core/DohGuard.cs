@@ -40,16 +40,28 @@ public static class DohGuard
 
     /// <summary>
     /// Common public DoH/DoT resolvers to block, as a mix of single IPv4/IPv6
-    /// addresses and CIDR ranges. Cloudflare (1.1.1.1, 1.0.0.1, 2606:4700:4700::*)
-    /// is intentionally absent because Curfew uses it.
+    /// addresses and CIDR ranges.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// IPv6 entries are included alongside IPv4 because the encrypted-DNS clients
     /// will happily use either family; blocking only IPv4 would leave an obvious
     /// bypass on dual-stack networks.
+    /// </para>
+    /// <para>
+    /// Cloudflare's <em>unfiltered</em> endpoints (1.1.1.1 / 1.0.0.1 and their IPv6
+    /// twins) ARE blocked here: a child could otherwise point a browser at
+    /// Cloudflare's unfiltered DoH and bypass the content filter entirely. The
+    /// <em>filtered</em> family resolvers Curfew actually pins (1.1.1.2/1.1.1.3 and
+    /// 1.0.0.2/1.0.0.3, reached via security/family.cloudflare-dns.com) are NOT in
+    /// this list, so content filtering keeps working.
+    /// </para>
     /// </remarks>
     public static readonly string[] BlockedResolvers =
     {
+        // Cloudflare — unfiltered only (the filtered 1.1.1.2/1.1.1.3 family is kept usable)
+        "1.1.1.1", "1.0.0.1",
+        "2606:4700:4700::1111", "2606:4700:4700::1001",
         // Google Public DNS
         "8.8.8.8", "8.8.4.4",
         "2001:4860:4860::8888", "2001:4860:4860::8844",

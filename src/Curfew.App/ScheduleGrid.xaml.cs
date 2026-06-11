@@ -256,7 +256,17 @@ public sealed partial class ScheduleGrid : UserControl
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_painting) PaintAt(e.GetCurrentPoint(GridCanvas).Position);
+        if (!_painting) return;
+
+        // If the primary button was released while we missed the event (e.g. capture
+        // was stolen), stop painting rather than smearing the grid on a hover.
+        if (!e.GetCurrentPoint(GridCanvas).Properties.IsLeftButtonPressed)
+        {
+            _painting = false;
+            return;
+        }
+
+        PaintAt(e.GetCurrentPoint(GridCanvas).Position);
     }
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
@@ -264,4 +274,12 @@ public sealed partial class ScheduleGrid : UserControl
         _painting = false;
         GridCanvas.ReleasePointerCapture(e.Pointer);
     }
+
+    /// <summary>
+    /// Pointer capture can be lost without a Released event (window deactivation, a
+    /// system gesture, a touch being cancelled). Without resetting state the grid
+    /// would keep painting on the next hover. Stop painting when capture is lost.
+    /// </summary>
+    private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e) =>
+        _painting = false;
 }

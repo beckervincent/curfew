@@ -117,8 +117,12 @@ public partial class App : Application
         {
             if (verified)
             {
-                settings.Set("tray_command", command);
+                // Write the timestamp BEFORE the command. The overlay polls for
+                // tray_command and then reads tray_command_at to reject stale ones;
+                // if the command landed first the overlay could pair a fresh command
+                // with a leftover old timestamp and silently drop it.
                 settings.Set("tray_command_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
+                settings.Set("tray_command", command);
             }
             Exit();
         };

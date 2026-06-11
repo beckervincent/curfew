@@ -16,8 +16,8 @@ public class ReleaseInfoTests
     {
       "tag_name": "v1.2.3",
       "assets": [
-        { "name": "other.zip", "browser_download_url": "https://example.com/other.zip" },
-        { "name": "curfew-setup-v1.2.3.exe", "browser_download_url": "https://example.com/curfew-setup-v1.2.3.exe" }
+        { "name": "other.zip", "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/other.zip" },
+        { "name": "curfew-setup-v1.2.3.exe", "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.2.3.exe" }
       ]
     }
     """;
@@ -29,7 +29,7 @@ public class ReleaseInfoTests
 
         Assert.NotNull(info);
         Assert.Equal("v1.2.3", info!.Value.Tag);
-        Assert.Equal("https://example.com/curfew-setup-v1.2.3.exe", info.Value.InstallerUrl);
+        Assert.Equal("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.2.3.exe", info.Value.InstallerUrl);
     }
 
     [Fact]
@@ -39,9 +39,9 @@ public class ReleaseInfoTests
         {
           "tag_name": "v2.0.0",
           "assets": [
-            { "browser_download_url": "https://example.com/notes.txt" },
-            { "browser_download_url": "https://example.com/curfew-setup-first.exe" },
-            { "browser_download_url": "https://example.com/curfew-setup-second.exe" }
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/notes.txt" },
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-first.exe" },
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-second.exe" }
           ]
         }
         """;
@@ -59,10 +59,10 @@ public class ReleaseInfoTests
         {
           "tag_name": "v3.1.0",
           "assets": [
-            { "browser_download_url": "https://example.com/source.zip" },
-            { "browser_download_url": "https://example.com/curfew-setup.exe.sha256" },
-            { "browser_download_url": "https://example.com/curfew-portable.exe" },
-            { "browser_download_url": "https://example.com/curfew-setup-v3.1.0.exe" }
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/source.zip" },
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup.exe.sha256" },
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-portable.exe" },
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v3.1.0.exe" }
           ]
         }
         """;
@@ -74,9 +74,9 @@ public class ReleaseInfoTests
     }
 
     [Theory]
-    [InlineData("https://example.com/CURFEW-SETUP-v1.0.0.EXE")]
-    [InlineData("https://example.com/Curfew-Setup-v1.0.0.Exe")]
-    [InlineData("https://example.com/path/curfew-setup-final.exe")]
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/CURFEW-SETUP-v1.0.0.EXE")]
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/Curfew-Setup-v1.0.0.Exe")]
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/path/curfew-setup-final.exe")]
     public void FromGitHubJson_matches_installer_case_insensitively(string url)
     {
         var json = $$"""
@@ -92,11 +92,11 @@ public class ReleaseInfoTests
 
     [Theory]
     // Right extension, but missing the "curfew-setup" marker.
-    [InlineData("https://example.com/curfew-portable.exe")]
-    [InlineData("https://example.com/setup.exe")]
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-portable.exe")]
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/setup.exe")]
     // Right marker, but wrong extension (e.g. a checksum or signature alongside it).
-    [InlineData("https://example.com/curfew-setup-v1.0.0.exe.sha256")]
-    [InlineData("https://example.com/curfew-setup-v1.0.0.zip")]
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe.sha256")]
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.zip")]
     public void FromGitHubJson_returns_null_when_no_asset_is_an_installer(string url)
     {
         var json = $$"""
@@ -112,10 +112,42 @@ public class ReleaseInfoTests
     {
         const string json = """
         { "tag_name": "v1.0.0", "assets": [
-            { "browser_download_url": "https://example.com/notes.txt" } ] }
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/notes.txt" } ] }
         """;
 
         Assert.Null(ReleaseInfo.FromGitHubJson(json));
+    }
+
+    [Theory]
+    // Plain HTTP — must never be accepted, even with the right name.
+    [InlineData("http://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
+    // A different GitHub account's release asset of the same name.
+    [InlineData("https://github.com/attacker/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
+    // Right host, wrong repo.
+    [InlineData("https://github.com/beckervincent/evil/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
+    // Look-alike host.
+    [InlineData("https://github.com.attacker.net/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
+    // Arbitrary third-party host.
+    [InlineData("https://evil.example/curfew-setup-v1.0.0.exe")]
+    public void FromGitHubJson_rejects_untrusted_installer_hosts(string url)
+    {
+        var json = $$"""
+        { "tag_name": "v1.0.0", "assets": [
+            { "browser_download_url": "{{url}}" } ] }
+        """;
+
+        Assert.Null(ReleaseInfo.FromGitHubJson(json));
+    }
+
+    [Fact]
+    public void IsInstallerUrl_accepts_only_the_pinned_repo_release_path()
+    {
+        Assert.True(ReleaseInfo.IsInstallerUrl(
+            "https://github.com/beckervincent/curfew/releases/download/v1.5.4/curfew-setup-v1.5.4.exe"));
+        Assert.False(ReleaseInfo.IsInstallerUrl(
+            "https://github.com/attacker/curfew/releases/download/v1.5.4/curfew-setup-v1.5.4.exe"));
+        Assert.False(ReleaseInfo.IsInstallerUrl(
+            "http://github.com/beckervincent/curfew/releases/download/v1.5.4/curfew-setup-v1.5.4.exe"));
     }
 
     [Fact]
@@ -161,7 +193,7 @@ public class ReleaseInfoTests
     public void FromGitHubJson_returns_null_when_tag_name_is_missing()
     {
         const string json = """
-        { "assets": [ { "browser_download_url": "https://example.com/curfew-setup.exe" } ] }
+        { "assets": [ { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup.exe" } ] }
         """;
 
         Assert.Null(ReleaseInfo.FromGitHubJson(json));
@@ -183,7 +215,7 @@ public class ReleaseInfoTests
     {
         const string json = """
         { "tag_name": "", "assets": [
-            { "browser_download_url": "https://example.com/curfew-setup.exe" } ] }
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup.exe" } ] }
         """;
 
         Assert.Null(ReleaseInfo.FromGitHubJson(json));
@@ -219,7 +251,7 @@ public class ReleaseInfoTests
             { "name": "no-url-here" },
             { "browser_download_url": 999 },
             { "browser_download_url": null },
-            { "browser_download_url": "https://example.com/curfew-setup-v1.0.0.exe" }
+            { "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe" }
           ]
         }
         """;
@@ -249,7 +281,7 @@ public class ReleaseInfoTests
               "name": "curfew-setup-v4.2.0.exe",
               "content_type": "application/octet-stream",
               "size": 12345,
-              "browser_download_url": "https://example.com/curfew-setup-v4.2.0.exe"
+              "browser_download_url": "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v4.2.0.exe"
             }
           ]
         }
@@ -265,18 +297,18 @@ public class ReleaseInfoTests
     [Fact]
     public void ReleaseInfo_record_exposes_constructor_arguments_via_properties()
     {
-        var info = new ReleaseInfo("v9.9.9", "https://example.com/curfew-setup-v9.9.9.exe");
+        var info = new ReleaseInfo("v9.9.9", "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v9.9.9.exe");
 
         Assert.Equal("v9.9.9", info.Tag);
-        Assert.Equal("https://example.com/curfew-setup-v9.9.9.exe", info.InstallerUrl);
+        Assert.Equal("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v9.9.9.exe", info.InstallerUrl);
     }
 
     [Fact]
     public void ReleaseInfo_record_uses_value_equality()
     {
-        var a = new ReleaseInfo("v1.0.0", "https://example.com/curfew-setup.exe");
-        var b = new ReleaseInfo("v1.0.0", "https://example.com/curfew-setup.exe");
-        var different = new ReleaseInfo("v1.0.1", "https://example.com/curfew-setup.exe");
+        var a = new ReleaseInfo("v1.0.0", "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup.exe");
+        var b = new ReleaseInfo("v1.0.0", "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup.exe");
+        var different = new ReleaseInfo("v1.0.1", "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup.exe");
 
         Assert.Equal(a, b);
         Assert.Equal(a.GetHashCode(), b.GetHashCode());

@@ -153,7 +153,8 @@
                         PointerPressed="OnPointerPressed"
                         PointerMoved="OnPointerMoved"
                         PointerReleased="OnPointerReleased"
-                        PointerCanceled="OnPointerReleased" />
+                        PointerCanceled="OnPointerReleased"
+                        PointerCaptureLost="OnPointerCaptureLost" />
             </Grid>
         </Border>
 

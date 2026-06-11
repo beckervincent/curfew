@@ -85,11 +85,14 @@ public static class PauseRules
         if (RemainingBudget(s.DailyBudgetSeconds, s.PauseUsedSeconds) <= 0) return PauseBlock.BudgetExhausted;
 
         // A non-positive LastPauseEndUnix means "no pause yet", so no cooldown applies.
-        // Guard against a clock that moved backwards: a negative gap never blocks.
+        // Otherwise the cooldown holds until enough wall-clock has elapsed. A
+        // negative gap means the clock moved backwards (e.g. a child rolled it back
+        // to escape the cooldown): treat that as "cooldown not yet elapsed" and keep
+        // blocking, rather than failing open.
         if (s.LastPauseEndUnix > 0)
         {
             var secondsSinceLastPause = s.NowUnix - s.LastPauseEndUnix;
-            if (secondsSinceLastPause >= 0 && secondsSinceLastPause < s.CooldownSeconds)
+            if (secondsSinceLastPause < s.CooldownSeconds)
                 return PauseBlock.Cooldown;
         }
 
