@@ -48,6 +48,9 @@ internal static class OverlayState
     /// <summary>The shared settings store, opened once in <see cref="OverlayApp.Run"/>.</summary>
     public static SettingsStore Settings = null!;
 
+    /// <summary>The current session user's SID; scopes per-user config + counters.</summary>
+    public static string CurrentSid = string.Empty;
+
     /// <summary>Seconds of daily budget remaining; counts down once per second.</summary>
     public static int Remaining;
 
@@ -136,8 +139,18 @@ internal static class OverlayState
     public static bool ScheduleBlocked =>
         ScheduleEnabled && !ScheduleAllows() && !ScheduleOverride && !IgnoreScheduleUntilRestart;
 
+    /// <summary>
+    /// True when this Windows user has not been activated on the device. Only in
+    /// force once the parent has set a device code; until then every user is allowed
+    /// (no provisioning configured). Activation happens at the lock via the device
+    /// code or the parent passcode.
+    /// </summary>
+    public static bool NewUserBlocked =>
+        !string.IsNullOrEmpty(Settings.Get("device_code"))
+        && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
+
     /// <summary>True when any enforcement reason currently requires the lock screen.</summary>
-    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked;
+    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked || NewUserBlocked;
 
     /// <summary>
     /// Persists today's remaining budget so a restart (e.g. watchdog respawn)
@@ -152,7 +165,7 @@ internal static class OverlayState
     /// per-day prefix the settings store purges on each open.
     /// </summary>
     private static string RemainingKey(DateOnly date) =>
-        RemainingPrefix + date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        $"{RemainingPrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
 
     // ---- Usage history -----------------------------------------------------
     // Records active (unlocked) screen time per day so Settings can chart it.
@@ -191,5 +204,5 @@ internal static class OverlayState
         Settings.Set(UsageKey(_usageDate), _usedSeconds.ToString(CultureInfo.InvariantCulture));
 
     private static string UsageKey(DateOnly date) =>
-        SettingsStore.UsagePrefix + date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        $"{SettingsStore.UsagePrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
 }

@@ -70,4 +70,16 @@ public static class ConfigClient
     /// <summary>Writes a config key via the service. Returns whether it was accepted.</summary>
     public static bool SetConfig(string key, string value, string? passcode) =>
         Send(new ConfigRequest(ConfigPipe.OpSet, Key: key, Value: value, Passcode: passcode)).Ok;
+
+    /// <summary>Activates a Windows user given the device code (or parent passcode).</summary>
+    public static bool Provision(string sid, string? code) =>
+        Send(new ConfigRequest(ConfigPipe.OpProvision, Sid: sid, Passcode: code)).Ok;
+
+    /// <summary>Records a failed unlock attempt (advances the lockout counter).</summary>
+    public static bool RecordFailure() =>
+        Send(new ConfigRequest(ConfigPipe.OpRecordFailure)).Ok;
+
+    /// <summary>Clears the lockout counter after a success.</summary>
+    public static bool ResetFailures() =>
+        Send(new ConfigRequest(ConfigPipe.OpResetFailures)).Ok;
 }

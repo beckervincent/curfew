@@ -131,6 +131,21 @@ public sealed class SettingsStore : IDisposable
     public Func<string, string, bool>? ConfigWriter { get; set; }
 
     /// <summary>
+    /// When set to a Windows user SID, per-user config keys (see
+    /// <see cref="SettingsPartition.IsPerUser"/>) are transparently scoped to that
+    /// user: a read prefers the user's value and falls back to the unscoped/global
+    /// value, and a write stores the user's value. Device-wide keys and state keys
+    /// are never scoped. Null means "no scoping" (the legacy/global behaviour).
+    /// </summary>
+    public string? UserSid { get; set; }
+
+    /// <summary>Resolves the effective stored key for a base key, applying per-user scoping.</summary>
+    private string EffectiveKey(string key) =>
+        UserSid is { Length: > 0 } sid && SettingsPartition.IsPerUser(key)
+            ? SettingsPartition.Scope(key, sid)
+            : key;
+
+    /// <summary>
     /// Opens (or creates) the database at <paramref name="databasePath"/>,
     /// seeding any missing defaults and purging per-day rows that do not belong
     /// to <paramref name="today"/>. If the existing file is corrupt it is
@@ -323,8 +338,11 @@ public sealed class SettingsStore : IDisposable
         var todaySuffix = today.ToString("yyyy-MM-dd");
         using var cmd = connection.CreateCommand();
         cmd.Transaction = transaction;
+        // Keep only rows whose key ends in today's date. Matching the date as a
+        // suffix (rather than prefix+date exactly) keeps per-user keys that embed a
+        // SID between the prefix and the date, e.g. remaining_time_<sid>_<date>.
         cmd.CommandText =
-            "DELETE FROM settings WHERE key LIKE $p || '%' AND key != $p || $today";
+            "DELETE FROM settings WHERE key LIKE $p || '%' AND key NOT LIKE '%' || $today";
         var prefixParam = cmd.Parameters.Add("$p", SqliteType.Text);
         cmd.Parameters.AddWithValue("$today", todaySuffix);
 
@@ -363,6 +381,16 @@ public sealed class SettingsStore : IDisposable
     {
         ArgumentNullException.ThrowIfNull(key);
 
+        var effective = EffectiveKey(key);
+        var value = GetRaw(effective);
+        // A per-user read falls back to the unscoped/global value when the user has
+        // no override, so existing (global) settings keep applying to every user.
+        if (value is null && effective != key) value = GetRaw(key);
+        return value;
+    }
+
+    private string? GetRaw(string key)
+    {
         using var cmd = ConnectionFor(key).CreateCommand();
         cmd.CommandText = "SELECT value FROM settings WHERE key = $k";
         cmd.Parameters.AddWithValue("$k", key);
@@ -375,17 +403,19 @@ public sealed class SettingsStore : IDisposable
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(value);
 
+        var effective = EffectiveKey(key);
+
         // Route config writes through the config writer (the SYSTEM service) when one
         // is set and it accepts the write; otherwise fall through to a direct write.
-        if (SettingsPartition.StoreFor(key) == SettingsStoreKind.Config
-            && ConfigWriter is { } writer && writer(key, value))
+        if (SettingsPartition.StoreFor(effective) == SettingsStoreKind.Config
+            && ConfigWriter is { } writer && writer(effective, value))
         {
             return;
         }
 
-        using var cmd = ConnectionFor(key).CreateCommand();
+        using var cmd = ConnectionFor(effective).CreateCommand();
         cmd.CommandText = "INSERT OR REPLACE INTO settings (key, value) VALUES ($k, $v)";
-        cmd.Parameters.AddWithValue("$k", key);
+        cmd.Parameters.AddWithValue("$k", effective);
         cmd.Parameters.AddWithValue("$v", value);
         cmd.ExecuteNonQuery();
     }

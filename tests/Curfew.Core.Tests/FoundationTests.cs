@@ -78,6 +78,22 @@ public class LockoutPolicyTests
     }
 }
 
+public class UserProvisioningTests
+{
+    [Fact]
+    public void Add_is_idempotent_and_membership_is_case_insensitive()
+    {
+        var list = UserProvisioning.Add(null, "S-1-5-21-1");
+        list = UserProvisioning.Add(list, "S-1-5-21-2");
+        list = UserProvisioning.Add(list, "S-1-5-21-1"); // duplicate
+
+        Assert.Equal(2, UserProvisioning.Parse(list).Count);
+        Assert.True(UserProvisioning.IsProvisioned(list, "s-1-5-21-2"));
+        Assert.False(UserProvisioning.IsProvisioned(list, "S-1-5-21-9"));
+        Assert.False(UserProvisioning.IsProvisioned(list, null));
+    }
+}
+
 public class AppAllowlistTests
 {
     [Fact]

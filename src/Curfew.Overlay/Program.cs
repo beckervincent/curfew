@@ -71,6 +71,10 @@ namespace Curfew.Overlay
             var today = DateOnly.FromDateTime(DateTime.Now);
             OverlayState.Settings = CurfewPaths.OpenSettings(today);
 
+            // Scope all per-user config + counters to this session's user.
+            OverlayState.CurrentSid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty;
+            OverlayState.Settings.UserSid = OverlayState.CurrentSid;
+
             int? saved = int.TryParse(OverlayState.Settings.Get(RemainingKey(today)), out var s) ? s : null;
             var weekday = TimeMath.MondayBasedWeekday(today);
             OverlayState.Remaining =
@@ -388,6 +392,7 @@ namespace Curfew.Overlay
             return ColorWhite;
         }
 
-        private static string RemainingKey(DateOnly date) => $"remaining_time_{date:yyyy-MM-dd}";
+        private static string RemainingKey(DateOnly date) =>
+            $"remaining_time_{OverlayState.CurrentSid}_{date:yyyy-MM-dd}";
     }
 }

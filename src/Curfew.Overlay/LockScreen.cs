@@ -157,7 +157,9 @@ internal static class LockScreen
         // black cover. If it cannot start, fall back to the built-in GDI controls so
         // there is always a way to unlock.
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        OverlayState.Settings.Set("lock_reason", OverlayState.BudgetBlocked ? "budget" : "schedule");
+        OverlayState.Settings.Set("lock_reason",
+            OverlayState.NewUserBlocked ? "newuser"
+            : OverlayState.BudgetBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
@@ -322,6 +324,22 @@ internal static class LockScreen
                 {
                     EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, "unlock code");
                     if (!OverlayState.ShouldBlock) Hide();
+                }
+                break;
+            case "provision":
+                // Activate this Windows user via the SYSTEM service (device code or
+                // parent passcode). The service adds the SID to provisioned_users.
+                var provCode = OverlayState.Settings.Get("lock_code") ?? string.Empty;
+                OverlayState.Settings.Set("lock_code", string.Empty);
+                if (ConfigClient.Provision(OverlayState.CurrentSid, provCode))
+                {
+                    ConfigClient.ResetFailures();
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user activated");
+                    if (!OverlayState.ShouldBlock) Hide();
+                }
+                else
+                {
+                    ConfigClient.RecordFailure();
                 }
                 break;
             case "logoff":
@@ -538,6 +556,7 @@ internal static class LockScreen
     private static void Reject(IntPtr hwnd)
     {
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, "lock");
+        ConfigClient.RecordFailure();
         _error = true;
         ClearEdit();
         SetFocus(_edit);

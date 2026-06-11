@@ -65,6 +65,31 @@ public class SettingsStoreSplitTests : IDisposable
     }
 
     [Fact]
+    public void UserSid_scopes_per_user_config_with_global_fallback()
+    {
+        using var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today);
+
+        s.Set("limit_enabled", "1");          // global (no SID set)
+
+        s.UserSid = "S-1-5-21-1";
+        Assert.Equal("1", s.Get("limit_enabled"));   // falls back to global
+        s.Set("limit_enabled", "0");                 // overrides for this user
+        Assert.Equal("0", s.Get("limit_enabled"));
+
+        s.UserSid = "S-1-5-21-2";
+        Assert.Equal("1", s.Get("limit_enabled"));   // other user → global
+
+        s.UserSid = null;
+        Assert.Equal("1", s.Get("limit_enabled"));   // global untouched
+
+        // Device-wide keys are never scoped.
+        s.UserSid = "S-1-5-21-1";
+        s.Set("passcode", "H");
+        s.UserSid = "S-1-5-21-2";
+        Assert.Equal("H", s.Get("passcode"));
+    }
+
+    [Fact]
     public void OpenSplit_does_not_migrate_when_config_already_exists()
     {
         // Seed config first so migration is skipped on the next open.

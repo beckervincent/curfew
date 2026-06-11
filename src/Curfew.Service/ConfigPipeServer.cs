@@ -86,8 +86,43 @@ internal sealed class ConfigPipeServer
         return request.Op switch
         {
             ConfigPipe.OpSet => HandleSet(request),
+            ConfigPipe.OpProvision => HandleProvision(request),
+            ConfigPipe.OpRecordFailure => HandleRecordFailure(),
+            ConfigPipe.OpResetFailures => HandleResetFailures(),
             _ => new ConfigResponse(false, $"unknown op '{request.Op}'"),
         };
+    }
+
+    /// <summary>Activates a Windows user after the device code (or parent passcode) is verified.</summary>
+    private ConfigResponse HandleProvision(ConfigRequest request)
+    {
+        if (string.IsNullOrEmpty(request.Sid))
+            return new ConfigResponse(false, "sid required");
+
+        var deviceCode = _config.Get("device_code");
+        var passcode = _config.Get("passcode");
+        var ok = (!string.IsNullOrEmpty(deviceCode) && PasscodeHash.Verify(request.Passcode, deviceCode))
+                 || (!string.IsNullOrEmpty(passcode) && PasscodeHash.Verify(request.Passcode, passcode));
+        if (!ok) return new ConfigResponse(false, "wrong code");
+
+        _config.Set("provisioned_users", UserProvisioning.Add(_config.Get("provisioned_users"), request.Sid));
+        return new ConfigResponse(true);
+    }
+
+    /// <summary>Advances the failed-attempt lockout counter (no auth — it only rate-limits).</summary>
+    private ConfigResponse HandleRecordFailure()
+    {
+        var count = int.TryParse(_config.Get("failed_attempts"), out var n) ? n : 0;
+        _config.Set("failed_attempts", (count + 1).ToString());
+        _config.Set("failed_attempt_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
+        return new ConfigResponse(true);
+    }
+
+    /// <summary>Clears the failed-attempt counter after a success.</summary>
+    private ConfigResponse HandleResetFailures()
+    {
+        _config.Set("failed_attempts", "0");
+        return new ConfigResponse(true);
     }
 
     private ConfigResponse HandleSet(ConfigRequest request)
