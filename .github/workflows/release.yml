@@ -56,18 +56,6 @@ jobs:
           -p:Version=${{ steps.ver.outputs.VERSION }}
           -o installer/overlay
 
-      - name: Download NSSM
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = gh release list --repo beckervincent/nssm-fork --limit 1 --json tagName |
-            ConvertFrom-Json | Select-Object -ExpandProperty tagName
-          gh release download $tag --repo beckervincent/nssm-fork --pattern "nssm-win64.exe" --output installer/nssm.exe
-          if (-not (Test-Path "installer/nssm.exe") -or (Get-Item "installer/nssm.exe").Length -eq 0) {
-            throw "Failed to download nssm.exe"
-          }
-
       - name: Build installer
         shell: pwsh
         run: |

@@ -6,8 +6,8 @@ namespace Curfew.Service;
 /// </summary>
 /// <remarks>
 /// The standard hosted <see cref="Microsoft.Extensions.Logging.ILogger"/> output
-/// is not easily visible when the worker runs under <c>nssm</c> as a Windows
-/// service, so this provides simple on-device diagnostics that survive restarts.
+/// is not easily visible when the worker runs as a Windows service, so this
+/// provides simple on-device diagnostics that survive restarts.
 /// <para>
 /// Design constraints:
 /// <list type="bullet">

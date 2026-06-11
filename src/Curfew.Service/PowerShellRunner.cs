@@ -15,7 +15,7 @@ namespace Curfew.Service;
 /// would block on the write while this side blocked on <c>WaitForExit</c> — a
 /// classic deadlock that the timeout would only paper over. Captured stderr is
 /// logged on failure so problems are diagnosable on-device (the hosted logger is
-/// not visible when the service runs under nssm).
+/// not easily visible when the process runs as a Windows service).
 /// </remarks>
 internal static class PowerShellRunner
 {

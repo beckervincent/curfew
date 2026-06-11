@@ -29,7 +29,7 @@ Requires Windows 10/11 (64-bit).
 .\build.ps1   # release build + lint
 ```
 
-Every push is checked by CI. Pushing a `v*` tag (or running `./release.sh`) builds the installer and publishes a GitHub release automatically. The bundled service wrapper comes from [beckervincent/nssm-fork](https://github.com/beckervincent/nssm-fork) — its latest release is pulled in during the installer build.
+Every push is checked by CI. Pushing a `v*` tag (or running `./release.sh`) builds the installer and publishes a GitHub release automatically. The background worker is installed as a native Windows service (via `sc.exe` / `New-Service`), so there is no third-party service wrapper to bundle.
 
 ## Thanks
 
