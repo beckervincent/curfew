@@ -64,6 +64,10 @@ namespace Curfew.Overlay
 
         public static void Run()
         {
+            // Harden the enforcement process (runs in the child's session) against
+            // DLL injection / hijacking before any other DLL loads.
+            Curfew.Core.Security.ProcessHardening.Apply();
+
             var today = DateOnly.FromDateTime(DateTime.Now);
             OverlayState.Settings = SettingsStore.Open(CurfewPaths.DatabaseFile, today);
 

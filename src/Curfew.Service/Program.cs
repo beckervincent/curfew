@@ -1,3 +1,4 @@
+using Curfew.Core.Security;
 using Curfew.Service;
 using Microsoft.Extensions.Logging.EventLog;
 
@@ -19,6 +20,9 @@ using Microsoft.Extensions.Logging.EventLog;
 // register ("Curfew"). Do not change this literal without updating
 // installer/setup.iss in lockstep.
 const string ServiceName = "Curfew";
+
+// Harden against DLL injection / hijacking before anything else loads.
+ProcessHardening.Apply();
 
 try
 {

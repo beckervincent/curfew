@@ -41,6 +41,10 @@ public partial class App : Application
 
     public App()
     {
+        // Harden the DLL search path / image-load policy. Extension points stay
+        // enabled here so WinUI text input (IMEs) keeps working.
+        Curfew.Core.Security.ProcessHardening.Apply(disableExtensionPoints: false);
+
         InitializeComponent();
 
         // Funnel every flavour of unhandled exception into the crash log so a
