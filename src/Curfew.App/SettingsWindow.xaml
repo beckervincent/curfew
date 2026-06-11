@@ -89,6 +89,21 @@
                     <Grid x:Name="UsageChart" Height="160" Padding="0,8,0,4" ColumnSpacing="8" />
                 </Expander>
 
+                <!-- Recent activity / tamper events -->
+                <Expander x:Name="ActivityExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.activity.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.activity.desc}" Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Spacing="8" Padding="0,8,0,4">
+                        <TextBlock x:Name="ActivityEmpty" Text="{local:Loc Key=settings.activity.empty}"
+                                   Style="{StaticResource SectionDescriptionStyle}" Visibility="Collapsed" />
+                        <ItemsControl x:Name="ActivityList" />
+                    </StackPanel>
+                </Expander>
+
                 <!-- Daily time budget -->
                 <Expander x:Name="DailyLimitsExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           IsExpanded="True" TabIndex="0">

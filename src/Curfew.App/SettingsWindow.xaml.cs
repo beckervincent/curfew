@@ -88,7 +88,7 @@ public sealed partial class SettingsWindow : Window
     {
         _cards = new FrameworkElement[]
         {
-            UsageExpander, DailyLimitsExpander, ScheduleExpander, WarningsExpander,
+            UsageExpander, ActivityExpander, DailyLimitsExpander, ScheduleExpander, WarningsExpander,
             LockExpander, FilterExpander, ProtectionExpander, UnlockExpander, PasscodeExpander,
         };
         CardSource.Children.Clear();
@@ -138,6 +138,7 @@ public sealed partial class SettingsWindow : Window
         LoadProtection();
         LoadUnlock();
         LoadUsageHistory();
+        LoadActivity();
         UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
     }
 
@@ -211,6 +212,51 @@ public sealed partial class SettingsWindow : Window
         return minutes < 60
             ? Loc.T("settings.history.minutes", minutes)
             : Loc.T("settings.history.hours", minutes / 60, minutes % 60);
+    }
+
+    /// <summary>Fills the activity list from the most recent event-log entries.</summary>
+    private void LoadActivity()
+    {
+        var events = EventLog.ReadRecent(CurfewPaths.EventLogFile, 25);
+        ActivityList.Items.Clear();
+        ActivityEmpty.Visibility = events.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var alert = new SolidColorBrush(Color.FromArgb(0xFF, 0xE0, 0x6C, 0x6C));
+        var muted = new SolidColorBrush(Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+
+        foreach (var ev in events)
+        {
+            var isAlert = ev.Kind is CurfewEventKind.ClockTamper
+                or CurfewEventKind.FailedUnlock or CurfewEventKind.FilterFailure;
+
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Padding = new Thickness(0, 2, 0, 2),
+            };
+            row.Children.Add(new TextBlock
+            {
+                Text = ev.Time.ToLocalTime().ToString("dd.MM HH:mm"),
+                FontSize = 12,
+                Foreground = muted,
+                Width = 96,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+
+            var label = Loc.T($"event.{ev.Kind}");
+            var line = new TextBlock
+            {
+                Text = string.IsNullOrEmpty(ev.Detail) ? label : $"{label} — {ev.Detail}",
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            if (isAlert) line.Foreground = alert;
+            row.Children.Add(line);
+
+            ActivityList.Items.Add(row);
+        }
     }
 
     private void LoadUnlock()
