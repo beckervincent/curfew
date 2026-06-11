@@ -378,7 +378,7 @@ internal static class LockScreen
                 if (MessageBoxW(hwnd, Loc.T("lock.shutdown.confirm.text"),
                         Loc.T("lock.shutdown.confirm.title"), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES)
                 {
-                    LockNative.Shutdown();
+                    LockNative.Logoff();
                 }
                 break;
         }
@@ -415,7 +415,7 @@ internal static class LockScreen
         else if (id == TimerCountdown)
         {
             if (_shutdownCountdown > 0) _shutdownCountdown--;
-            else if (_shutdownCountdown == 0) LockNative.Shutdown();
+            else if (_shutdownCountdown == 0) LockNative.Logoff();
             // Only the countdown line changes each second; invalidate just the
             // card so the buttons and field aren't needlessly repainted.
             var (px, py) = PanelOrigin();

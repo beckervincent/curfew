@@ -80,6 +80,10 @@ internal static class LockNative
     // ---- Shutdown / privilege adjustment ----------------------------------
 
     public const uint EWX_SHUTDOWN = 0x0001;
+    /// <summary>EWX_LOGOFF — end the calling user's session (not a machine shutdown).</summary>
+    public const uint EWX_LOGOFF = 0x0000;
+    /// <summary>EWX_FORCE — close apps without waiting; a child must not be able to veto the curfew.</summary>
+    public const uint EWX_FORCE = 0x0004;
     /// <summary>EWX_FORCEIFHUNG — proceed even if a window stops responding.</summary>
     public const uint EWX_FORCEIFHUNG = 0x0010;
     public const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
@@ -189,75 +193,19 @@ internal static class LockNative
     // ---- Helpers ----------------------------------------------------------
 
     /// <summary>
-    /// Enables <c>SeShutdownPrivilege</c> on the current process token and asks
-    /// Windows to shut down. The privilege is enabled defensively (it must be on
-    /// to even queue the request) and the call is forced past hung windows so a
-    /// frozen app cannot keep a curfewed machine awake. Best-effort: any failure
-    /// is logged rather than thrown, because the lock screen must never crash.
+    /// Logs the current user off, ending their session. The SYSTEM service runs in
+    /// session 0 and is unaffected, so enforcement keeps running across the logoff.
+    /// Unlike a shutdown, this needs no special privilege — a user may always end
+    /// their own session — so there is no token/privilege dance. <c>EWX_FORCE</c>
+    /// closes apps without waiting, so a child cannot veto the curfew by holding a
+    /// dialog open. Best-effort: any failure is logged, never thrown, because the
+    /// lock screen must never crash.
     /// </summary>
-    public static void Shutdown()
+    public static void Logoff()
     {
-        if (!OpenProcessToken(GetCurrentProcess(),
-                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out var token))
-        {
-            OverlayLog.Write($"shutdown: OpenProcessToken failed err={Marshal.GetLastWin32Error()}");
-            return;
-        }
-
-        try
-        {
-            if (TryEnableShutdownPrivilege(token))
-            {
-                // EWX_FORCEIFHUNG so a non-responding window cannot veto the
-                // curfew; reason flag tags the shutdown-event log entry.
-                if (!ExitWindowsEx(EWX_SHUTDOWN | EWX_FORCEIFHUNG, SHUTDOWN_REASON))
-                    OverlayLog.Write($"shutdown: ExitWindowsEx failed err={Marshal.GetLastWin32Error()}");
-                else
-                    OverlayLog.Write("shutdown: requested");
-            }
-        }
-        finally
-        {
-            CloseHandle(token);
-        }
-    }
-
-    /// <summary>
-    /// Enables <c>SeShutdownPrivilege</c> on the given token. Returns false (and
-    /// logs) when the privilege is unavailable — note that
-    /// <see cref="AdjustTokenPrivileges"/> reports success even when it could not
-    /// assign every privilege, so the last error is checked explicitly.
-    /// </summary>
-    private static bool TryEnableShutdownPrivilege(IntPtr token)
-    {
-        if (!LookupPrivilegeValueW(null, SE_SHUTDOWN_NAME, out var luid))
-        {
-            OverlayLog.Write($"shutdown: LookupPrivilegeValue failed err={Marshal.GetLastWin32Error()}");
-            return false;
-        }
-
-        var tp = new TOKEN_PRIVILEGES
-        {
-            PrivilegeCount = 1,
-            Luid = luid,
-            Attributes = SE_PRIVILEGE_ENABLED,
-        };
-
-        if (!AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero))
-        {
-            OverlayLog.Write($"shutdown: AdjustTokenPrivileges failed err={Marshal.GetLastWin32Error()}");
-            return false;
-        }
-
-        // ERROR_NOT_ALL_ASSIGNED (1300): the call "succeeded" but the privilege
-        // was not actually granted (e.g. the user lacks it via policy).
-        const int errorNotAllAssigned = 1300;
-        if (Marshal.GetLastWin32Error() == errorNotAllAssigned)
-        {
-            OverlayLog.Write("shutdown: SeShutdownPrivilege not held by this account");
-            return false;
-        }
-
-        return true;
+        if (!ExitWindowsEx(EWX_LOGOFF | EWX_FORCE, SHUTDOWN_REASON))
+            OverlayLog.Write($"logoff: ExitWindowsEx failed err={Marshal.GetLastWin32Error()}");
+        else
+            OverlayLog.Write("logoff: requested");
     }
 }
