@@ -9,6 +9,12 @@
     <AssemblyName>Curfew.Overlay</AssemblyName>
     <RootNamespace>Curfew.Overlay</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- FileDescription/Product drive the name Windows shows above tray balloon
+         notifications. Without these it falls back to the assembly name
+         ("Curfew.Overlay"); set them so notifications read just "Curfew". -->
+    <AssemblyTitle>Curfew</AssemblyTitle>
+    <Product>Curfew</Product>
+    <Company>Curfew</Company>
     <!-- Embeds the app icon so the tray icon (ExtractIcon on our exe) is the real one. -->
     <ApplicationIcon>..\..\resources\app.ico</ApplicationIcon>
   </PropertyGroup>
