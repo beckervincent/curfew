@@ -17,12 +17,30 @@ jobs:
     name: Build installer and publish release
     runs-on: windows-latest
 
+    # Self-signed Authenticode cert lives in repo secrets. It gives no SmartScreen
+    # reputation (it is not chained to a trusted CA, so Windows still warns), but it
+    # stamps a stable publisher identity and makes post-build tampering detectable.
+    # Exposed as env so the signing steps can be skipped cleanly when absent.
+    env:
+      SIGN_PFX_BASE64: ${{ secrets.CURFEW_SIGN_PFX_BASE64 }}
+      SIGN_PFX_PASSWORD: ${{ secrets.CURFEW_SIGN_PFX_PASSWORD }}
+
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
+
+      - name: Decode signing certificate
+        id: cert
+        if: ${{ env.SIGN_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "curfew-sign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          "PFX_PATH=$pfxPath" >> $env:GITHUB_OUTPUT
+          Write-Host "Signing certificate decoded to runner temp."
 
       - name: Resolve version
         id: ver
@@ -56,11 +74,40 @@ jobs:
           -p:Version=${{ steps.ver.outputs.VERSION }}
           -o installer/overlay
 
+      - name: Sign binaries
+        if: ${{ env.SIGN_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            "${{ steps.cert.outputs.PFX_PATH }}", $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
+          $targets = Get-ChildItem -Path installer/service, installer/app, installer/overlay `
+            -Recurse -Include Curfew*.exe
+          foreach ($f in $targets) {
+            $res = Set-AuthenticodeSignature -FilePath $f.FullName -Certificate $cert `
+              -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
+            Write-Host "$($f.Name): $($res.Status) $($res.StatusMessage)"
+            # A self-signed cert reports NotTrusted (no CA chain), which is expected.
+            # Only a missing signer means signing actually failed.
+            if ($null -eq $res.SignerCertificate) { throw "No signature applied to $($f.Name)" }
+          }
+
       - name: Build installer
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion="${{ steps.ver.outputs.VERSION }}" "installer\setup.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+
+      - name: Sign installer
+        if: ${{ env.SIGN_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            "${{ steps.cert.outputs.PFX_PATH }}", $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
+          $installer = "curfew-setup-v${{ steps.ver.outputs.VERSION }}.exe"
+          $res = Set-AuthenticodeSignature -FilePath $installer -Certificate $cert `
+            -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
+          Write-Host "$installer: $($res.Status) $($res.StatusMessage)"
+          if ($null -eq $res.SignerCertificate) { throw "Installer was not signed" }
 
       - name: Publish release
         shell: pwsh
