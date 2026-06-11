@@ -106,7 +106,7 @@ jobs:
           $installer = "curfew-setup-v${{ steps.ver.outputs.VERSION }}.exe"
           $res = Set-AuthenticodeSignature -FilePath $installer -Certificate $cert `
             -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
-          Write-Host "$installer: $($res.Status) $($res.StatusMessage)"
+          Write-Host "${installer}: $($res.Status) $($res.StatusMessage)"
           if ($null -eq $res.SignerCertificate) { throw "Installer was not signed" }
 
       - name: Publish release
