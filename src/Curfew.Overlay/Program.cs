@@ -118,8 +118,11 @@ namespace Curfew.Overlay
             TrayIcon.Add(hwnd, hInstance);
 
             // Pre-create the lock window; show it immediately if already blocked.
+            // Otherwise clear lock_active so a respawn while unblocked can never leave
+            // the service's Task Manager lockdown stuck on.
             LockScreen.Register(hInstance);
             if (OverlayState.ShouldBlock) LockScreen.Show();
+            else OverlayState.Settings.Set("lock_active", "0");
 
             OverlayLog.Write("entering message loop");
 
@@ -173,8 +176,13 @@ namespace Curfew.Overlay
             // itself needs no passcode UI of its own.
             ExecutePendingTrayCommand(hwnd);
 
-            // Time is frozen while the lock screen is up.
-            if (OverlayState.Locked) return;
+            // Time is frozen while the lock screen is up — but the lock still needs
+            // its per-second work: apply WinUI lock actions and keep that surface alive.
+            if (OverlayState.Locked)
+            {
+                LockScreen.WhileLockedTick();
+                return;
+            }
 
             // Count this second of active (unlocked) screen time for usage history.
             OverlayState.RecordActiveSecond();

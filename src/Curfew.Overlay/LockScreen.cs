@@ -81,9 +81,17 @@ internal static class LockScreen
     private static IntPtr _btnExtend30;
     private static IntPtr _btnExtend60;
     private static IntPtr _btnUnlock;
+    private static IntPtr _btnShutdown;
 
     /// <summary>True while the current lock is a schedule block (outside allowed hours), not a budget block.</summary>
     private static bool _scheduleMode;
+
+    /// <summary>
+    /// True while the WinUI lock surface (Curfew.App --lock) is driving the UI on
+    /// top of this black cover. False means the built-in GDI lock is the fallback
+    /// (the WinUI app could not be launched), in which case the GDI controls show.
+    /// </summary>
+    private static bool _winui;
 
     // Cached fonts/brushes created once and reused on every paint, then freed in
     // Dispose. Reusing GDI handles avoids per-frame churn and keeps the countdown
@@ -141,10 +149,22 @@ internal static class LockScreen
         _scheduleMode = !OverlayState.BudgetBlocked;
         SetWindowTextW(_btnUnlock, _scheduleMode ? Loc.T("lock.schedule.ignore") : Loc.T("lock.unlock"));
 
+        // Publish the lock state for the WinUI surface and launch it on top of this
+        // black cover. If it cannot start, fall back to the built-in GDI controls so
+        // there is always a way to unlock.
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        OverlayState.Settings.Set("lock_reason", OverlayState.BudgetBlocked ? "budget" : "schedule");
+        OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
+        OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
+        OverlayState.Settings.Set("lock_sid", CurrentUserSid());
+        OverlayState.Settings.Set("lock_active", "1");
+        _winui = LockAppHost.Launch();
+        SetControlsVisible(!_winui);
+
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
         ShowWindow(_hwnd, SW_SHOW);
         SetForegroundWindow(_hwnd);
-        if (_edit != IntPtr.Zero)
+        if (_edit != IntPtr.Zero && !_winui)
         {
             SetWindowTextW(_edit, "");
             SetFocus(_edit);
@@ -160,6 +180,11 @@ internal static class LockScreen
     private static void Hide()
     {
         OverlayState.Locked = false;
+
+        // Tell the WinUI surface to exit and stop relaunching it.
+        OverlayState.Settings.Set("lock_active", "0");
+        LockAppHost.Kill();
+
         KillTimer(_hwnd, new IntPtr(TimerReassert));
         KillTimer(_hwnd, new IntPtr(TimerCountdown));
         ShowWindow(_hwnd, SW_HIDE);
@@ -168,6 +193,13 @@ internal static class LockScreen
 
         OverlayState.Persist();
         if (OverlayState.MiniHwnd != IntPtr.Zero) ShowWindow(OverlayState.MiniHwnd, SW_SHOWNOACTIVATE);
+    }
+
+    /// <summary>The current session user's SID, for the service's Task Manager lockdown.</summary>
+    private static string CurrentUserSid()
+    {
+        try { return System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty; }
+        catch { return string.Empty; }
     }
 
     private static string EnteredText()
@@ -187,7 +219,9 @@ internal static class LockScreen
     /// cannot be replayed. Returns false when no secret is configured or the code
     /// is wrong/reused.
     /// </summary>
-    private static bool TryRedeemUnlockCode()
+    private static bool TryRedeemUnlockCode() => TryRedeemCode(EnteredText());
+
+    private static bool TryRedeemCode(string entered)
     {
         var secret = OverlayState.Settings.Get("unlock_secret");
         if (string.IsNullOrWhiteSpace(secret)) return false;
@@ -200,7 +234,7 @@ internal static class LockScreen
         // window=10 (±5 min) keeps a code the parent reads aloud valid long enough
         // for the child to enter it, even as the authenticator app rotates it.
         // Replay is still blocked because minCounter advances past each redeemed step.
-        if (!UnlockCode.Verify(secret, EnteredText(), now, 10, minCounter, out var matched))
+        if (!UnlockCode.Verify(secret, entered, now, 10, minCounter, out var matched))
             return false;
 
         OverlayState.Settings.Set("unlock_last_counter", matched.ToString());
@@ -210,6 +244,88 @@ internal static class LockScreen
         OverlayState.Persist();
         OverlayLog.Write($"unlock code redeemed (+{bonus} min)");
         return true;
+    }
+
+    /// <summary>
+    /// Per-second work while the lock is up: apply any action the WinUI surface
+    /// recorded, and relaunch that surface if it died (falling back to the GDI
+    /// controls if it cannot be relaunched). Called from the overlay tick.
+    /// </summary>
+    public static void WhileLockedTick()
+    {
+        ConsumeLockAction();
+
+        if (_winui && OverlayState.Locked && !LockAppHost.IsRunning)
+        {
+            if (!LockAppHost.Launch())
+            {
+                // The WinUI surface is unavailable — reveal the GDI fallback so the
+                // parent can still unlock.
+                _winui = false;
+                SetControlsVisible(true);
+                InvalidateRect(_hwnd, IntPtr.Zero, false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies a one-shot action the WinUI lock recorded after verifying the
+    /// passcode/code. Cleared immediately (runs once) and ignored if stale. A child
+    /// forging this key would need write access to the settings DB — the same
+    /// pre-existing exposure as the tray command; closed only by the DB-ACL work.
+    /// </summary>
+    private static void ConsumeLockAction()
+    {
+        var action = OverlayState.Settings.Get("lock_action");
+        if (string.IsNullOrEmpty(action)) return;
+
+        OverlayState.Settings.Set("lock_action", string.Empty); // consume once
+        long.TryParse(OverlayState.Settings.Get("lock_action_at"), out var at);
+        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - at > 60) return; // stale
+
+        switch (action)
+        {
+            case "extend15": ExtendApply(15); break;
+            case "extend30": ExtendApply(30); break;
+            case "extend60": ExtendApply(60); break;
+            case "unlock":
+                OverlayState.ScheduleOverride = true;
+                if (!OverlayState.ShouldBlock) Hide();
+                break;
+            case "ignore_schedule":
+                OverlayState.IgnoreScheduleUntilRestart = true;
+                OverlayState.ScheduleOverride = true;
+                if (!OverlayState.ShouldBlock) Hide();
+                break;
+            case "redeem":
+                var code = OverlayState.Settings.Get("lock_code") ?? string.Empty;
+                OverlayState.Settings.Set("lock_code", string.Empty);
+                if (TryRedeemCode(code) && !OverlayState.ShouldBlock) Hide();
+                break;
+            case "logoff":
+                LockNative.Logoff();
+                break;
+        }
+    }
+
+    private static void ExtendApply(int minutes)
+    {
+        OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
+        OverlayState.ScheduleOverride = true;
+        OverlayState.Persist();
+        if (!OverlayState.ShouldBlock) Hide();
+    }
+
+    /// <summary>Shows or hides the GDI fallback controls (the WinUI surface hides them).</summary>
+    private static void SetControlsVisible(bool visible)
+    {
+        var cmd = visible ? SW_SHOW : SW_HIDE;
+        ShowWindow(_btnExtend15, cmd);
+        ShowWindow(_btnExtend30, cmd);
+        ShowWindow(_btnExtend60, cmd);
+        ShowWindow(_edit, cmd);
+        ShowWindow(_btnUnlock, cmd);
+        ShowWindow(_btnShutdown, cmd);
     }
 
     private static void ClearEdit()
@@ -341,7 +457,7 @@ internal static class LockScreen
         // Primary action (accent) then the destructive shutdown action below it.
         var actX = cx - ActionWidth / 2;
         _btnUnlock = AddButton(hwnd, hInstance, Loc.T("lock.unlock"), IdUnlock, actX, py + UnlockTop, ActionWidth, ActionHeight);
-        AddButton(hwnd, hInstance, Loc.T("lock.shutdown"), IdShutdown, actX, py + ShutdownTop, ActionWidth, ActionHeight);
+        _btnShutdown = AddButton(hwnd, hInstance, Loc.T("lock.shutdown"), IdShutdown, actX, py + ShutdownTop, ActionWidth, ActionHeight);
     }
 
     private static IntPtr AddButton(IntPtr parent, IntPtr hInstance, string text, int id, int x, int y, int w, int h)
@@ -442,6 +558,14 @@ internal static class LockScreen
 
         // Fill the full backdrop ourselves (no class brush) so there is no flash.
         FillSolid(hdc, client.left, client.top, client.right - client.left, client.bottom - client.top, ColorOverlayBg);
+
+        // When the WinUI surface is driving, this window is only the black floor —
+        // the card, field and buttons are drawn by Curfew.App on top.
+        if (_winui)
+        {
+            EndPaint(hwnd, ref ps);
+            return;
+        }
 
         var px = (client.right - PanelWidth) / 2;
         var py = (client.bottom - PanelHeight) / 2;
