@@ -19,16 +19,27 @@ internal static class LockScreen
     // GDI colours are 0x00BBGGRR (COLORREF byte order is R, G, B low-to-high).
     // Palette mirrors the WinUI dark theme so the lock reads as part of the app.
     private const uint ColorOverlayBg = 0x001C1C1C;  // dark Mica-like backdrop (#1C1C1C)
-    private const uint ColorPanelBg = 0x002A2A2A;    // card surface (#2A2A2A)
-    private const uint ColorPanelEdge = 0x003C3C3C;  // subtle card border / inset highlight (#3C3C3C)
-    private const uint ColorPanelShadow = 0x00141414; // soft drop-shadow band under the card
+    private const uint ColorPanelBg = 0x002B2B2B;    // card surface, ~CardBackgroundFillColorDefault (#2B2B2B)
+    private const uint ColorPanelEdge = 0x00383838;  // subtle 1px card stroke (#383838)
+    private const uint ColorPanelShadow = 0x00121212; // soft drop-shadow band under the card
     private const uint ColorWhite = 0x00FFFFFF;
     private const uint ColorLight = 0x00C8C8C8;       // body text (#C8C8C8)
     private const uint ColorMuted = 0x008A8A8A;       // captions / hints (#8A8A8A)
-    private const uint ColorAccent = 0x00F0A04C;      // app accent blue #4CA0F0 (BGR)
+    // Brand accent #54ADF2 (matches the WinUI ScheduleGrid selection), in BGR.
+    private const uint ColorAccent = 0x00F2AD54;
+    private const uint ColorAccentPressed = 0x00C68A3F; // accent button while pressed (dimmer #3F8AC6)
     private const uint ColorWarn = 0x000A7FFF;        // amber warning (BGR)
     private const uint ColorRed = 0x000000FF;         // urgent red
-    private const uint ColorFieldBg = 0x001F1F1F;     // passcode field well (#1F1F1F)
+    private const uint ColorFieldBg = 0x00202020;     // passcode field well (#202020)
+    // Neutral (secondary) button surface, ~ControlFillColorDefault on dark.
+    private const uint ColorBtn = 0x00333333;         // #333333
+    private const uint ColorBtnPressed = 0x00292929;  // #292929 while pressed
+    private const uint ColorBtnBorder = 0x00454545;   // #454545 1px stroke
+
+    // Corner radii mirror the WinUI tokens: ControlCornerRadius 6, OverlayCornerRadius 8.
+    // RoundRect takes the full ellipse diameter, hence 2× the logical radius.
+    private const int ControlCornerDiameter = 12;
+    private const int CardCornerDiameter = 16;
 
     private const int IdEdit = 101;
     private const int IdUnlock = 102;
@@ -72,6 +83,10 @@ internal static class LockScreen
     private static IntPtr _fontCaption;
     private static IntPtr _fontError;
     private static IntPtr _fontControl;
+
+    // Brush returned from WM_CTLCOLOREDIT to paint the passcode field's background
+    // dark instead of the default system white. Created once, freed in Dispose.
+    private static IntPtr _brushField;
 
     private static int _shutdownCountdown = -1;
     private static bool _error;
@@ -217,6 +232,18 @@ internal static class LockScreen
                 HandleCommand(hwnd, (int)((long)wParam & 0xFFFF), (int)(((long)wParam >> 16) & 0xFFFF));
                 return IntPtr.Zero;
 
+            case WM_CTLCOLOREDIT:
+                // Paint the passcode field dark: light text on the field-well colour.
+                // wParam is the edit's HDC; returning the matching brush makes Win32
+                // use it for the control background.
+                SetTextColor(wParam, ColorWhite);
+                SetBkColor(wParam, ColorFieldBg);
+                return _brushField;
+
+            case WM_DRAWITEM:
+                DrawOwnerButton(lParam);
+                return new IntPtr(1);
+
             case WM_TIMER:
                 HandleTimer(hwnd, (int)(long)wParam);
                 return IntPtr.Zero;
@@ -241,6 +268,7 @@ internal static class LockScreen
         _fontCaption = MakeFont(15, 600);
         _fontError = MakeFont(16, 700);
         _fontControl = MakeFont(17, 400);
+        _brushField = CreateSolidBrush(ColorFieldBg);
     }
 
     private static IntPtr MakeFont(int height, int weight) =>
@@ -255,6 +283,7 @@ internal static class LockScreen
         DeleteFont(ref _fontCaption);
         DeleteFont(ref _fontError);
         DeleteFont(ref _fontControl);
+        if (_brushField != IntPtr.Zero) { DeleteObject(_brushField); _brushField = IntPtr.Zero; }
     }
 
     private static void DeleteFont(ref IntPtr font)
@@ -291,9 +320,12 @@ internal static class LockScreen
         const int fieldW = 240, fieldH = 44;
         // No ES_NUMBER: the passcode may be a PIN or a full password (any
         // characters). A 6-digit offline unlock code is still typeable here.
+        // No WS_BORDER: the classic sunken edit frame clashes with the flat WinUI
+        // look. A rounded field "well" is painted behind it in PaintLock instead,
+        // and WM_CTLCOLOREDIT fills the interior with the dark field colour.
         _edit = CreateWindowExW(
             0, "EDIT", "",
-            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_CENTER | ES_PASSWORD,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_CENTER | ES_PASSWORD,
             cx - fieldW / 2, py + 322, fieldW, fieldH,
             hwnd, new IntPtr(IdEdit), hInstance, IntPtr.Zero);
         SendMessageW(_edit, EM_SETLIMITTEXT, new IntPtr(64), IntPtr.Zero);
@@ -309,7 +341,7 @@ internal static class LockScreen
     private static IntPtr AddButton(IntPtr parent, IntPtr hInstance, string text, int id, int x, int y, int w, int h)
     {
         var btn = CreateWindowExW(0, "BUTTON", text,
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
             x, y, w, h, parent, new IntPtr(id), hInstance, IntPtr.Zero);
         if (btn != IntPtr.Zero && _fontControl != IntPtr.Zero)
             SendMessageW(btn, WM_SETFONT, _fontControl, new IntPtr(1));
@@ -407,23 +439,26 @@ internal static class LockScreen
 
         var px = (client.right - PanelWidth) / 2;
         var py = (client.bottom - PanelHeight) / 2;
+        var cx = px + PanelWidth / 2;
 
-        // Soft drop shadow: a slightly offset darker slab behind the card gives
-        // depth without needing alpha blending or a shadow bitmap.
-        FillSolid(hdc, px - 2, py + 6, PanelWidth + 4, PanelHeight + 4, ColorPanelShadow);
+        // Soft drop shadow: an offset rounded slab behind the card gives depth
+        // without needing alpha blending or a shadow bitmap.
+        FillRoundRect(hdc, px - 2, py + 4, PanelWidth + 4, PanelHeight + 6, CardCornerDiameter, ColorPanelShadow, ColorPanelShadow);
 
-        // Card: a 1px edge frame, then the surface inset by 1px. This fakes a
-        // crisp bordered panel since RoundRect/CreatePen are not available here.
-        FillSolid(hdc, px, py, PanelWidth, PanelHeight, ColorPanelEdge);
-        FillSolid(hdc, px + 1, py + 1, PanelWidth - 2, PanelHeight - 2, ColorPanelBg);
-
-        // Accent rule across the top of the card to anchor the title.
-        FillSolid(hdc, px, py, PanelWidth, 4, ColorAccent);
+        // Card: rounded surface with a 1px stroke, matching the WinUI overlay
+        // corner radius. No top accent bar — WinUI cards are flat; the accent is
+        // carried by the primary action button instead.
+        FillRoundRect(hdc, px, py, PanelWidth, PanelHeight, CardCornerDiameter, ColorPanelBg, ColorPanelEdge);
 
         SetBkMode(hdc, TRANSPARENT);
 
         var innerX = px + 28;
         var innerW = PanelWidth - 56;
+
+        // Rounded well behind the borderless passcode field (the EDIT child paints
+        // on top of this in the same dark colour via WM_CTLCOLOREDIT).
+        const int fieldW = 240, fieldH = 44;
+        FillRoundRect(hdc, cx - fieldW / 2, py + 322, fieldW, fieldH, ControlCornerDiameter, ColorFieldBg, ColorBtnBorder);
 
         // Title reflects why we're locked.
         var title = OverlayState.BudgetBlocked ? Loc.T("lock.title.budget") : Loc.T("lock.title.schedule");
@@ -462,6 +497,80 @@ internal static class LockScreen
         var rect = new RECT { left = x, top = y, right = x + w, bottom = y + h };
         FillRect(hdc, ref rect, brush);
         DeleteObject(brush);
+    }
+
+    /// <summary>Filled, 1px-outlined rounded rectangle (WinUI card/control shape).</summary>
+    private static void FillRoundRect(IntPtr hdc, int x, int y, int w, int h, int diameter, uint fill, uint border)
+    {
+        var brush = CreateSolidBrush(fill);
+        var pen = CreatePen(PS_SOLID, 1, border);
+        var oldBrush = SelectObject(hdc, brush);
+        var oldPen = SelectObject(hdc, pen);
+        // RoundRect's right/bottom are exclusive; +1 so the 1px stroke isn't clipped.
+        RoundRect(hdc, x, y, x + w + 1, y + h + 1, diameter, diameter);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(brush);
+        DeleteObject(pen);
+    }
+
+    /// <summary>Outline-only rounded rectangle (used for the accent focus ring).</summary>
+    private static void DrawRoundOutline(IntPtr hdc, int x, int y, int w, int h, int diameter, uint border)
+    {
+        var pen = CreatePen(PS_SOLID, 1, border);
+        var oldPen = SelectObject(hdc, pen);
+        var oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        RoundRect(hdc, x, y, x + w + 1, y + h + 1, diameter, diameter);
+        SelectObject(hdc, oldPen);
+        SelectObject(hdc, oldBrush);
+        DeleteObject(pen);
+    }
+
+    /// <summary>
+    /// Owner-draws a lock-screen button as a WinUI-style rounded control. The
+    /// primary unlock button uses the accent fill; the others use the neutral
+    /// control fill with an accent stroke when focused.
+    /// </summary>
+    private static void DrawOwnerButton(IntPtr lParam)
+    {
+        var dis = Marshal.PtrToStructure<DRAWITEMSTRUCT>(lParam);
+        var r = dis.rcItem;
+        var pressed = (dis.itemState & ODS_SELECTED) != 0;
+        var focused = (dis.itemState & ODS_FOCUS) != 0;
+        var accent = (int)dis.CtlID == IdUnlock;
+
+        uint fill, border;
+        if (accent)
+        {
+            fill = pressed ? ColorAccentPressed : ColorAccent;
+            border = fill;
+        }
+        else
+        {
+            fill = pressed ? ColorBtnPressed : ColorBtn;
+            border = focused ? ColorAccent : ColorBtnBorder;
+        }
+
+        FillRoundRect(dis.hDC, r.left, r.top, r.Width, r.Height, ControlCornerDiameter, fill, border);
+
+        // Keyboard focus on the accent button (which already fills with the accent
+        // colour) is shown with a subtle inner white ring instead of a border swap.
+        if (accent && focused)
+            DrawRoundOutline(dis.hDC, r.left + 2, r.top + 2, r.Width - 4, r.Height - 4, ControlCornerDiameter - 2, ColorWhite);
+
+        var text = WindowText(dis.hwndItem);
+        var old = SelectObject(dis.hDC, _fontControl);
+        SetBkMode(dis.hDC, TRANSPARENT);
+        SetTextColor(dis.hDC, ColorWhite);
+        DrawTextW(dis.hDC, text, text.Length, ref r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(dis.hDC, old);
+    }
+
+    private static string WindowText(IntPtr hwnd)
+    {
+        var buffer = new char[64];
+        var len = GetWindowTextW(hwnd, buffer, buffer.Length);
+        return new string(buffer, 0, Math.Clamp(len, 0, buffer.Length));
     }
 
     private static void DrawText(IntPtr hdc, IntPtr font, string text, int x, int y, int w, int h, uint color, int format)

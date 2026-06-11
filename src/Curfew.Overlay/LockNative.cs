@@ -32,6 +32,15 @@ internal static class LockNative
     // Button (BUTTON) styles.
     /// <summary>BS_PUSHBUTTON — standard command button.</summary>
     public const int BS_PUSHBUTTON = 0x0000;
+    /// <summary>BS_OWNERDRAW — button is drawn by the parent via WM_DRAWITEM, so we
+    /// can render the WinUI-style rounded fill instead of the classic grey chrome.</summary>
+    public const int BS_OWNERDRAW = 0x0000000B;
+
+    // WM_DRAWITEM itemState flags (subset we react to).
+    /// <summary>ODS_SELECTED — the button is currently pressed.</summary>
+    public const uint ODS_SELECTED = 0x0001;
+    /// <summary>ODS_FOCUS — the button has keyboard focus (draw the focus ring).</summary>
+    public const uint ODS_FOCUS = 0x0010;
 
     // ---- Window messages / notifications ----------------------------------
 

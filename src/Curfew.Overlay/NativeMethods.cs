@@ -70,6 +70,10 @@ internal static class Native
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_SETFONT = 0x0030;
     public const uint WM_KEYDOWN = 0x0100;
+    // Owner-draw + control-colour messages used to give the lock's child controls
+    // (buttons, passcode field) the same dark, rounded look as the WinUI app.
+    public const uint WM_DRAWITEM = 0x002B;
+    public const uint WM_CTLCOLOREDIT = 0x0133;
 
     // ── GetSystemMetrics indices (SM_*) ─────────────────────────────────────
     public const int SM_CXSCREEN = 0;
@@ -146,6 +150,25 @@ internal static class Native
 
         public readonly int Width => right - left;
         public readonly int Height => bottom - top;
+    }
+
+    /// <summary>
+    /// WM_DRAWITEM payload for an owner-drawn control. Sequential layout lets the
+    /// marshaller insert the correct padding before the pointer-sized fields on
+    /// 64-bit, so this matches the native struct without explicit offsets.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DRAWITEMSTRUCT
+    {
+        public uint CtlType;
+        public uint CtlID;
+        public uint itemID;
+        public uint itemAction;
+        public uint itemState;
+        public IntPtr hwndItem;
+        public IntPtr hDC;
+        public RECT rcItem;
+        public IntPtr itemData;
     }
 
     [StructLayout(LayoutKind.Sequential)]
