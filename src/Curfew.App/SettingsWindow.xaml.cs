@@ -428,17 +428,28 @@ public sealed partial class SettingsWindow : Window
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
 
-        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "curfew-update.exe");
+        // Stage under an app-specific dir with an unguessable name so another
+        // same-user process cannot pre-create or swap the file between the download
+        // and the elevated launch (TOCTOU). CreateNew fails if the name ever clashes.
+        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Curfew");
+        Directory.CreateDirectory(tempDir);
+        var path = System.IO.Path.Combine(tempDir, $"curfew-update-{Guid.NewGuid():N}.exe");
         try
         {
             using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
+
+            // HttpClient follows redirects (github.com -> *.githubusercontent.com),
+            // so re-validate the URL actually fetched, not just the input.
+            if (response.RequestMessage?.RequestUri is { } finalUri && !IsTrustedInstallerUrl(finalUri.ToString()))
+                return null;
+
             if (response.Content.Headers.ContentLength is long advertised && advertised > MaxInstallerBytes)
                 return null;
 
             // Stream straight to disk (capped) rather than buffering ~95 MB in memory.
             await using (var source = await response.Content.ReadAsStreamAsync())
-            await using (var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 var chunk = new byte[81_920];
 
