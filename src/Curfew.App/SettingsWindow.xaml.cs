@@ -141,7 +141,58 @@ public sealed partial class SettingsWindow : Window
         LoadUnlock();
         LoadUsageHistory();
         LoadActivity();
+        PopulateUserPicker();
         UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
+    }
+
+    /// <summary>Guards the user-picker handler while it is populated programmatically.</summary>
+    private bool _loadingUser;
+
+    /// <summary>Fills the picker with "All users" plus each provisioned user.</summary>
+    private void PopulateUserPicker()
+    {
+        _loadingUser = true;
+        UserPicker.Items.Clear();
+        UserPicker.Items.Add(new ComboBoxItem { Content = Loc.T("settings.user.all"), Tag = string.Empty });
+        foreach (var sid in Curfew.Core.UserProvisioning.Parse(_settings.Get("provisioned_users")))
+            UserPicker.Items.Add(new ComboBoxItem { Content = ResolveUserName(sid), Tag = sid });
+        UserPicker.SelectedIndex = 0;
+        _loadingUser = false;
+    }
+
+    /// <summary>Resolves a SID to a display name, falling back to the raw SID.</summary>
+    private static string ResolveUserName(string sid)
+    {
+        try
+        {
+            var name = new System.Security.Principal.SecurityIdentifier(sid)
+                .Translate(typeof(System.Security.Principal.NTAccount)).Value;
+            var slash = name.LastIndexOf('\\');
+            return slash >= 0 ? name[(slash + 1)..] : name;
+        }
+        catch
+        {
+            return sid;
+        }
+    }
+
+    /// <summary>Re-scopes the per-user controls to the selected user.</summary>
+    private void OnUserChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingUser) return;
+
+        var sid = (UserPicker.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty;
+        _settings.UserSid = string.IsNullOrEmpty(sid) ? null : sid;
+
+        // Reload only the per-user controls; device-wide ones (passcode, device code,
+        // allow-list, updates) are unaffected.
+        LimitEnabled.IsOn = _settings.GetBool("limit_enabled", true);
+        ScheduleEnabled.IsOn = _settings.GetBool("schedule_enabled", false);
+        Schedule.Load(Curfew.Core.Schedule.Parse(_settings.Get("schedule")));
+        LoadDailyLimits();
+        LoadWarnings();
+        LoadLockScreen();
+        LoadContentFilter();
     }
 
     /// <summary>Draws a 7-day bar chart of active screen time from usage history.</summary>
@@ -332,6 +383,7 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Builds the seven per-day hour spinners and appends them to the panel.</summary>
     private void LoadDailyLimits()
     {
+        DailyLimitsPanel.Children.Clear();   // re-runnable when the picked user changes
         for (var i = 0; i < DayCount; i++)
         {
             var minutes = _settings.GetInt(SettingsStore.WeekdayKeys[i], DefaultDailyMinutes);
@@ -644,6 +696,12 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("time_guard_enabled", ToFlag(TimeGuard.IsOn));
         _settings.Set("auto_update_enabled", ToFlag(AutoUpdate.IsOn));
         _settings.Set("update_channel", SelectedChannel());
+
+        // Device activation code: only update it when the parent typed a new one, so
+        // an untouched field never wipes the existing code. Stored as a salted hash.
+        var code = DeviceCodeBox.Password;
+        if (!string.IsNullOrEmpty(code))
+            _settings.Set("device_code", PasscodeHash.Hash(code));
     }
 
     /// <summary>

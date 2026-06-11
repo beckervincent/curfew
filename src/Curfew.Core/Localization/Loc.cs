@@ -173,6 +173,10 @@ public static class Loc
             // Settings
             ["settings.title"] = "Curfew Settings",
             ["settings.subtitle"] = "Configure screen-time limits, schedules, and protection for this device.",
+            ["settings.user.picker"] = "Limits & schedule apply to",
+            ["settings.user.all"] = "All users (default)",
+            ["settings.devicecode.title"] = "Device activation code",
+            ["settings.devicecode.desc"] = "A new Windows user is locked until this code (or the parent passcode) is entered. Leave blank to allow any new user.",
             ["settings.daily.desc"] = "Maximum screen time allowed per day, in hours.",
             ["settings.allowlist.title"] = "Apps that don't count",
             ["settings.allowlist.desc"] = "One process name per line (e.g. code.exe). Time spent with one of these in the foreground does not use the daily budget.",
@@ -364,6 +368,10 @@ public static class Loc
 
             ["settings.title"] = "Curfew Einstellungen",
             ["settings.subtitle"] = "Bildschirmzeit-Limits, Zeitpläne und Schutz für dieses Gerät konfigurieren.",
+            ["settings.user.picker"] = "Limits & Zeitplan gelten für",
+            ["settings.user.all"] = "Alle Benutzer (Standard)",
+            ["settings.devicecode.title"] = "Geräte-Aktivierungscode",
+            ["settings.devicecode.desc"] = "Ein neuer Windows-Benutzer ist gesperrt, bis dieser Code (oder die Eltern-PIN) eingegeben wird. Leer lassen, um jeden neuen Benutzer zuzulassen.",
             ["settings.daily.desc"] = "Maximale Bildschirmzeit pro Tag, in Stunden.",
             ["settings.allowlist.title"] = "Apps, die nicht zählen",
             ["settings.allowlist.desc"] = "Ein Prozessname pro Zeile (z. B. code.exe). Zeit mit einer dieser Apps im Vordergrund zählt nicht zum Tagesbudget.",

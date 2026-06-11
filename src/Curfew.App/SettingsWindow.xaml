@@ -44,6 +44,13 @@
                            Style="{StaticResource SectionDescriptionStyle}" />
             </StackPanel>
 
+            <!-- Which user the limits/schedule below apply to. "All users" edits the
+                 shared defaults; a specific child edits only their overrides. -->
+            <ComboBox x:Name="UserPicker"
+                      Header="{local:Loc Key=settings.user.picker}"
+                      MinWidth="300" Margin="0,0,0,4"
+                      SelectionChanged="OnUserChanged" />
+
             <!-- Reflowable card host: cards are distributed across these columns at
                  runtime by Relayout (1 column when narrow, up to 3 when maximised). -->
             <Grid x:Name="CardsHost" ColumnSpacing="16">
@@ -274,6 +281,16 @@
                         <ToggleSwitch x:Name="TimeGuard" Header="{local:Loc Key=setup.timeguard.title}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
                                       ToolTipService.ToolTip="Detect and block attempts to change the system clock" />
+
+                        <!-- Device activation code: a new Windows user is locked until this
+                             code (or the parent passcode) is entered. Blank = no new-user lock. -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.devicecode.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.devicecode.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <PasswordBox x:Name="DeviceCodeBox" MaxLength="64" Width="220" HorizontalAlignment="Left"
+                                         PlaceholderText="••••••••" />
+                        </StackPanel>
                         <ToggleSwitch x:Name="AutoUpdate" Header="{local:Loc Key=settings.autoupdate}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
 
