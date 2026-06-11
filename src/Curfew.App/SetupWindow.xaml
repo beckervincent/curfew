@@ -56,8 +56,8 @@
                                  TabIndex="1"
                                  PlaceholderText="••••"
                                  AutomationProperties.Name="Administrator PIN"
-                                 AutomationProperties.HelpText="Enter a 4-digit numeric PIN"
-                                 ToolTipService.ToolTip="Enter a 4-digit numeric PIN" />
+                                 AutomationProperties.HelpText="Enter a PIN or password"
+                                 ToolTipService.ToolTip="Enter a PIN or password" />
                     <PasswordBox x:Name="ConfirmBox"
                                  Header="{local:Loc Key=setup.pin.confirm}"
                                  MaxLength="64"
@@ -66,8 +66,8 @@
                                  TabIndex="2"
                                  PlaceholderText="••••"
                                  AutomationProperties.Name="Confirm PIN"
-                                 AutomationProperties.HelpText="Re-enter the same 4-digit PIN to confirm"
-                                 ToolTipService.ToolTip="Re-enter the same PIN to confirm" />
+                                 AutomationProperties.HelpText="Re-enter the same PIN or password to confirm"
+                                 ToolTipService.ToolTip="Re-enter the same PIN or password to confirm" />
                 </StackPanel>
             </Expander>
 
@@ -137,8 +137,27 @@
                                       VerticalAlignment="Center"
                                       TabIndex="6"
                                       AutomationProperties.Name="Enforce a weekly schedule"
-                                      ToolTipService.ToolTip="Enforce a weekly schedule (set the grid in Settings)" />
+                                      ToolTipService.ToolTip="Enforce a weekly schedule (paint the grid under Advanced)" />
                     </Grid>
+
+                    <!-- Advanced: a per-day limit for each weekday plus the weekly schedule grid -->
+                    <Button x:Name="AdvancedButton"
+                            Content="{local:Loc Key=setup.advanced}"
+                            Click="OnToggleAdvanced"
+                            HorizontalAlignment="Left"
+                            TabIndex="7"
+                            AutomationProperties.Name="Show advanced time-limit options" />
+                    <StackPanel x:Name="AdvancedPanel" Spacing="16" Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{local:Loc Key=setup.perday.hint}"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <StackPanel x:Name="DailyPerDayPanel" Spacing="12" />
+                        </StackPanel>
+                        <local:ScheduleGrid x:Name="ScheduleGridControl" Height="300" HorizontalAlignment="Stretch"
+                                            AutomationProperties.Name="Weekly allowed-time schedule grid" />
+                    </StackPanel>
                 </StackPanel>
             </Expander>
 

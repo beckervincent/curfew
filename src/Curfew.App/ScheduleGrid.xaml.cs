@@ -10,16 +10,24 @@ using Windows.UI;
 namespace Curfew.App;
 
 /// <summary>
-/// Interactive weekly allowed-time grid (7 days × 96 fifteen-minute slots).
-/// Click and drag with the mouse to paint slots using the currently selected
-/// tool: <c>Allow</c> (blue) or <c>Block</c> (grey). Days run Monday (top) to
-/// Sunday (bottom); within each row time runs midnight (left) to midnight (right).
+/// Interactive weekly allowed-time grid. The user paints in 30-minute cells
+/// (7 days × 48 cells), but the schedule is stored at the underlying 15-minute
+/// resolution; each painted cell sets the two 15-minute slots it covers.
+/// Click and drag with the mouse to paint using the currently selected tool:
+/// <c>Allow</c> (blue) or <c>Block</c> (grey). Days run Monday (top) to Sunday
+/// (bottom); within each row time runs midnight (left) to midnight (right).
 /// Quick-fill preset buttons set common patterns in one click.
 /// </summary>
 public sealed partial class ScheduleGrid : UserControl
 {
     private const int DayCount = 7;
     private const int SlotsPerHour = 4; // 60 min / 15 min
+
+    /// <summary>15-minute storage slots covered by one paintable 30-minute cell.</summary>
+    private const int SlotsPerCell = 2;
+
+    /// <summary>Paintable cells per day (48 thirty-minute cells over a 24-hour day).</summary>
+    private static readonly int CellsPerDay = Schedule.SlotsPerDay / SlotsPerCell;
 
     private static readonly string[] Days = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
@@ -205,7 +213,7 @@ public sealed partial class ScheduleGrid : UserControl
     private void AddLabel(string text, double y, double rowH)
     {
         const double labelHalfHeight = 9;
-        var label = new TextBlock { Text = text, FontSize = 12 };
+        var label = new TextBlock { Text = text, FontSize = 13 };
         Canvas.SetLeft(label, 2);
         Canvas.SetTop(label, y + rowH / 2 - labelHalfHeight);
         LabelCanvas.Children.Add(label);
@@ -214,8 +222,9 @@ public sealed partial class ScheduleGrid : UserControl
     // ---- Paint gestures ----------------------------------------------------
 
     /// <summary>
-    /// Maps a pointer position to a (day, slot), applies the active tool, and
-    /// redraws only when the slot actually changes — keeping drag-paint cheap.
+    /// Maps a pointer position to a (day, 30-minute cell), applies the active tool
+    /// to both 15-minute slots the cell covers, and redraws only when something
+    /// actually changes — keeping drag-paint cheap.
     /// </summary>
     private void PaintAt(Point p)
     {
@@ -223,14 +232,19 @@ public sealed partial class ScheduleGrid : UserControl
         if (w <= 1 || h <= 1) return;
 
         var day = (int)(p.Y / (h / DayCount));
-        var slot = (int)(p.X / (w / Schedule.SlotsPerDay));
-        if (day < 0 || day >= DayCount || slot < 0 || slot >= Schedule.SlotsPerDay) return;
+        var cell = (int)(p.X / (w / CellsPerDay));
+        if (day < 0 || day >= DayCount || cell < 0 || cell >= CellsPerDay) return;
 
         var allow = ToolAllow.IsChecked == true;
-        if (_slots[day][slot] == allow) return;
-
-        _slots[day][slot] = allow;
-        Render();
+        var first = cell * SlotsPerCell;
+        var changed = false;
+        for (var s = first; s < first + SlotsPerCell && s < Schedule.SlotsPerDay; s++)
+        {
+            if (_slots[day][s] == allow) continue;
+            _slots[day][s] = allow;
+            changed = true;
+        }
+        if (changed) Render();
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)

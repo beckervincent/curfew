@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Curfew.App">
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -31,7 +31,10 @@
                 <Setter Property="TextWrapping" Value="Wrap" />
             </Style>
         </ScrollViewer.Resources>
-        <StackPanel Spacing="12" MaxWidth="660" HorizontalAlignment="Stretch">
+
+        <!-- ContentRoot stays centred; its MaxWidth grows as the window widens so
+             the cards reflow into 2 or 3 columns (see Relayout in code-behind). -->
+        <StackPanel x:Name="ContentRoot" Spacing="12" MaxWidth="680" HorizontalAlignment="Center">
 
             <!-- Page header -->
             <StackPanel Spacing="2" Margin="0,0,0,4">
@@ -40,231 +43,19 @@
                            Style="{StaticResource SectionDescriptionStyle}" />
             </StackPanel>
 
-            <!-- Usage history -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsExpanded="True">
-                <Expander.Header>
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Text="{local:Loc Key=settings.history.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{local:Loc Key=settings.history.desc}" Style="{StaticResource SectionDescriptionStyle}" />
-                    </StackPanel>
-                </Expander.Header>
-                <Grid x:Name="UsageChart" Height="160" Padding="0,8,0,4" ColumnSpacing="8" />
-            </Expander>
+            <!-- Reflowable card host: cards are distributed across these columns at
+                 runtime by Relayout (1 column when narrow, up to 3 when maximised). -->
+            <Grid x:Name="CardsHost" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="0" />
+                    <ColumnDefinition Width="0" />
+                </Grid.ColumnDefinitions>
 
-            <!-- Daily time budget -->
-            <Expander x:Name="DailyLimitsExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                      IsExpanded="True" TabIndex="0">
-                <Expander.Header>
-                    <Grid ColumnSpacing="12" Padding="0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Text="{local:Loc Key=setup.daily.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <TextBlock Text="{local:Loc Key=settings.daily.desc}"
-                                       Style="{StaticResource SectionDescriptionStyle}" />
-                        </StackPanel>
-                        <ToggleSwitch x:Name="LimitEnabled" Grid.Column="1" VerticalAlignment="Center"
-                                      MinWidth="0"
-                                      AutomationProperties.Name="Enforce daily time limit"
-                                      ToolTipService.ToolTip="Enforce a maximum amount of screen time each day" />
-                    </Grid>
-                </Expander.Header>
-                <StackPanel x:Name="DailyLimitsPanel" Spacing="12" Padding="0,4,0,4" />
-            </Expander>
-
-            <!-- Weekly schedule -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="1">
-                <Expander.Header>
-                    <Grid ColumnSpacing="12" Padding="0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Text="{local:Loc Key=setup.schedule.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <TextBlock Text="{local:Loc Key=settings.schedule.desc}"
-                                       Style="{StaticResource SectionDescriptionStyle}" />
-                        </StackPanel>
-                        <ToggleSwitch x:Name="ScheduleEnabled" Grid.Column="1" VerticalAlignment="Center"
-                                      MinWidth="0"
-                                      AutomationProperties.Name="Enforce weekly schedule"
-                                      ToolTipService.ToolTip="Restrict usage to the allowed time windows below" />
-                    </Grid>
-                </Expander.Header>
-                <StackPanel Padding="0,4,0,4" Spacing="12">
-                    <TextBlock Text="{local:Loc Key=settings.schedule.hint}"
-                               Style="{StaticResource SectionDescriptionStyle}" />
-                    <local:ScheduleGrid x:Name="Schedule" Height="260" HorizontalAlignment="Stretch"
-                                        AutomationProperties.Name="Weekly allowed-time schedule grid" />
-                </StackPanel>
-            </Expander>
-
-            <!-- Warnings -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="2">
-                <Expander.Header>
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Text="{local:Loc Key=settings.warnings.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{local:Loc Key=settings.warnings.desc}"
-                                   Style="{StaticResource SectionDescriptionStyle}" />
-                    </StackPanel>
-                </Expander.Header>
-                <Grid ColumnSpacing="12" RowSpacing="12" Padding="0,4,0,4">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="120" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-
-                    <TextBlock Text="{local:Loc Key=settings.warn.minutes}" Grid.Row="0" Grid.Column="1"
-                               Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock Text="{local:Loc Key=settings.warn.message}" Grid.Row="0" Grid.Column="2"
-                               Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-
-                    <TextBlock Text="{local:Loc Key=settings.warn.first}" VerticalAlignment="Center" Grid.Row="1" Grid.Column="0"
-                               Style="{StaticResource BodyTextBlockStyle}" />
-                    <NumberBox x:Name="Warn1Min" Minimum="0" Maximum="600" Grid.Row="1" Grid.Column="1"
-                               TabIndex="0"
-                               AutomationProperties.Name="First warning, minutes before limit"
-                               ToolTipService.ToolTip="Minutes before the limit to show the first warning" />
-                    <TextBox x:Name="Warn1Msg" PlaceholderText="e.g. 10 minutes left" Grid.Row="1" Grid.Column="2"
-                             TabIndex="1"
-                             AutomationProperties.Name="First warning message" />
-
-                    <TextBlock Text="{local:Loc Key=settings.warn.second}" VerticalAlignment="Center" Grid.Row="2" Grid.Column="0"
-                               Style="{StaticResource BodyTextBlockStyle}" />
-                    <NumberBox x:Name="Warn2Min" Minimum="0" Maximum="600" Grid.Row="2" Grid.Column="1"
-                               TabIndex="2"
-                               AutomationProperties.Name="Second warning, minutes before limit"
-                               ToolTipService.ToolTip="Minutes before the limit to show the second warning" />
-                    <TextBox x:Name="Warn2Msg" PlaceholderText="e.g. 5 minutes left" Grid.Row="2" Grid.Column="2"
-                             TabIndex="3"
-                             AutomationProperties.Name="Second warning message" />
-                </Grid>
-            </Expander>
-
-            <!-- Lock screen + idle -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="3">
-                <Expander.Header>
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Text="{local:Loc Key=settings.lock.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{local:Loc Key=settings.lock.desc}"
-                                   Style="{StaticResource SectionDescriptionStyle}" />
-                    </StackPanel>
-                </Expander.Header>
-                <StackPanel Padding="0,4,0,4" Spacing="16">
-                    <TextBox x:Name="BlockingMsg" Header="{local:Loc Key=settings.lock.blockmsg}"
-                             PlaceholderText="{local:Loc Key=settings.lock.blockmsg.placeholder}"
-                             TextWrapping="Wrap" AcceptsReturn="False"
-                             AutomationProperties.HelpText="Message shown to the user when access is blocked" />
-                    <NumberBox x:Name="LockTimeout" Header="{local:Loc Key=settings.lock.shutdown}"
-                               Minimum="1" Maximum="720" Width="220" HorizontalAlignment="Left"
-                               SpinButtonPlacementMode="Inline"
-                               ToolTipService.ToolTip="How long the lock screen waits before shutting down" />
-                    <ToggleSwitch x:Name="IdleEnabled" Header="{local:Loc Key=settings.idle.toggle}"
-                                  OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
-                    <NumberBox x:Name="IdleTimeout" Header="{local:Loc Key=settings.idle.timeout}"
-                               Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
-                               SpinButtonPlacementMode="Inline"
-                               ToolTipService.ToolTip="Inactivity required before screen time is paused" />
-                </StackPanel>
-            </Expander>
-
-            <!-- Content filtering -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="4">
-                <Expander.Header>
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Text="{local:Loc Key=setup.filter.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{local:Loc Key=settings.filter.desc}"
-                                   Style="{StaticResource SectionDescriptionStyle}" />
-                    </StackPanel>
-                </Expander.Header>
-                <StackPanel Padding="0,4,0,4" Spacing="12">
-                    <StackPanel Spacing="6" AutomationProperties.Name="Content filtering level">
-                        <RadioButton x:Name="FilterOff" Content="{local:Loc Key=filter.none}" GroupName="filter" />
-                        <RadioButton x:Name="FilterMalware" Content="{local:Loc Key=filter.malware}" GroupName="filter" />
-                        <RadioButton x:Name="FilterFamily" Content="{local:Loc Key=filter.family}" GroupName="filter" />
-                    </StackPanel>
-                    <ToggleSwitch x:Name="BlockDoh" Header="{local:Loc Key=settings.doh}"
-                                  OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                  ToolTipService.ToolTip="Prevent apps from bypassing the DNS filter with encrypted DNS" />
-                </StackPanel>
-            </Expander>
-
-            <!-- Protection and updates -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="5">
-                <Expander.Header>
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Text="{local:Loc Key=settings.protection.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{local:Loc Key=settings.protection.desc}"
-                                   Style="{StaticResource SectionDescriptionStyle}" />
-                    </StackPanel>
-                </Expander.Header>
-                <StackPanel Padding="0,4,0,4" Spacing="16">
-                    <ToggleSwitch x:Name="TimeGuard" Header="{local:Loc Key=setup.timeguard.title}"
-                                  OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                  ToolTipService.ToolTip="Detect and block attempts to change the system clock" />
-                    <ToggleSwitch x:Name="AutoUpdate" Header="{local:Loc Key=settings.autoupdate}"
-                                  OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
-                </StackPanel>
-            </Expander>
-
-            <!-- Offline unlock codes -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="6">
-                <Expander.Header>
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Text="{local:Loc Key=settings.unlock.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{local:Loc Key=settings.unlock.desc}" Style="{StaticResource SectionDescriptionStyle}" />
-                    </StackPanel>
-                </Expander.Header>
-                <StackPanel Padding="0,4,0,4" Spacing="12">
-                    <TextBox x:Name="UnlockSecret" Header="{local:Loc Key=settings.unlock.secret}"
-                             IsReadOnly="True" IsSpellCheckEnabled="False" FontFamily="Consolas" />
-                    <TextBox x:Name="UnlockUri" Header="{local:Loc Key=settings.unlock.uri}"
-                             IsReadOnly="True" TextWrapping="Wrap" IsSpellCheckEnabled="False" />
-                    <NumberBox x:Name="UnlockBonus" Header="{local:Loc Key=settings.unlock.bonus}"
-                               Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
-                               SpinButtonPlacementMode="Inline" />
-                    <Button Content="{local:Loc Key=settings.unlock.regenerate}"
-                            Click="OnRegenerateUnlock" HorizontalAlignment="Left" />
-                </StackPanel>
-            </Expander>
-
-            <!-- Passcode -->
-            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="7">
-                <Expander.Header>
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Text="{local:Loc Key=settings.passcode.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{local:Loc Key=settings.passcode.desc}"
-                                   Style="{StaticResource SectionDescriptionStyle}" />
-                    </StackPanel>
-                </Expander.Header>
-                <Grid ColumnSpacing="12" Padding="0,4,0,4">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <PasswordBox x:Name="CurrentPin" Header="{local:Loc Key=settings.passcode.current}" MaxLength="64" Grid.Column="0"
-                                 TabIndex="0" PlaceholderText="• • • •"
-                                 AutomationProperties.Name="Current passcode" />
-                    <PasswordBox x:Name="NewPin" Header="{local:Loc Key=settings.passcode.new}" MaxLength="64" Grid.Column="1"
-                                 TabIndex="1" PlaceholderText="• • • •"
-                                 AutomationProperties.HelpText="{local:Loc Key=settings.passcode.help.new}"
-                                 AutomationProperties.Name="New passcode" />
-                    <PasswordBox x:Name="ConfirmPin" Header="{local:Loc Key=settings.passcode.confirm}" MaxLength="64" Grid.Column="2"
-                                 TabIndex="2"  PlaceholderText="• • • •"
-                                 AutomationProperties.Name="Confirm new passcode" />
-                </Grid>
-            </Expander>
+                <StackPanel x:Name="ColumnA" Grid.Column="0" Spacing="12" />
+                <StackPanel x:Name="ColumnB" Grid.Column="1" Spacing="12" />
+                <StackPanel x:Name="ColumnC" Grid.Column="2" Spacing="12" />
+            </Grid>
 
             <!-- Status + actions -->
             <TextBlock x:Name="StatusText"
@@ -279,5 +70,252 @@
             </StackPanel>
         </StackPanel>
         </ScrollViewer>
+
+        <!-- Card definitions. All start in ColumnA; Relayout re-parents them across
+             the columns based on window width. Keeping them here as named children
+             of ColumnA means the XAML stays declarative. -->
+        <Grid Visibility="Collapsed">
+            <StackPanel x:Name="CardSource" Spacing="12">
+
+                <!-- Usage history -->
+                <Expander x:Name="UsageExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsExpanded="True">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.history.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.history.desc}" Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <Grid x:Name="UsageChart" Height="160" Padding="0,8,0,4" ColumnSpacing="8" />
+                </Expander>
+
+                <!-- Daily time budget -->
+                <Expander x:Name="DailyLimitsExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          IsExpanded="True" TabIndex="0">
+                    <Expander.Header>
+                        <Grid ColumnSpacing="12" Padding="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="{local:Loc Key=setup.daily.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="{local:Loc Key=settings.daily.desc}"
+                                           Style="{StaticResource SectionDescriptionStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="LimitEnabled" Grid.Column="1" VerticalAlignment="Center"
+                                          MinWidth="0"
+                                          AutomationProperties.Name="Enforce daily time limit"
+                                          ToolTipService.ToolTip="Enforce a maximum amount of screen time each day" />
+                        </Grid>
+                    </Expander.Header>
+                    <StackPanel x:Name="DailyLimitsPanel" Spacing="12" Padding="0,4,0,4" />
+                </Expander>
+
+                <!-- Weekly schedule -->
+                <Expander x:Name="ScheduleExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="1">
+                    <Expander.Header>
+                        <Grid ColumnSpacing="12" Padding="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="{local:Loc Key=setup.schedule.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="{local:Loc Key=settings.schedule.desc}"
+                                           Style="{StaticResource SectionDescriptionStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="ScheduleEnabled" Grid.Column="1" VerticalAlignment="Center"
+                                          MinWidth="0"
+                                          AutomationProperties.Name="Enforce weekly schedule"
+                                          ToolTipService.ToolTip="Restrict usage to the allowed time windows below" />
+                        </Grid>
+                    </Expander.Header>
+                    <StackPanel Padding="0,4,0,4" Spacing="12">
+                        <TextBlock Text="{local:Loc Key=settings.schedule.hint}"
+                                   Style="{StaticResource SectionDescriptionStyle}" />
+                        <local:ScheduleGrid x:Name="Schedule" Height="320" HorizontalAlignment="Stretch"
+                                            AutomationProperties.Name="Weekly allowed-time schedule grid" />
+                    </StackPanel>
+                </Expander>
+
+                <!-- Warnings -->
+                <Expander x:Name="WarningsExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="2">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.warnings.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.warnings.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <Grid ColumnSpacing="12" RowSpacing="12" Padding="0,4,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="{local:Loc Key=settings.warn.minutes}" Grid.Row="0" Grid.Column="1"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{local:Loc Key=settings.warn.message}" Grid.Row="0" Grid.Column="2"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                        <TextBlock Text="{local:Loc Key=settings.warn.first}" VerticalAlignment="Center" Grid.Row="1" Grid.Column="0"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <NumberBox x:Name="Warn1Min" Minimum="0" Maximum="600" Grid.Row="1" Grid.Column="1"
+                                   TabIndex="0"
+                                   AutomationProperties.Name="First warning, minutes before limit"
+                                   ToolTipService.ToolTip="Minutes before the limit to show the first warning" />
+                        <TextBox x:Name="Warn1Msg" PlaceholderText="e.g. 10 minutes left" Grid.Row="1" Grid.Column="2"
+                                 TabIndex="1"
+                                 AutomationProperties.Name="First warning message" />
+
+                        <TextBlock Text="{local:Loc Key=settings.warn.second}" VerticalAlignment="Center" Grid.Row="2" Grid.Column="0"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <NumberBox x:Name="Warn2Min" Minimum="0" Maximum="600" Grid.Row="2" Grid.Column="1"
+                                   TabIndex="2"
+                                   AutomationProperties.Name="Second warning, minutes before limit"
+                                   ToolTipService.ToolTip="Minutes before the limit to show the second warning" />
+                        <TextBox x:Name="Warn2Msg" PlaceholderText="e.g. 5 minutes left" Grid.Row="2" Grid.Column="2"
+                                 TabIndex="3"
+                                 AutomationProperties.Name="Second warning message" />
+                    </Grid>
+                </Expander>
+
+                <!-- Lock screen + idle -->
+                <Expander x:Name="LockExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="3">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.lock.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.lock.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Padding="0,4,0,4" Spacing="16">
+                        <TextBox x:Name="BlockingMsg" Header="{local:Loc Key=settings.lock.blockmsg}"
+                                 PlaceholderText="{local:Loc Key=settings.lock.blockmsg.placeholder}"
+                                 TextWrapping="Wrap" AcceptsReturn="False"
+                                 AutomationProperties.HelpText="Message shown to the user when access is blocked" />
+                        <NumberBox x:Name="LockTimeout" Header="{local:Loc Key=settings.lock.shutdown}"
+                                   Minimum="1" Maximum="720" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="How long the lock screen waits before shutting down" />
+                        <ToggleSwitch x:Name="IdleEnabled" Header="{local:Loc Key=settings.idle.toggle}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                        <NumberBox x:Name="IdleTimeout" Header="{local:Loc Key=settings.idle.timeout}"
+                                   Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Inactivity required before screen time is paused" />
+                    </StackPanel>
+                </Expander>
+
+                <!-- Content filtering -->
+                <Expander x:Name="FilterExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="4">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=setup.filter.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.filter.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Padding="0,4,0,4" Spacing="12">
+                        <StackPanel Spacing="6" AutomationProperties.Name="Content filtering level">
+                            <RadioButton x:Name="FilterOff" Content="{local:Loc Key=filter.none}" GroupName="filter" />
+                            <RadioButton x:Name="FilterMalware" Content="{local:Loc Key=filter.malware}" GroupName="filter" />
+                            <RadioButton x:Name="FilterFamily" Content="{local:Loc Key=filter.family}" GroupName="filter" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="BlockDoh" Header="{local:Loc Key=settings.doh}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Prevent apps from bypassing the DNS filter with encrypted DNS" />
+                    </StackPanel>
+                </Expander>
+
+                <!-- Protection and updates -->
+                <Expander x:Name="ProtectionExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="5">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.protection.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.protection.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Padding="0,4,0,4" Spacing="16">
+                        <ToggleSwitch x:Name="TimeGuard" Header="{local:Loc Key=setup.timeguard.title}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Detect and block attempts to change the system clock" />
+                        <ToggleSwitch x:Name="AutoUpdate" Header="{local:Loc Key=settings.autoupdate}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                    </StackPanel>
+                </Expander>
+
+                <!-- Offline unlock codes -->
+                <Expander x:Name="UnlockExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="6">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.unlock.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.unlock.desc}" Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Padding="0,4,0,4" Spacing="12">
+                        <!-- White card so the QR code stays scannable in dark mode -->
+                        <Border Background="White" CornerRadius="8" Padding="12" HorizontalAlignment="Left">
+                            <Image x:Name="UnlockQr" Width="184" Height="184"
+                                   AutomationProperties.Name="Offline unlock-code QR code" />
+                        </Border>
+                        <TextBlock Text="{local:Loc Key=settings.unlock.scan}" Style="{StaticResource SectionDescriptionStyle}" />
+                        <Button x:Name="UnlockConfigureButton" Content="{local:Loc Key=settings.unlock.configure}"
+                                Click="OnToggleUnlockAdvanced" HorizontalAlignment="Left" />
+
+                        <!-- Advanced details, revealed by the Configure button -->
+                        <StackPanel x:Name="UnlockAdvanced" Spacing="12" Visibility="Collapsed">
+                            <NumberBox x:Name="UnlockBonus" Header="{local:Loc Key=settings.unlock.bonus}"
+                                       Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
+                                       SpinButtonPlacementMode="Inline" />
+                            <TextBox x:Name="UnlockSecret" Header="{local:Loc Key=settings.unlock.secret}"
+                                     IsReadOnly="True" IsSpellCheckEnabled="False" FontFamily="Consolas" />
+                            <TextBox x:Name="UnlockUri" Header="{local:Loc Key=settings.unlock.uri}"
+                                     IsReadOnly="True" TextWrapping="Wrap" IsSpellCheckEnabled="False" />
+                            <Button Content="{local:Loc Key=settings.unlock.regenerate}"
+                                    Click="OnRegenerateUnlock" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Passcode -->
+                <Expander x:Name="PasscodeExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="7">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.passcode.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.passcode.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <Grid ColumnSpacing="12" Padding="0,4,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <PasswordBox x:Name="CurrentPin" Header="{local:Loc Key=settings.passcode.current}" MaxLength="64" Grid.Column="0"
+                                     TabIndex="0" PlaceholderText="• • • •"
+                                     AutomationProperties.Name="Current passcode" />
+                        <PasswordBox x:Name="NewPin" Header="{local:Loc Key=settings.passcode.new}" MaxLength="64" Grid.Column="1"
+                                     TabIndex="1" PlaceholderText="• • • •"
+                                     AutomationProperties.HelpText="{local:Loc Key=settings.passcode.help.new}"
+                                     AutomationProperties.Name="New passcode" />
+                        <PasswordBox x:Name="ConfirmPin" Header="{local:Loc Key=settings.passcode.confirm}" MaxLength="64" Grid.Column="2"
+                                     TabIndex="2"  PlaceholderText="• • • •"
+                                     AutomationProperties.Name="Confirm new passcode" />
+                    </Grid>
+                </Expander>
+
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

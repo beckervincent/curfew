@@ -183,11 +183,28 @@ public static class Loc
 
             // Offline unlock codes
             ["settings.unlock.title"] = "Offline unlock codes",
-            ["settings.unlock.desc"] = "Add this secret to an authenticator app (e.g. Google Authenticator). When the device is locked and you are away, read the current 6-digit code to your child to grant bonus time — no internet needed.",
+            ["settings.unlock.desc"] = "Scan this QR code with an authenticator app. When the device is locked and you are away, read the current code to your child to grant bonus time — no internet needed.",
             ["settings.unlock.secret"] = "Secret key",
             ["settings.unlock.uri"] = "Setup link",
             ["settings.unlock.bonus"] = "Bonus minutes per code",
             ["settings.unlock.regenerate"] = "Generate new secret",
+            ["settings.unlock.configure"] = "Configure",
+            ["settings.unlock.scan"] = "Scan with an authenticator app",
+            // Schedule grid (shared by Setup + Settings)
+            ["schedule.tool"] = "Paint tool",
+            ["schedule.allow"] = "Allow",
+            ["schedule.block"] = "Block",
+            ["schedule.allowed"] = "Allowed",
+            ["schedule.blocked"] = "Blocked",
+            ["schedule.quickfill"] = "Quick fill",
+            ["schedule.preset.allowall"] = "Allow all",
+            ["schedule.preset.blockall"] = "Block all",
+            ["schedule.preset.weeknights"] = "Weeknights 4–8 PM",
+            ["schedule.preset.weekends"] = "Weekends only",
+            ["schedule.caption"] = "Each cell is a 30-minute slot. Hold and drag across the grid to paint quickly.",
+            // Setup advanced options
+            ["setup.advanced"] = "Advanced",
+            ["setup.perday.hint"] = "Set a different limit for each day.",
         },
         ["de"] = new()
         {
@@ -299,11 +316,28 @@ public static class Loc
             ["settings.history.hours"] = "{0} Std {1} Min",
 
             ["settings.unlock.title"] = "Offline-Entsperrcodes",
-            ["settings.unlock.desc"] = "Füge dieses Geheimnis zu einer Authenticator-App hinzu (z. B. Google Authenticator). Wenn das Gerät gesperrt ist und du nicht da bist, lies deinem Kind den aktuellen 6-stelligen Code vor, um Bonuszeit zu gewähren – ohne Internet.",
+            ["settings.unlock.desc"] = "Scanne diesen QR-Code mit einer Authenticator-App. Wenn das Gerät gesperrt ist und du nicht da bist, lies deinem Kind den aktuellen Code vor, um Bonuszeit zu gewähren – ohne Internet.",
             ["settings.unlock.secret"] = "Geheimer Schlüssel",
             ["settings.unlock.uri"] = "Einrichtungslink",
             ["settings.unlock.bonus"] = "Bonusminuten pro Code",
             ["settings.unlock.regenerate"] = "Neues Geheimnis erzeugen",
+            ["settings.unlock.configure"] = "Einstellen",
+            ["settings.unlock.scan"] = "Mit einer Authenticator-App scannen",
+            // Schedule grid (shared by Setup + Settings)
+            ["schedule.tool"] = "Malwerkzeug",
+            ["schedule.allow"] = "Erlauben",
+            ["schedule.block"] = "Blockieren",
+            ["schedule.allowed"] = "Erlaubt",
+            ["schedule.blocked"] = "Blockiert",
+            ["schedule.quickfill"] = "Schnellauswahl",
+            ["schedule.preset.allowall"] = "Alle erlauben",
+            ["schedule.preset.blockall"] = "Alle blockieren",
+            ["schedule.preset.weeknights"] = "Wochentags 16–20 Uhr",
+            ["schedule.preset.weekends"] = "Nur Wochenende",
+            ["schedule.caption"] = "Jede Zelle ist ein 30-Minuten-Block. Zum schnellen Malen über das Raster ziehen.",
+            // Setup advanced options
+            ["setup.advanced"] = "Erweitert",
+            ["setup.perday.hint"] = "Lege für jeden Tag ein eigenes Limit fest.",
         },
     };
 }

@@ -2,6 +2,7 @@ using Curfew.Core;
 using Curfew.Core.Localization;
 using Curfew.Core.Security;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
 namespace Curfew.App;
@@ -35,7 +36,16 @@ public sealed partial class SetupWindow : Window
     /// <summary>Initial client size of the wizard, in DIPs.</summary>
     private static readonly Windows.Graphics.SizeInt32 WindowSize = new(560, 720);
 
+    /// <summary>Number of editable weekdays (Monday … Sunday).</summary>
+    private const int DayCount = 7;
+
     private readonly SettingsStore _settings;
+
+    /// <summary>Per-day hour spinners shown under Advanced; built in <see cref="BuildPerDayLimits"/>.</summary>
+    private readonly NumberBox[] _perDay = new NumberBox[DayCount];
+
+    /// <summary>True once Advanced has been revealed, so per-day values take over from the single figure.</summary>
+    private bool _advanced;
 
     /// <summary>Creates the wizard bound to the store its choices are written to.</summary>
     /// <param name="settings">Destination for every configured value. Never <c>null</c>.</param>
@@ -45,6 +55,48 @@ public sealed partial class SetupWindow : Window
 
         InitializeComponent();
         ApplyWindowChrome();
+        BuildPerDayLimits();
+    }
+
+    /// <summary>Creates the seven per-day hour spinners shown under Advanced.</summary>
+    private void BuildPerDayLimits()
+    {
+        for (var i = 0; i < DayCount; i++)
+        {
+            var box = new NumberBox
+            {
+                Header = Loc.T($"day.{i}"),
+                Minimum = MinHoursPerDay,
+                Maximum = MaxHoursPerDay,
+                SmallChange = 0.25,
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+                Value = DefaultHoursPerDay,
+            };
+            _perDay[i] = box;
+            DailyPerDayPanel.Children.Add(box);
+        }
+    }
+
+    /// <summary>
+    /// Reveals (or hides) the advanced options. On first reveal the per-day spinners
+    /// inherit the single hours/day figure so they start from a sensible baseline.
+    /// </summary>
+    private void OnToggleAdvanced(object sender, RoutedEventArgs e)
+    {
+        if (!_advanced)
+        {
+            _advanced = true;
+            var hours = double.IsNaN(HoursPerDay.Value) ? DefaultHoursPerDay : HoursPerDay.Value;
+            foreach (var box in _perDay)
+                box.Value = hours;
+            AdvancedPanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            AdvancedPanel.Visibility = AdvancedPanel.Visibility == Visibility.Visible
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
     }
 
     /// <summary>Applies the title, Mica backdrop, custom title bar and rounded corners.</summary>
@@ -98,8 +150,9 @@ public sealed partial class SetupWindow : Window
         _settings.Set("passcode", PasscodeHash.Hash(pin));
         _settings.Set("limit_enabled", ToFlag(LimitEnabled.IsOn));
         _settings.Set("schedule_enabled", ToFlag(ScheduleEnabled.IsOn));
+        _settings.Set("schedule", ScheduleGridControl.ToSchedule().Serialize());
 
-        ApplyDailyLimitToEveryWeekday();
+        SaveDailyLimits();
 
         _settings.Set("dns_filter_mode", ContentFilter.ToSetting(SelectedFilterMode()));
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));
@@ -114,27 +167,34 @@ public sealed partial class SetupWindow : Window
     }
 
     /// <summary>
-    /// Applies the single chosen hours/day figure to every weekday. The parent
-    /// can fine-tune individual days later in Settings.
+    /// Writes the daily budget. In simple mode the single hours/day figure applies
+    /// to every weekday; once Advanced has been used, each day keeps its own value.
     /// </summary>
-    private void ApplyDailyLimitToEveryWeekday()
+    private void SaveDailyLimits()
     {
-        var minutes = ChosenDailyMinutes();
-        var value = minutes.ToString();
+        if (_advanced)
+        {
+            for (var i = 0; i < DayCount; i++)
+                _settings.Set(SettingsStore.WeekdayKeys[i], HoursToMinutes(_perDay[i].Value).ToString());
+            return;
+        }
+
+        var value = ChosenDailyMinutes().ToString();
         foreach (var key in SettingsStore.WeekdayKeys)
             _settings.Set(key, value);
     }
 
-    /// <summary>The daily budget from the NumberBox, clamped to range and rounded to whole minutes.</summary>
-    private int ChosenDailyMinutes()
+    /// <summary>A NumberBox hours value clamped to range and rounded to whole minutes.</summary>
+    private static int HoursToMinutes(double hours)
     {
-        var hours = HoursPerDay.Value;
         if (double.IsNaN(hours))
             hours = DefaultHoursPerDay;
-
         hours = Math.Clamp(hours, MinHoursPerDay, MaxHoursPerDay);
         return (int)Math.Round(hours * MinutesPerHour);
     }
+
+    /// <summary>The daily budget from the single NumberBox, clamped and rounded to whole minutes.</summary>
+    private int ChosenDailyMinutes() => HoursToMinutes(HoursPerDay.Value);
 
     /// <summary>Maps the content-filter radio group to a <see cref="FilterMode"/>.</summary>
     private FilterMode SelectedFilterMode()

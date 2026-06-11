@@ -153,8 +153,10 @@ internal static class LockScreen
             ? last
             : long.MinValue;
 
-        // window=2 (±60s) tolerates the delay of reading the code over the phone.
-        if (!UnlockCode.Verify(secret, EnteredText(), now, 2, minCounter, out var matched))
+        // window=10 (±5 min) keeps a code the parent reads aloud valid long enough
+        // for the child to enter it, even as the authenticator app rotates it.
+        // Replay is still blocked because minCounter advances past each redeemed step.
+        if (!UnlockCode.Verify(secret, EnteredText(), now, 10, minCounter, out var matched))
             return false;
 
         OverlayState.Settings.Set("unlock_last_counter", matched.ToString());
