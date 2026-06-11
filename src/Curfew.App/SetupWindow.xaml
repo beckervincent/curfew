@@ -83,6 +83,17 @@
                 </Expander.Header>
                 <StackPanel Spacing="16" Padding="0,4,0,8">
 
+                    <!-- Quick-start presets: one tap fills sensible limits + a bedtime schedule. -->
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="{local:Loc Key=setup.preset.title}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="PresetChild" Content="{local:Loc Key=setup.preset.child}" Click="OnPresetChild" />
+                            <Button x:Name="PresetTeen" Content="{local:Loc Key=setup.preset.teen}" Click="OnPresetTeen" />
+                        </StackPanel>
+                    </StackPanel>
+
                     <!-- Daily limit toggle -->
                     <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>

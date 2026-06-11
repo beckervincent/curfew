@@ -99,6 +99,35 @@ public sealed partial class SetupWindow : Window
         }
     }
 
+    private void OnPresetChild(object sender, RoutedEventArgs e) => ApplyPreset(1, blockFromHour: 19, blockToHour: 7);
+    private void OnPresetTeen(object sender, RoutedEventArgs e) => ApplyPreset(3, blockFromHour: 22, blockToHour: 6);
+
+    /// <summary>
+    /// One-tap preset: enables the daily limit + a bedtime schedule, sets the hours,
+    /// blocks the overnight window [blockFromHour..blockToHour) and reveals the
+    /// advanced panel so the parent can review/tweak the applied schedule.
+    /// </summary>
+    private void ApplyPreset(double hours, int blockFromHour, int blockToHour)
+    {
+        LimitEnabled.IsOn = true;
+        HoursPerDay.Value = hours;
+        ScheduleEnabled.IsOn = true;
+
+        var schedule = Schedule.AllAllowed();
+        for (var d = 0; d < Schedule.Days; d++)
+            for (var s = 0; s < Schedule.SlotsPerDay; s++)
+            {
+                var hour = s * Schedule.SlotMinutes / 60.0;
+                var blocked = hour >= blockFromHour || hour < blockToHour;
+                schedule.SetSlot(d, s, !blocked);
+            }
+        ScheduleGridControl.Load(schedule);
+
+        _advanced = true;
+        foreach (var box in _perDay) box.Value = hours;
+        AdvancedPanel.Visibility = Visibility.Visible;
+    }
+
     /// <summary>Applies the title, Mica backdrop, custom title bar and rounded corners.</summary>
     private void ApplyWindowChrome()
     {
