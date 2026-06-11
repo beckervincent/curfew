@@ -46,6 +46,19 @@ public static class CurfewPaths
         get
         {
             var dir = Path.Combine(ProgramDataRoot, AppFolderName);
+
+            // Fail closed if the data directory has been replaced with a reparse
+            // point (junction/symlink). A child who can create a junction here could
+            // otherwise redirect the SYSTEM service's reads/writes — including the
+            // staged installer it later executes — onto an attacker-controlled
+            // target. A genuine install is always a real directory.
+            var info = new DirectoryInfo(dir);
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new IOException(
+                    $"Refusing to use '{dir}': it is a reparse point (possible junction redirect).");
+            }
+
             Directory.CreateDirectory(dir);
             return dir;
         }
