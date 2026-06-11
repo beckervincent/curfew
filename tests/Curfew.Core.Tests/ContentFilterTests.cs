@@ -177,12 +177,17 @@ public class ContentFilterTests
     }
 
     [Fact]
-    public void Apply_script_silences_errors_for_idempotent_reruns()
+    public void Apply_script_fails_closed_on_pin_failure_but_tolerates_benign_steps()
     {
-        // The applier re-runs this script on every network change, so individual
-        // cmdlet failures must not abort the loop.
+        // The resolver pin is security-critical and runs under 'Stop', so a failed
+        // Set-DnsClientServerAddress aborts with a non-zero exit the service logs.
+        // The benign DoH registration and cache flush suppress their own errors so
+        // an idempotent re-run (duplicate DoH entry) is not treated as a failure.
         var script = ContentFilter.BuildApplyScript(FilterMode.Family);
-        Assert.Contains("$ErrorActionPreference = 'SilentlyContinue'", script);
+        Assert.Contains("$ErrorActionPreference = 'Stop'", script);
+        Assert.Contains("Add-DnsClientDohServerAddress", script);
+        Assert.Contains("-ErrorAction SilentlyContinue", script);
+        Assert.DoesNotContain("$ErrorActionPreference = 'SilentlyContinue'", script);
     }
 
     [Fact]

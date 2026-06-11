@@ -153,11 +153,17 @@ public class DohGuardTests
     }
 
     [Fact]
-    public void Block_script_suppresses_errors_so_one_failure_does_not_abort()
+    public void Block_script_fails_closed_on_rule_creation_failure()
     {
         var script = DohGuard.BuildBlockScript();
 
-        Assert.Contains("$ErrorActionPreference = 'SilentlyContinue'", script);
+        // The script runs under 'Stop' (so a failed New-NetFirewallRule aborts with
+        // a non-zero exit) and verifies the rules exist afterwards, exiting 1 if a
+        // silent teardown left them missing.
+        Assert.Contains("$ErrorActionPreference = 'Stop'", script);
+        Assert.Contains("exit 1", script);
+        // The removal step must still tolerate "no such rule" on a clean first run.
+        Assert.Contains("Remove-NetFirewallRule -ErrorAction SilentlyContinue", script);
     }
 
     // ---- BuildClearScript ----------------------------------------------

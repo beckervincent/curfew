@@ -86,11 +86,16 @@ public static class Sntp
             .AddTicks(subSecondTicks);
     }
 
-    /// <summary>Default NTP servers, queried in order until one answers.</summary>
+    /// <summary>
+    /// Default NTP servers, run by three independent operators. The time guard
+    /// queries all of them and requires several to agree (see
+    /// <see cref="TimeGuard.Corroborate"/>), so spoofing one — e.g. by redirecting
+    /// it in the hosts file — is not enough to move the clock.
+    /// </summary>
     public static readonly string[] DefaultServers =
     {
         "time.cloudflare.com",
-        "time.windows.com",
+        "time.google.com",
         "pool.ntp.org",
     };
 }

@@ -96,7 +96,10 @@ public static class DohGuard
     {
         var addresses = string.Join(",", BlockedResolvers.Select(Quote));
         var sb = new StringBuilder();
-        sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
+        // Fail closed: a failure to (re)create the block rules must surface as a
+        // non-zero exit, not be silently swallowed. Only the removal — which may
+        // legitimately find no existing rules — is allowed to continue on error.
+        sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine(RemoveRulesCommand);
         sb.AppendLine($"$ips = @({addresses})");
         sb.AppendLine(
@@ -105,6 +108,12 @@ public static class DohGuard
         sb.AppendLine(
             $"New-NetFirewallRule -DisplayName '{RulePrefix}-udp' -Direction Outbound -Action Block " +
             $"-Protocol UDP -RemoteAddress $ips -RemotePort {BlockedPorts} -Profile Any | Out-Null");
+        // Verify both rules exist; if the removal above tore down enforcement and a
+        // re-add silently failed to take, exit non-zero so the service logs it and
+        // the next reconcile pass retries rather than leaving DNS wide open.
+        sb.AppendLine(
+            $"if (-not (Get-NetFirewallRule -DisplayName '{RulePrefix}-out' -ErrorAction SilentlyContinue) -or " +
+            $"-not (Get-NetFirewallRule -DisplayName '{RulePrefix}-udp' -ErrorAction SilentlyContinue)) {{ exit 1 }}");
         return sb.ToString().TrimEnd('\n', '\r');
     }
 
@@ -115,6 +124,7 @@ public static class DohGuard
     public static string BuildClearScript()
     {
         var sb = new StringBuilder();
+        // Clearing is best-effort: removing rules that may not exist must not fail.
         sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
         sb.AppendLine(RemoveRulesCommand);
         return sb.ToString().TrimEnd('\n', '\r');
@@ -123,10 +133,13 @@ public static class DohGuard
     /// <summary>
     /// PowerShell that finds and removes every rule whose display name starts
     /// with <see cref="RulePrefix"/>. Shared by the block (for idempotency) and
-    /// clear scripts.
+    /// clear scripts. Both cmdlets suppress their own errors so a missing rule is
+    /// not treated as a failure even when the surrounding script uses
+    /// <c>$ErrorActionPreference = 'Stop'</c>.
     /// </summary>
     private static readonly string RemoveRulesCommand =
-        $"Get-NetFirewallRule -DisplayName '{RulePrefix}*' | Remove-NetFirewallRule";
+        $"Get-NetFirewallRule -DisplayName '{RulePrefix}*' -ErrorAction SilentlyContinue | " +
+        "Remove-NetFirewallRule -ErrorAction SilentlyContinue";
 
     /// <summary>
     /// Wraps a value in a PowerShell single-quoted string, doubling any embedded

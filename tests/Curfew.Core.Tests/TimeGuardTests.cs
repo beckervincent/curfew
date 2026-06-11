@@ -202,4 +202,55 @@ public class TimeGuardTests
             LocalDateOf(Trusted),
             TimeGuard.EffectiveDate(local, Trusted, verdict)); // ...but told it is tampered.
     }
+
+    // ----- Multi-source corroboration ---------------------------------------
+
+    [Fact]
+    public void Corroborate_returns_null_with_fewer_than_two_sources()
+    {
+        Assert.Null(TimeGuard.Corroborate(Array.Empty<DateTimeOffset>()));
+        Assert.Null(TimeGuard.Corroborate(new[] { Trusted }));
+    }
+
+    [Fact]
+    public void Corroborate_trusts_two_agreeing_sources()
+    {
+        var samples = new[] { Trusted, Trusted.AddSeconds(5) };
+        var result = TimeGuard.Corroborate(samples);
+        Assert.NotNull(result);
+        // Median of the two-element cluster is the earlier (lower-median) sample.
+        Assert.Equal(Trusted, result);
+    }
+
+    [Fact]
+    public void Corroborate_ignores_a_single_spoofed_outlier()
+    {
+        // Two honest sources agree; one forged source is hours off and must not win.
+        var samples = new[] { Trusted, Trusted.AddSeconds(8), Trusted.AddHours(6) };
+        var result = TimeGuard.Corroborate(samples);
+        Assert.NotNull(result);
+        Assert.True((result!.Value - Trusted).Duration() <= TimeGuard.AgreementWindow);
+    }
+
+    [Fact]
+    public void Corroborate_returns_null_when_no_cluster_agrees()
+    {
+        // Three sources, all far apart: nothing corroborates, so fail closed.
+        var samples = new[] { Trusted, Trusted.AddMinutes(10), Trusted.AddMinutes(20) };
+        Assert.Null(TimeGuard.Corroborate(samples));
+    }
+
+    [Fact]
+    public void Corroborate_picks_the_largest_agreeing_cluster()
+    {
+        // A lone early sample, then a tight cluster of three: the cluster wins.
+        var samples = new[]
+        {
+            Trusted.AddHours(-3),
+            Trusted, Trusted.AddSeconds(4), Trusted.AddSeconds(9),
+        };
+        var result = TimeGuard.Corroborate(samples);
+        Assert.NotNull(result);
+        Assert.True((result!.Value - Trusted).Duration() <= TimeGuard.AgreementWindow);
+    }
 }

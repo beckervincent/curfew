@@ -80,14 +80,18 @@ public static class ContentFilter
     /// </remarks>
     public static string BuildApplyScript(FilterMode mode)
     {
+        // Fail closed: pinning (or resetting) the resolver is the security-critical
+        // step, so it runs under 'Stop' and a failure surfaces as a non-zero exit
+        // the service logs. Only genuinely benign operations below — flushing the
+        // cache, registering a possibly-duplicate DoH template — suppress errors.
         if (mode == FilterMode.Off)
         {
             return Join(
-                "$ErrorActionPreference = 'SilentlyContinue'",
+                "$ErrorActionPreference = 'Stop'",
                 "foreach ($if in (Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' })) {",
                 "    Set-DnsClientServerAddress -InterfaceIndex $if.ifIndex -ResetServerAddresses",
                 "}",
-                "Clear-DnsClientCache");
+                "Clear-DnsClientCache -ErrorAction SilentlyContinue");
         }
 
         var (v4, v6, doh) = Servers(mode);
@@ -96,22 +100,25 @@ public static class ContentFilter
 
         var lines = new List<string>
         {
-            "$ErrorActionPreference = 'SilentlyContinue'",
+            "$ErrorActionPreference = 'Stop'",
             $"$servers = @({serverList})",
             "foreach ($if in (Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' })) {",
             "    Set-DnsClientServerAddress -InterfaceIndex $if.ifIndex -ServerAddresses $servers",
             "}",
         };
 
-        // Encrypt each pinned resolver with the matching Cloudflare DoH endpoint.
+        // Encrypt each pinned resolver with the matching Cloudflare DoH endpoint. A
+        // DoH entry that already exists throws under 'Stop', which is benign here
+        // (the resolver is still pinned), so this step suppresses its own errors.
         foreach (var server in servers)
         {
             lines.Add(
                 $"Add-DnsClientDohServerAddress -ServerAddress {Quote(server)} " +
-                $"-DohTemplate {Quote(doh)} -AllowFallbackToUdp $false -AutoUpgrade $true");
+                $"-DohTemplate {Quote(doh)} -AllowFallbackToUdp $false -AutoUpgrade $true " +
+                "-ErrorAction SilentlyContinue");
         }
 
-        lines.Add("Clear-DnsClientCache");
+        lines.Add("Clear-DnsClientCache -ErrorAction SilentlyContinue");
         return Join(lines.ToArray());
     }
 

@@ -72,20 +72,33 @@ internal static class TimeGuardService
     }
 
     /// <summary>
-    /// Returns trusted time from the first NTP server that answers, trying each
-    /// of <see cref="Sntp.DefaultServers"/> in order.
+    /// Returns trusted time corroborated across <see cref="Sntp.DefaultServers"/>:
+    /// every server is queried and the result is trusted only when at least
+    /// <see cref="TimeGuard.MinAgreeingSources"/> agree (see
+    /// <see cref="TimeGuard.Corroborate"/>). A single spoofed or hosts-redirected
+    /// server therefore cannot move the clock, and an offline machine — where too
+    /// few sources answer — is simply left alone (fail closed: no correction).
     /// </summary>
-    /// <returns>The trusted time, or <c>null</c> when every server fails.</returns>
+    /// <returns>The corroborated trusted time, or <c>null</c> when too few servers agree.</returns>
     public static DateTimeOffset? TrustedNow()
     {
+        var samples = new List<DateTimeOffset>();
         foreach (var host in Sntp.DefaultServers)
         {
             var time = QueryNtp(host);
-            if (time is not null) return time;
+            if (time is not null) samples.Add(time.Value);
         }
 
-        ServiceLog.Write("time guard: no NTP server reachable; skipping clock check");
-        return null;
+        var trusted = TimeGuard.Corroborate(samples);
+        if (trusted is null)
+        {
+            ServiceLog.Write(
+                $"time guard: only {samples.Count} NTP source(s) answered and too few agreed " +
+                $"(need {TimeGuard.MinAgreeingSources} within {TimeGuard.AgreementWindow.TotalSeconds:0}s); " +
+                "skipping clock check");
+        }
+
+        return trusted;
     }
 
     /// <summary>
