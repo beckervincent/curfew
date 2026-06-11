@@ -81,7 +81,10 @@ public static class Loc
             ["lock.shutdown.in.long"] = "Shutdown in {0}",
             ["lock.exceeded"] = "Time limit exceeded",
             ["lock.default.message"] = "Screen time limit reached for today.",
+            ["lock.schedule.message"] = "Usage is blocked outside the allowed hours.",
+            ["lock.addtime.caption"] = "ADD TIME (REQUIRES PASSCODE)",
             ["lock.extend.minutes"] = "+{0} min",
+            ["lock.extend.hour"] = "+1 hr",
 
             // System tray + warnings
             ["tray.settings"] = "Settings…",
@@ -250,7 +253,10 @@ public static class Loc
             ["lock.shutdown.in.long"] = "Herunterfahren in {0}",
             ["lock.exceeded"] = "Zeitlimit überschritten",
             ["lock.default.message"] = "Bildschirmzeit für heute erreicht.",
+            ["lock.schedule.message"] = "Die Nutzung ist außerhalb der erlaubten Zeiten gesperrt.",
+            ["lock.addtime.caption"] = "ZEIT HINZUFÜGEN (PIN ERFORDERLICH)",
             ["lock.extend.minutes"] = "+{0} Min",
+            ["lock.extend.hour"] = "+1 Std",
 
             ["tray.settings"] = "Einstellungen…",
             ["tray.left"] = "Curfew · {0} übrig",

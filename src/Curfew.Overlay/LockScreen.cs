@@ -18,7 +18,7 @@ internal static class LockScreen
 
     // GDI colours are 0x00BBGGRR (COLORREF byte order is R, G, B low-to-high).
     // Palette mirrors the WinUI dark theme so the lock reads as part of the app.
-    private const uint ColorOverlayBg = 0x001C1C1C;  // dark Mica-like backdrop (#1C1C1C)
+    private const uint ColorOverlayBg = 0x00000000;  // completely black backdrop
     private const uint ColorPanelBg = 0x002B2B2B;    // card surface, ~CardBackgroundFillColorDefault (#2B2B2B)
     private const uint ColorPanelEdge = 0x00383838;  // subtle 1px card stroke (#383838)
     private const uint ColorPanelShadow = 0x00121212; // soft drop-shadow band under the card
@@ -41,6 +41,17 @@ internal static class LockScreen
     private const int ControlCornerDiameter = 12;
     private const int CardCornerDiameter = 16;
 
+    // Card-relative vertical layout (offsets from the card's top edge). Shared by
+    // CreateControls (child windows) and PaintLock (text) so they stay aligned.
+    private const int ExtendRowTop = 226;
+    private const int FieldTop = 314;
+    private const int FieldWidth = 300;
+    private const int FieldHeight = 46;
+    private const int ActionWidth = 380;
+    private const int ActionHeight = 46;
+    private const int UnlockTop = 372;
+    private const int ShutdownTop = 430;
+
     private const int IdEdit = 101;
     private const int IdUnlock = 102;
     private const int IdExtend15 = 103;
@@ -53,7 +64,7 @@ internal static class LockScreen
 
     // Card geometry (logical pixels). Centred on the primary monitor.
     private const int PanelWidth = 560;
-    private const int PanelHeight = 500;
+    private const int PanelHeight = 524;
 
     // Keep delegates alive for the lifetime of the process so the GC never
     // collects the thunks that Win32 holds raw pointers to.
@@ -124,13 +135,10 @@ internal static class LockScreen
         _shutdownCountdown = OverlayState.Settings.GetInt("lock_screen_timeout", 600);
 
         // Schedule block (outside allowed hours) when the budget is not the cause.
-        // Adding minutes is meaningless then, so the extend row is hidden and the
-        // primary action becomes "ignore the weekly schedule until restart".
+        // The add-time buttons are shown in both modes: granting time also overrides
+        // the schedule, so the added minutes are usable even during a curfew block.
+        // Only the primary action's label changes between the two modes.
         _scheduleMode = !OverlayState.BudgetBlocked;
-        var extendVisibility = _scheduleMode ? SW_HIDE : SW_SHOW;
-        ShowWindow(_btnExtend15, extendVisibility);
-        ShowWindow(_btnExtend30, extendVisibility);
-        ShowWindow(_btnExtend60, extendVisibility);
         SetWindowTextW(_btnUnlock, _scheduleMode ? Loc.T("lock.schedule.ignore") : Loc.T("lock.unlock"));
 
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
@@ -262,12 +270,12 @@ internal static class LockScreen
 
     private static void CreateFonts()
     {
-        _fontTitle = MakeFont(46, 700);
-        _fontCountdown = MakeFont(30, 700);
-        _fontBody = MakeFont(19, 400);
-        _fontCaption = MakeFont(15, 600);
-        _fontError = MakeFont(16, 700);
-        _fontControl = MakeFont(17, 400);
+        _fontTitle = MakeFont(40, 700);
+        _fontCountdown = MakeFont(26, 700);
+        _fontBody = MakeFont(18, 400);
+        _fontCaption = MakeFont(13, 600);
+        _fontError = MakeFont(15, 700);
+        _fontControl = MakeFont(16, 600);
         _brushField = CreateSolidBrush(ColorFieldBg);
     }
 
@@ -307,35 +315,33 @@ internal static class LockScreen
         var (px, py) = PanelOrigin();
         var cx = px + PanelWidth / 2;
 
-        // Three evenly spaced extend buttons centred under the "Extend" caption.
-        const int extW = 130, extH = 42, gap = 16;
+        // Add-time row: +15 / +30 / +1 h. Shown in both budget and schedule mode —
+        // granting time also overrides the schedule (see Extend), so the added time
+        // is actually usable even when the lock is a curfew block.
+        const int extW = 150, extH = 40, gap = 14;
         var rowW = extW * 3 + gap * 2;
         var rowX = cx - rowW / 2;
-        var extY = py + 224;
+        var extY = py + ExtendRowTop;
         _btnExtend15 = AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 15), IdExtend15, rowX, extY, extW, extH);
         _btnExtend30 = AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 30), IdExtend30, rowX + extW + gap, extY, extW, extH);
-        _btnExtend60 = AddButton(hwnd, hInstance, Loc.T("lock.extend.minutes", 60), IdExtend60, rowX + (extW + gap) * 2, extY, extW, extH);
+        _btnExtend60 = AddButton(hwnd, hInstance, Loc.T("lock.extend.hour"), IdExtend60, rowX + (extW + gap) * 2, extY, extW, extH);
 
-        // Passcode field, centred and generously sized.
-        const int fieldW = 240, fieldH = 44;
-        // No ES_NUMBER: the passcode may be a PIN or a full password (any
-        // characters). A 6-digit offline unlock code is still typeable here.
-        // No WS_BORDER: the classic sunken edit frame clashes with the flat WinUI
-        // look. A rounded field "well" is painted behind it in PaintLock instead,
-        // and WM_CTLCOLOREDIT fills the interior with the dark field colour.
+        // Passcode field: borderless EDIT over a painted rounded well (PaintLock),
+        // with the interior filled dark via WM_CTLCOLOREDIT. No ES_NUMBER — the
+        // passcode may be a PIN or a full password; an offline unlock code also fits.
         _edit = CreateWindowExW(
             0, "EDIT", "",
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_CENTER | ES_PASSWORD,
-            cx - fieldW / 2, py + 322, fieldW, fieldH,
+            cx - FieldWidth / 2, py + FieldTop, FieldWidth, FieldHeight,
             hwnd, new IntPtr(IdEdit), hInstance, IntPtr.Zero);
         SendMessageW(_edit, EM_SETLIMITTEXT, new IntPtr(64), IntPtr.Zero);
         if (_fontControl != IntPtr.Zero)
             SendMessageW(_edit, WM_SETFONT, _fontControl, new IntPtr(1));
 
-        // Primary unlock action, then the destructive shutdown action below it.
-        const int actW = 280, actH = 44;
-        _btnUnlock = AddButton(hwnd, hInstance, Loc.T("lock.unlock"), IdUnlock, cx - actW / 2, py + 376, actW, actH);
-        AddButton(hwnd, hInstance, Loc.T("lock.shutdown"), IdShutdown, cx - actW / 2, py + 428, actW, actH);
+        // Primary action (accent) then the destructive shutdown action below it.
+        var actX = cx - ActionWidth / 2;
+        _btnUnlock = AddButton(hwnd, hInstance, Loc.T("lock.unlock"), IdUnlock, actX, py + UnlockTop, ActionWidth, ActionHeight);
+        AddButton(hwnd, hInstance, Loc.T("lock.shutdown"), IdShutdown, actX, py + ShutdownTop, ActionWidth, ActionHeight);
     }
 
     private static IntPtr AddButton(IntPtr parent, IntPtr hInstance, string text, int id, int x, int y, int w, int h)
@@ -452,17 +458,18 @@ internal static class LockScreen
 
         SetBkMode(hdc, TRANSPARENT);
 
-        var innerX = px + 28;
-        var innerW = PanelWidth - 56;
+        var innerX = px + 32;
+        var innerW = PanelWidth - 64;
 
         // Rounded well behind the borderless passcode field (the EDIT child paints
-        // on top of this in the same dark colour via WM_CTLCOLOREDIT).
-        const int fieldW = 240, fieldH = 44;
-        FillRoundRect(hdc, cx - fieldW / 2, py + 322, fieldW, fieldH, ControlCornerDiameter, ColorFieldBg, ColorBtnBorder);
+        // on top of this via WM_CTLCOLOREDIT), with a WinUI-style accent underline.
+        var fieldX = cx - FieldWidth / 2;
+        FillRoundRect(hdc, fieldX, py + FieldTop, FieldWidth, FieldHeight, ControlCornerDiameter, ColorFieldBg, ColorBtnBorder);
+        FillSolid(hdc, fieldX + 10, py + FieldTop + FieldHeight - 2, FieldWidth - 20, 2, ColorAccent);
 
         // Title reflects why we're locked.
         var title = OverlayState.BudgetBlocked ? Loc.T("lock.title.budget") : Loc.T("lock.title.schedule");
-        DrawText(hdc, _fontTitle, title, innerX, py + 34, innerW, 56, ColorWhite, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        DrawText(hdc, _fontTitle, title, innerX, py + 36, innerW, 52, ColorWhite, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         // Shutdown countdown — escalates colour as the clock runs out.
         var (countdownText, countdownColor) = _shutdownCountdown switch
@@ -472,21 +479,32 @@ internal static class LockScreen
             > 120 => (Loc.T("lock.shutdown.in.long", TimeMath.FormatDuration(_shutdownCountdown)), ColorAccent),
             _ => (Loc.T("lock.exceeded"), ColorAccent),
         };
-        DrawText(hdc, _fontCountdown, countdownText, innerX, py + 98, innerW, 40, countdownColor, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        DrawText(hdc, _fontCountdown, countdownText, innerX, py + 100, innerW, 34, countdownColor, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-        var message = OverlayState.Settings.Get("blocking_message");
-        if (string.IsNullOrWhiteSpace(message)) message = Loc.T("lock.default.message");
-        DrawText(hdc, _fontBody, message, innerX, py + 150, innerW, 48, ColorLight, DT_CENTER | DT_WORDBREAK);
+        // Context-appropriate message: the configured blocking message only applies
+        // to a budget block; a schedule block uses its own wording (showing the
+        // "time limit reached" text outside allowed hours would be misleading).
+        string message;
+        if (OverlayState.BudgetBlocked)
+        {
+            var configured = OverlayState.Settings.Get("blocking_message");
+            message = string.IsNullOrWhiteSpace(configured) ? Loc.T("lock.default.message") : configured;
+        }
+        else
+        {
+            message = Loc.T("lock.schedule.message");
+        }
+        DrawText(hdc, _fontBody, message, innerX, py + 146, innerW, 44, ColorLight, DT_CENTER | DT_WORDBREAK);
 
-        // Section captions sit directly above their controls. In schedule mode the
-        // extend row is hidden, so this slot explains why instead.
-        var actionCaption = _scheduleMode ? Loc.T("lock.schedule.caption") : Loc.T("lock.extend.caption");
-        DrawText(hdc, _fontCaption, actionCaption, innerX, py + 200, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
-        DrawText(hdc, _fontCaption, Loc.T("lock.enter.caption"), innerX, py + 296, innerW, 20, ColorMuted, DT_CENTER | DT_SINGLELINE);
+        // Caption above the add-time row.
+        DrawText(hdc, _fontCaption, Loc.T("lock.addtime.caption"), innerX, py + 202, innerW, 16, ColorMuted, DT_CENTER | DT_SINGLELINE);
 
-        // Inline error feedback below the field, replacing the unlock caption gap.
+        // Caption above the passcode field, replaced inline by the error on a wrong
+        // entry (same slot, directly above the field).
         if (_error)
-            DrawText(hdc, _fontError, Loc.T("lock.incorrect"), innerX, py + 296, innerW, 20, ColorRed, DT_CENTER | DT_SINGLELINE);
+            DrawText(hdc, _fontError, Loc.T("lock.incorrect"), innerX, py + 290, innerW, 18, ColorRed, DT_CENTER | DT_SINGLELINE);
+        else
+            DrawText(hdc, _fontCaption, Loc.T("lock.enter.caption"), innerX, py + 292, innerW, 16, ColorMuted, DT_CENTER | DT_SINGLELINE);
 
         EndPaint(hwnd, ref ps);
     }
