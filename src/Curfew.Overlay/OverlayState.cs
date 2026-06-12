@@ -112,6 +112,35 @@ internal static class OverlayState
         ScheduleEnabled = Settings.GetBool(KeyScheduleEnabled, false);
         Schedule = Schedule.Parse(Settings.Get(KeySchedule));
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
+        ApplyLimitChangeToRemaining();
+    }
+
+    private static int _lastLimitMinutes;
+    private static DateOnly _lastLimitDate;
+    private static bool _limitTracked;
+
+    /// <summary>
+    /// When the administrator changes today's daily limit while a session is live,
+    /// shift the remaining budget by the same delta (e.g. limit 2:00 -> 2:30 with
+    /// 1:30 left bumps remaining to 2:00). A day rollover resets the baseline without
+    /// applying a delta. Runs on each enforcement reload, so a change lands within a
+    /// reload cycle.
+    /// </summary>
+    private static void ApplyLimitChangeToRemaining()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var weekday = TimeMath.MondayBasedWeekday(today);
+        var limitMinutes = Settings.GetDailyLimit(weekday);
+
+        if (_limitTracked && today == _lastLimitDate && limitMinutes != _lastLimitMinutes)
+        {
+            Remaining = Math.Max(0, Remaining + (limitMinutes - _lastLimitMinutes) * 60);
+            Persist();
+        }
+
+        _lastLimitMinutes = limitMinutes;
+        _lastLimitDate = today;
+        _limitTracked = true;
     }
 
     /// <summary>
