@@ -116,13 +116,120 @@ begin
   end;
 end;
 
-{ Stop a previous install's service and processes before any file work, so its
-  binaries are not locked during copy. Runs first, before the wizard. }
+{ Consumes the leading numeric component of a dotted version string. }
+function NextVersionNumber(var S: String): Integer;
+var
+  P: Integer;
+  T: String;
+begin
+  P := Pos('.', S);
+  if P = 0 then
+  begin
+    T := S;
+    S := '';
+  end
+  else
+  begin
+    T := Copy(S, 1, P - 1);
+    S := Copy(S, P + 1, Length(S));
+  end;
+  Result := StrToIntDef(T, 0);
+end;
+
+{ True when Remote (e.g. "v1.7.0") is a strictly newer MAJOR.MINOR.PATCH than
+  Local. Unparsable components compare as zero, so garbage never reports newer. }
+function IsNewerVersion(Remote, Local: String): Boolean;
+var
+  I, RN, LN: Integer;
+begin
+  Result := False;
+  if (Remote <> '') and (Remote[1] = 'v') then Delete(Remote, 1, 1);
+  if (Local <> '') and (Local[1] = 'v') then Delete(Local, 1, 1);
+  for I := 1 to 3 do
+  begin
+    RN := NextVersionNumber(Remote);
+    LN := NextVersionNumber(Local);
+    if RN > LN then
+    begin
+      Result := True;
+      Exit;
+    end;
+    if RN < LN then Exit;
+  end;
+end;
+
+{ Tag of the newest stable release on GitHub, or '' when the lookup fails for
+  any reason (offline, rate-limited, API change). Callers must fail open. }
+function GetLatestReleaseTag(): String;
+var
+  Http: Variant;
+  Body: String;
+  P: Integer;
+begin
+  Result := '';
+  try
+    Http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    Http.SetTimeouts(5000, 5000, 5000, 5000);
+    Http.Open('GET', 'https://api.github.com/repos/beckervincent/curfew/releases/latest', False);
+    Http.SetRequestHeader('User-Agent', 'curfew-installer');
+    Http.SetRequestHeader('Accept', 'application/vnd.github+json');
+    Http.Send('');
+    if Http.Status <> 200 then Exit;
+    Body := Http.ResponseText;
+
+    { Crude but sufficient JSON scan: the value after "tag_name" is the tag. }
+    P := Pos('"tag_name"', Body);
+    if P = 0 then Exit;
+    Body := Copy(Body, P + Length('"tag_name"'), Length(Body));
+    P := Pos('"', Body);
+    if P = 0 then Exit;
+    Body := Copy(Body, P + 1, Length(Body));
+    P := Pos('"', Body);
+    if P = 0 then Exit;
+    Result := Copy(Body, 1, P - 1);
+  except
+    Result := '';
+  end;
+end;
+
+{ Checks whether this installer is still the newest stable release and, when it
+  is outdated, offers to open the download page instead of installing. Returns
+  False to abort setup. Fail-open: an unreachable or unparsable API never
+  blocks the install. }
+function ConfirmWhenOutdated(): Boolean;
+var
+  Latest: String;
+  ResultCode: Integer;
+begin
+  Result := True;
+  Latest := GetLatestReleaseTag();
+  if (Latest = '') or not IsNewerVersion(Latest, '{#MyAppVersion}') then Exit;
+
+  if MsgBox('A newer version of Curfew (' + Latest + ') is available.' + #13#10 +
+            'This installer contains version {#MyAppVersion}.' + #13#10#13#10 +
+            'Open the download page for the newest version and cancel this install?',
+            mbConfirmation, MB_YESNO) = IDYES then
+  begin
+    ShellExecAsOriginalUser('open',
+      'https://github.com/beckervincent/curfew/releases/latest', '', '',
+      SW_SHOWNORMAL, ewNoWait, ResultCode);
+    Result := False;
+  end;
+end;
+
+{ Verify this installer is current (interactive installs only; the service's
+  silent auto-update always feeds the newest installer and must never block),
+  then stop a previous install's service and processes before any file work,
+  so its binaries are not locked during copy. Runs first, before the wizard. }
 function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;
 begin
   Result := True;
+  if not WizardSilent then
+    Result := ConfirmWhenOutdated();
+  if not Result then Exit;
+
   Exec('sc.exe', 'stop {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(3000);
   Exec('taskkill.exe', '/f /im {#ServiceExeName} /im {#AppExeName} /im Curfew.Overlay.exe',

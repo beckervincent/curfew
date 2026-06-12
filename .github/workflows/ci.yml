@@ -43,3 +43,25 @@ jobs:
       # AnyCPU solution build above stays clean.
       - name: Build WinUI app (x64)
         run: dotnet build src/Curfew.App/Curfew.App.csproj -c Release -p:Platform=x64
+
+  installer-script:
+    name: Compile installer script
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Compile setup.iss against stub payload folders. This validates the
+      # Inno Setup directives and the [Code] Pascal section on every push,
+      # so a script error surfaces here instead of breaking a tagged release.
+      - name: Compile setup.iss with stub payload
+        shell: pwsh
+        run: |
+          foreach ($d in 'service','app','overlay') {
+            New-Item -ItemType Directory -Path "installer\$d" -Force | Out-Null
+            Set-Content -Path "installer\$d\stub.txt" -Value 'ci stub'
+          }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.0.1 "installer\setup.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
