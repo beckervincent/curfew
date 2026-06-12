@@ -191,25 +191,25 @@ public class UpdaterTests
 
         var script = Updater.BuildScheduledInstallScript(installerPath);
 
-        // Creates a one-shot task that runs as SYSTEM, then triggers it immediately.
-        Assert.Contains("schtasks /create", script, StringComparison.Ordinal);
-        Assert.Contains("/sc once", script, StringComparison.Ordinal);
-        Assert.Contains("/ru SYSTEM", script, StringComparison.Ordinal);
-        Assert.Contains("schtasks /run", script, StringComparison.Ordinal);
+        // Registers an on-demand task that runs as SYSTEM via the ScheduledTasks
+        // cmdlets (schtasks.exe /create is corrupted by PowerShell's native-argument
+        // quote rewriting), then triggers it immediately.
+        Assert.Contains("Register-ScheduledTask -TaskName 'CurfewAutoUpdate'", script, StringComparison.Ordinal);
+        Assert.Contains("-UserId 'SYSTEM'", script, StringComparison.Ordinal);
+        Assert.Contains("Start-ScheduledTask -TaskName 'CurfewAutoUpdate'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("schtasks /create", script, StringComparison.Ordinal);
 
         // Runs the installer non-interactively so it can proceed unattended.
         Assert.Contains("/VERYSILENT", script, StringComparison.Ordinal);
         Assert.Contains("/SUPPRESSMSGBOXES", script, StringComparison.Ordinal);
         Assert.Contains("/NORESTART", script, StringComparison.Ordinal);
 
-        // The task tears itself down so it cannot linger and re-fire at its start time.
-        Assert.Contains("schtasks /delete", script, StringComparison.Ordinal);
+        // The task tears itself down so it cannot linger and re-fire.
+        Assert.Contains("schtasks /delete /tn CurfewAutoUpdate /f", script, StringComparison.Ordinal);
 
-        // Failures while scripting are ignored so a partial run never blocks the update.
-        Assert.Contains("$ErrorActionPreference = 'SilentlyContinue'", script, StringComparison.Ordinal);
-
-        // The installer the caller asked to run is embedded in the task action.
-        Assert.Contains(installerPath, script, StringComparison.Ordinal);
+        // The installer path is embedded quoted inside the cmd.exe action so paths
+        // with spaces survive.
+        Assert.Contains($"\"{installerPath}\"", script, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -217,9 +217,9 @@ public class UpdaterTests
     {
         var script = Updater.BuildScheduledInstallScript(@"C:\Curfew\setup.exe");
 
-        // The same task name must be used to create, run, and delete the task; if the
-        // names diverged the cleanup would target a non-existent task and leave the real
-        // one behind.
+        // The same task name must be used to register, start, and delete the task; if
+        // the names diverged the cleanup would target a non-existent task and leave the
+        // real one behind.
         var occurrences = CountOccurrences(script, "CurfewAutoUpdate");
         Assert.Equal(3, occurrences);
     }
@@ -235,13 +235,16 @@ public class UpdaterTests
         Assert.Equal("installerPath", ex.ParamName);
     }
 
-    [Fact]
-    public void BuildScheduledInstallScript_rejects_path_containing_a_double_quote()
+    [Theory]
+    [InlineData(@"C:\evil"" \payload.exe")]
+    [InlineData(@"C:\evil' \payload.exe")]
+    public void BuildScheduledInstallScript_rejects_path_containing_a_quote(string installerPath)
     {
-        // A double quote would break the quoting of the schtasks /tr argument and cannot
-        // be escaped safely, so it must be rejected rather than silently mis-built.
+        // A quote of either kind would break out of the single-quoted PowerShell
+        // string or the cmd.exe action quoting and cannot be escaped safely, so it
+        // must be rejected rather than silently mis-built.
         var ex = Assert.Throws<ArgumentException>(() =>
-            Updater.BuildScheduledInstallScript(@"C:\evil"" \payload.exe"));
+            Updater.BuildScheduledInstallScript(installerPath));
         Assert.Equal("installerPath", ex.ParamName);
     }
 

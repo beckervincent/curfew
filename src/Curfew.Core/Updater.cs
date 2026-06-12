@@ -159,12 +159,16 @@ public static class Updater
     /// </summary>
     /// <param name="installerPath">Full path to the downloaded installer executable.</param>
     /// <returns>A PowerShell script that creates, runs, and self-deletes the task.</returns>
-    /// <exception cref="ArgumentException"><paramref name="installerPath"/> is null, blank, or contains a double quote.</exception>
+    /// <exception cref="ArgumentException"><paramref name="installerPath"/> is null, blank, or contains a quote.</exception>
     /// <remarks>
     /// Running the install from a detached task lets it survive the calling service
     /// stopping mid-update (the installer typically stops and restarts that service).
     /// The task action also deletes the task afterwards so it does not linger and
-    /// re-fire at its scheduled start time.
+    /// re-fire at its scheduled start time. The task is registered through the
+    /// ScheduledTasks cmdlets rather than schtasks.exe: PowerShell rewrites embedded
+    /// <c>\"</c> escapes when spawning native executables, which silently corrupted
+    /// the schtasks <c>/tr</c> argument, whereas a cmdlet receives the action string
+    /// verbatim.
     /// </remarks>
     public static string BuildScheduledInstallScript(string installerPath)
     {
@@ -173,27 +177,30 @@ public static class Updater
             throw new ArgumentException("Installer path must be provided.", nameof(installerPath));
         }
 
-        // The path is embedded inside a quoted schtasks /tr argument; an embedded
-        // double quote would break that quoting and cannot be escaped safely here.
-        if (installerPath.Contains('"'))
+        // The path is embedded inside a single-quoted PowerShell string and a
+        // cmd.exe command line; a quote of either kind would break that embedding
+        // and cannot be escaped safely here.
+        if (installerPath.Contains('"') || installerPath.Contains('\''))
         {
-            throw new ArgumentException("Installer path must not contain a double quote.", nameof(installerPath));
+            throw new ArgumentException("Installer path must not contain a quote.", nameof(installerPath));
         }
 
         const string taskName = "CurfewAutoUpdate";
 
-        // The task command: run the installer silently, then delete the task so it
-        // does not persist and re-run at its scheduled time. Inner quotes are escaped
-        // (\") because this whole command is itself passed inside a quoted /tr value.
-        var action =
-            $"\\\"{installerPath}\\\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART " +
-            $"& schtasks /delete /tn \\\"{taskName}\\\" /f";
+        // The task action: run the installer silently, then delete the task so it
+        // does not persist and re-run. cmd /c strips the outermost quote pair, so
+        // the quotes around the installer path survive for paths with spaces.
+        var cmdArgument =
+            $"/c \"\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART " +
+            $"& schtasks /delete /tn {taskName} /f\"";
 
         return string.Join('\n', new[]
         {
-            "$ErrorActionPreference = 'SilentlyContinue'",
-            $"schtasks /create /tn \"{taskName}\" /tr \"{action}\" /sc once /st 00:00 /ru SYSTEM /f",
-            $"schtasks /run /tn \"{taskName}\"",
+            "$ErrorActionPreference = 'Stop'",
+            $"$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '{cmdArgument}'",
+            "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
+            $"Register-ScheduledTask -TaskName '{taskName}' -Action $action -Principal $principal -Force | Out-Null",
+            $"Start-ScheduledTask -TaskName '{taskName}'",
         });
     }
 }
