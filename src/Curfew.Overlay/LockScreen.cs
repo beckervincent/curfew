@@ -86,17 +86,6 @@ internal static class LockScreen
     /// <summary>True while the current lock is a schedule block (outside allowed hours), not a budget block.</summary>
     private static bool _scheduleMode;
 
-    /// <summary>
-    /// True while the WinUI lock surface (Curfew.App --lock) is driving the UI on
-    /// top of this black cover. False means the built-in GDI lock is the fallback
-    /// (the WinUI app could not be launched), in which case the GDI controls show.
-    /// </summary>
-    private static bool _winui;
-
-    /// <summary>Consecutive failed WinUI-lock (re)launches before falling back to GDI.</summary>
-    private const int MaxWinuiRelaunches = 2;
-    private static int _winuiRelaunchCount;
-
     // Cached fonts/brushes created once and reused on every paint, then freed in
     // Dispose. Reusing GDI handles avoids per-frame churn and keeps the countdown
     // repaint cheap (it fires once a second).
@@ -153,9 +142,10 @@ internal static class LockScreen
         _scheduleMode = !OverlayState.BudgetBlocked;
         SetWindowTextW(_btnUnlock, _scheduleMode ? Loc.T("lock.schedule.ignore") : Loc.T("lock.unlock"));
 
-        // Publish the lock state for the WinUI surface and launch it on top of this
-        // black cover. If it cannot start, fall back to the built-in GDI controls so
-        // there is always a way to unlock.
+        // The GDI card is the ALWAYS-VISIBLE lock — it works on its own. We also
+        // publish the lock state and launch the WinUI surface as a best-effort pretty
+        // layer ON TOP; if it never appears, the GDI card underneath stays usable, so
+        // the lock can never be a blank black screen.
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         OverlayState.Settings.Set("lock_reason",
             OverlayState.NewUserBlocked ? "newuser"
@@ -164,9 +154,10 @@ internal static class LockScreen
         OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
         OverlayState.Settings.Set("lock_active", "1");
-        _winuiRelaunchCount = 0;
-        _winui = LockAppHost.Launch();
-        SetControlsVisible(!_winui);
+        SetControlsVisible(true);
+        // The WinUI surface is opt-in (default off) until it is proven on-device: it
+        // has rendered black/empty in the field. The GDI card above is the real lock.
+        if (WinuiLockEnabled) LockAppHost.Launch();
 
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked,
             OverlayState.BudgetBlocked ? "budget" : "schedule");
@@ -174,7 +165,7 @@ internal static class LockScreen
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
         ShowWindow(_hwnd, SW_SHOW);
         SetForegroundWindow(_hwnd);
-        if (_edit != IntPtr.Zero && !_winui)
+        if (_edit != IntPtr.Zero)
         {
             SetWindowTextW(_edit, "");
             SetFocus(_edit);
@@ -258,33 +249,28 @@ internal static class LockScreen
 
     /// <summary>
     /// Per-second work while the lock is up: apply any action the WinUI surface
-    /// recorded, and relaunch that surface if it died (falling back to the GDI
-    /// controls if it cannot be relaunched). Called from the overlay tick.
+    /// recorded, and keep that (best-effort) surface alive. The GDI card underneath
+    /// is always shown, so a missing WinUI surface just means a plainer lock — never
+    /// a blank black screen. Called from the overlay tick.
     /// </summary>
     public static void WhileLockedTick()
     {
         ConsumeLockAction();
 
-        if (!_winui || !OverlayState.Locked) return;
+        if (!OverlayState.Locked) return;
 
-        if (LockAppHost.IsRunning)
+        // While the (opt-in) WinUI layer is gone, make sure the GDI card underneath is
+        // painted on top and focused so it is usable, then try to bring it back.
+        if (WinuiLockEnabled && !LockAppHost.IsRunning)
         {
-            // Healthy — reset the relaunch budget so only *consecutive* failures count.
-            _winuiRelaunchCount = 0;
-            return;
-        }
-
-        // The surface died. Relaunch a bounded number of times; if it will not stay
-        // up (or cannot launch at all), fall back to the GDI controls so the lock can
-        // never be a dead black screen with no unlock path.
-        if (_winuiRelaunchCount++ >= MaxWinuiRelaunches || !LockAppHost.Launch())
-        {
-            OverlayLog.Write("WinUI lock unavailable; falling back to GDI lock");
-            _winui = false;
-            SetControlsVisible(true);
             InvalidateRect(_hwnd, IntPtr.Zero, false);
+            if (_edit != IntPtr.Zero) SetFocus(_edit);
+            LockAppHost.Launch();
         }
     }
+
+    /// <summary>Whether to launch the WinUI lock surface on top of the GDI card (opt-in).</summary>
+    private static bool WinuiLockEnabled => OverlayState.Settings.GetBool("winui_lock_enabled", false);
 
     /// <summary>
     /// Applies a one-shot action the WinUI lock recorded after verifying the
@@ -580,12 +566,11 @@ internal static class LockScreen
     {
         if (id == TimerReassert)
         {
-            // Stay clamped to the top of the Z-order — BUT NOT when the WinUI lock is
-            // up and running: re-topmosting this black cover would slam it OVER the
-            // WinUI window, hiding the unlock UI behind a black screen with no way
-            // out. Only reassert in GDI fallback mode, or to hold the floor while the
-            // WinUI surface is being (re)launched.
-            if (!_winui || !LockAppHost.IsRunning)
+            // Stay clamped to the top of the Z-order — BUT NOT while the WinUI layer is
+            // up: re-topmosting this window would slam the GDI card OVER the WinUI
+            // window. When the WinUI layer is absent, the GDI card IS the lock, so
+            // keep it on top.
+            if (!LockAppHost.IsRunning)
                 SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
         else if (id == TimerCountdown)
@@ -619,13 +604,9 @@ internal static class LockScreen
         // Fill the full backdrop ourselves (no class brush) so there is no flash.
         FillSolid(hdc, client.left, client.top, client.right - client.left, client.bottom - client.top, ColorOverlayBg);
 
-        // When the WinUI surface is driving, this window is only the black floor —
-        // the card, field and buttons are drawn by Curfew.App on top.
-        if (_winui)
-        {
-            EndPaint(hwnd, ref ps);
-            return;
-        }
+        // Always draw the full GDI card: it is the real, always-usable lock. The
+        // WinUI surface (when it appears) sits on top of it; when it doesn't, this
+        // card is what the user sees and uses, so there is never a blank black screen.
 
         var px = (client.right - PanelWidth) / 2;
         var py = (client.bottom - PanelHeight) / 2;
