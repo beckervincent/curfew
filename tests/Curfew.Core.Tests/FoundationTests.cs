@@ -11,12 +11,20 @@ public class SettingsPartitionTests
     [InlineData("pause_used_2026-06-11", SettingsStoreKind.State)]
     [InlineData("lock_active", SettingsStoreKind.State)]
     [InlineData("lock_action", SettingsStoreKind.State)]
+    [InlineData("lock_action_at", SettingsStoreKind.State)]
+    [InlineData("lock_reason", SettingsStoreKind.State)]
+    [InlineData("lock_deadline_unix", SettingsStoreKind.State)]
+    [InlineData("lock_sid", SettingsStoreKind.State)]
+    [InlineData("lock_code", SettingsStoreKind.State)]
     [InlineData("tray_command", SettingsStoreKind.State)]
     [InlineData("unlock_last_counter", SettingsStoreKind.State)]
     [InlineData("passcode", SettingsStoreKind.Config)]
     [InlineData("schedule", SettingsStoreKind.Config)]
     [InlineData("limit_enabled", SettingsStoreKind.Config)]
     [InlineData("device_code", SettingsStoreKind.Config)]
+    // Policy, NOT runtime handshake: a broad "lock_" prefix once routed this into
+    // the child-writable state store, letting the child set their own logoff delay.
+    [InlineData("lock_screen_timeout", SettingsStoreKind.Config)]
     public void StoreFor_routes_counters_to_state_and_policy_to_config(string key, SettingsStoreKind expected) =>
         Assert.Equal(expected, SettingsPartition.StoreFor(key));
 
@@ -122,5 +130,27 @@ public class AppAllowlistTests
         Assert.Equal(2, set.Count);
         Assert.True(AppAllowlist.Allows(set, "code"));
         Assert.True(AppAllowlist.Allows(set, "word"));
+    }
+
+    [Fact]
+    public void AllowsTrusted_requires_the_image_to_live_under_a_trusted_root()
+    {
+        var set = AppAllowlist.Parse("code.exe");
+        var sep = System.IO.Path.DirectorySeparatorChar;
+        var roots = new[] { $"{sep}trusted{sep}Program Files", $"{sep}trusted{sep}Windows" };
+
+        // Allow-listed name in a trusted root: exempt.
+        Assert.True(AppAllowlist.AllowsTrusted(set, $"{sep}trusted{sep}Program Files{sep}VSCode{sep}code.exe", roots));
+
+        // Same name copied to a child-writable location: NOT exempt — otherwise
+        // renaming any exe to an allow-listed name stops the budget clock forever.
+        Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}users{sep}kid{sep}code.exe", roots));
+
+        // Non-listed name in a trusted root: not exempt either.
+        Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}trusted{sep}Program Files{sep}chrome.exe", roots));
+
+        // Unknown path (elevated process, exited process): fail closed.
+        Assert.False(AppAllowlist.AllowsTrusted(set, null, roots));
+        Assert.False(AppAllowlist.AllowsTrusted(set, "", roots));
     }
 }

@@ -276,7 +276,10 @@ public sealed class CurfewWorker : BackgroundService
         {
             using var settings = OpenSettings();
             if (settings.GetBool("time_guard_enabled", true))
+            {
                 TimeGuardService.Enforce();
+                TimeGuardService.EnforceTimeZone(settings);
+            }
         }
         catch (Exception ex)
         {

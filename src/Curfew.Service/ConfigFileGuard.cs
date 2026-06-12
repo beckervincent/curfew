@@ -22,6 +22,32 @@ internal static class ConfigFileGuard
         if (!OperatingSystem.IsWindows() || string.IsNullOrEmpty(configPath) || !File.Exists(configPath))
             return;
 
+        // SQLite keeps recently-committed data in the rollback journal sidecar,
+        // which inherits the directory's Users-write ACE; left unprotected it would
+        // hand the child a writable copy of config data the main file's ACL guards.
+        // It is pre-created empty (a zero-length journal is "not hot" to SQLite) so
+        // the deny is in place before the service's first write. -wal/-shm are NOT
+        // touched: they only exist until the store's WAL→PERSIST conversion lands,
+        // and ACL'ing -shm would break the child processes' read-only opens in the
+        // meantime (WAL readers must write the shared-memory index).
+        try
+        {
+            if (!File.Exists(configPath + "-journal"))
+                File.Create(configPath + "-journal").Dispose();
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"config guard: journal precreate: {ex.Message}");
+        }
+
+        ProtectFile(configPath);
+        ProtectFile(configPath + "-journal");
+    }
+
+    private static void ProtectFile(string path)
+    {
+        if (!File.Exists(path)) return;
+
         try
         {
             var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
@@ -42,11 +68,11 @@ internal static class ConfigFileGuard
                 FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,
                 AccessControlType.Deny));
 
-            new FileInfo(configPath).SetAccessControl(security);
+            new FileInfo(path).SetAccessControl(security);
         }
         catch (Exception ex)
         {
-            ServiceLog.Write($"config guard: {ex.Message}");
+            ServiceLog.Write($"config guard: {Path.GetFileName(path)}: {ex.Message}");
         }
     }
 }

@@ -28,6 +28,9 @@ public enum CurfewEventKind
 
     /// <summary>An update was downloaded and scheduled to install.</summary>
     UpdateInstalled,
+
+    /// <summary>A settings store was corrupt and had to be deleted and recreated.</summary>
+    StoreRecreated,
 }
 
 /// <summary>One recorded event: when it happened, what kind, and a short detail.</summary>
@@ -67,13 +70,39 @@ public static class EventLog
         {
             lock (Gate)
             {
-                File.AppendAllText(path, line + "\n");
+                AppendLineShared(path, line);
                 TrimIfNeeded(path);
             }
         }
         catch
         {
             // Diagnostics must never disrupt enforcement.
+        }
+    }
+
+    /// <summary>
+    /// Appends one line with <see cref="FileShare.ReadWrite"/> and a short retry.
+    /// The in-process <see cref="Gate"/> cannot serialize the three writer
+    /// PROCESSES (service, overlay, app); an exclusive append would make
+    /// concurrent events fail with a sharing violation and silently vanish.
+    /// Append-mode writes are atomic per call, and the retry covers the rare
+    /// collision with the trim's rewrite.
+    /// </summary>
+    private static void AppendLineShared(string path, string line)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                using var writer = new StreamWriter(stream);
+                writer.Write(line + "\n");
+                return;
+            }
+            catch (IOException) when (attempt < 3)
+            {
+                Thread.Sleep(10);
+            }
         }
     }
 

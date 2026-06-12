@@ -133,6 +133,55 @@ internal static class TimeGuardService
         }
     }
 
+    /// <summary>Config key holding the parent-approved Windows time-zone id.</summary>
+    private const string ExpectedTimeZoneKey = "expected_timezone";
+
+    /// <summary>
+    /// Pins the machine's time zone. Windows grants ordinary users the
+    /// "Change the time zone" privilege, and moving the zone shifts every
+    /// local-time decision (schedule windows, the daily allowance date) without
+    /// touching the absolute clock that <see cref="Enforce"/> watches — so a child
+    /// can farm allowance or dodge curfew windows with <c>tzutil</c> alone. The
+    /// first run records the current zone as the expected one; afterwards any
+    /// drift is logged as tampering and reverted.
+    /// </summary>
+    /// <param name="settings">A config-writable settings store (the service's).</param>
+    public static void EnforceTimeZone(SettingsStore settings)
+    {
+        try
+        {
+            // Re-read the registry: TimeZoneInfo.Local is cached per process and
+            // would never see a change made after the service started.
+            TimeZoneInfo.ClearCachedData();
+            var current = TimeZoneInfo.Local.Id;
+
+            var expected = settings.Get(ExpectedTimeZoneKey);
+            if (string.IsNullOrEmpty(expected))
+            {
+                settings.Set(ExpectedTimeZoneKey, current);
+                return;
+            }
+
+            if (string.Equals(current, expected, StringComparison.Ordinal)) return;
+
+            ServiceLog.Write($"time guard: time zone changed to '{current}' (expected '{expected}'); reverting");
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ClockTamper, $"timezone {current}");
+
+            // tzutil needs the id quoted (names contain spaces). The id comes from
+            // the registry via TimeZoneInfo, never from user input, but reject
+            // quotes anyway rather than risk argument injection.
+            if (!expected.Contains('"'))
+            {
+                PowerShellRunner.Run($"tzutil /s \"{expected}\"");
+                TimeZoneInfo.ClearCachedData();
+            }
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"time guard: time zone check failed: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Win32 <c>SYSTEMTIME</c> structure. All fields are UTC when passed to
     /// <see cref="SetSystemTime"/>; <c>wDayOfWeek</c> is ignored by the API and

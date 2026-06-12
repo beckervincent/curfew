@@ -81,7 +81,8 @@ public static class Updater
         string currentVersion,
         Func<string, CancellationToken, Task<string>> fetchJson,
         bool includePrereleases,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<string>? onCheckFailure = null)
     {
         ArgumentNullException.ThrowIfNull(fetchJson);
 
@@ -100,9 +101,13 @@ public static class Updater
             // Cancellation is a caller decision, not a failed update check: re-throw it.
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            // Offline, DNS failure, HTTP error, rate limit, etc. — simply no update.
+            // Offline, DNS failure, HTTP error, rate limit, etc. — no update this
+            // pass, but tell the caller why: a permanently broken check (expired
+            // proxy, TLS misconfiguration) is otherwise indistinguishable from
+            // "already up to date" and would never surface in any log.
+            onCheckFailure?.Invoke(ex.Message);
             return null;
         }
 
@@ -187,11 +192,15 @@ public static class Updater
 
         const string taskName = "CurfewAutoUpdate";
 
-        // The task action: run the installer silently, then delete the task so it
-        // does not persist and re-run. cmd /c strips the outermost quote pair, so
-        // the quotes around the installer path survive for paths with spaces.
+        // The task action: run the installer silently, record its exit code beside
+        // it (the task is detached and one-shot, so this marker is the only trace a
+        // failed silent install leaves — the service logs it on its next pass),
+        // then delete the task so it does not persist and re-run. cmd /c strips the
+        // outermost quote pair, so the inner quotes survive for paths with spaces.
+        var resultPath = Path.Combine(Path.GetDirectoryName(installerPath) ?? string.Empty, InstallResultFileName);
         var cmdArgument =
             $"/c \"\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART " +
+            $"& echo %ERRORLEVEL% > \"{resultPath}\" " +
             $"& schtasks /delete /tn {taskName} /f\"";
 
         return string.Join('\n', new[]
@@ -199,8 +208,18 @@ public static class Updater
             "$ErrorActionPreference = 'Stop'",
             $"$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '{cmdArgument}'",
             "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
-            $"Register-ScheduledTask -TaskName '{taskName}' -Action $action -Principal $principal -Force | Out-Null",
+            // Default task settings refuse to start (and kill) tasks on battery —
+            // many target devices are laptops, so be explicit about both.
+            "$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)",
+            $"Register-ScheduledTask -TaskName '{taskName}' -Action $action -Principal $principal -Settings $settings -Force | Out-Null",
             $"Start-ScheduledTask -TaskName '{taskName}'",
         });
     }
+
+    /// <summary>
+    /// File the scheduled install writes its exit code to, in the same folder as
+    /// the staged installer. Read and cleared by the service on its next update
+    /// pass so failed silent installs become visible in the service log.
+    /// </summary>
+    public const string InstallResultFileName = "install-result.txt";
 }

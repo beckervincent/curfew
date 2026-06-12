@@ -1,5 +1,7 @@
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 
 namespace Curfew.Core;
 
@@ -51,11 +53,25 @@ public static class ConfigClient
             using var pipe = new NamedPipeClientStream(".", ConfigPipe.PipeName, PipeDirection.InOut);
             pipe.Connect(timeoutMs);
 
+            // Requests carry the parent passcode in the clear, so make sure the
+            // other end really is the SYSTEM service (session 0) and not another
+            // user-session process that squatted the pipe name to harvest it.
+            if (OperatingSystem.IsWindows() && !ServerIsSessionZero(pipe.SafePipeHandle))
+                return new ConfigResponse(false, "untrusted pipe server");
+
             using var reader = new StreamReader(pipe);
             var writer = new StreamWriter(pipe) { AutoFlush = true };
 
             writer.WriteLine(JsonSerializer.Serialize(request, Json));
-            var line = reader.ReadLine();
+
+            // Synchronous pipe reads have no timeout of their own; a server that
+            // accepts the connection but never answers would otherwise freeze the
+            // caller (the overlay calls this from its UI thread). Disposing the
+            // pipe on timeout unblocks the abandoned read.
+            var readTask = reader.ReadLineAsync();
+            if (!readTask.Wait(timeoutMs)) return new ConfigResponse(false, "response timeout");
+
+            var line = readTask.Result;
             if (line is null) return new ConfigResponse(false, "no response");
 
             return JsonSerializer.Deserialize<ConfigResponse>(line, Json)
@@ -66,6 +82,16 @@ public static class ConfigClient
             return new ConfigResponse(false, ex.Message);
         }
     }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetNamedPipeServerSessionId(SafePipeHandle hPipe, out uint sessionId);
+
+    /// <summary>
+    /// Whether the connected pipe server runs in session 0 — where Windows
+    /// services live and which ordinary interactive processes cannot enter.
+    /// </summary>
+    private static bool ServerIsSessionZero(SafePipeHandle pipe) =>
+        GetNamedPipeServerSessionId(pipe, out var session) && session == 0;
 
     /// <summary>Writes a config key via the service. Returns whether it was accepted.</summary>
     public static bool SetConfig(string key, string value, string? passcode) =>
@@ -79,7 +105,11 @@ public static class ConfigClient
     public static bool RecordFailure() =>
         Send(new ConfigRequest(ConfigPipe.OpRecordFailure)).Ok;
 
-    /// <summary>Clears the lockout counter after a success.</summary>
-    public static bool ResetFailures() =>
-        Send(new ConfigRequest(ConfigPipe.OpResetFailures)).Ok;
+    /// <summary>
+    /// Clears the lockout counter after a success. The code that just unlocked
+    /// (passcode or device code) authenticates the reset — without it any local
+    /// user could zero the counter between guesses and brute-force unhindered.
+    /// </summary>
+    public static bool ResetFailures(string? code) =>
+        Send(new ConfigRequest(ConfigPipe.OpResetFailures, Passcode: code)).Ok;
 }

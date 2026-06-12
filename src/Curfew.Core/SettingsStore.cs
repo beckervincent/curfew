@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace Curfew.Core;
@@ -189,13 +190,30 @@ public sealed class SettingsStore : IDisposable
         if (string.IsNullOrWhiteSpace(statePath))
             throw new ArgumentException("State path must be provided.", nameof(statePath));
 
-        var migrate = configWritable && !string.IsNullOrEmpty(legacyPath)
-            && File.Exists(legacyPath) && !File.Exists(configPath);
+        var configExisted = File.Exists(configPath);
 
         var config = configWritable
-            ? OpenResilient(configPath, c => Prepare(c, seedDefaults: true, today, purge: false))
+            ? OpenResilient(configPath, c => Prepare(c, seedDefaults: true, today, purge: false), ConfigJournalMode)
             : OpenConfigReadOnly(configPath, today);
-        var state = OpenResilient(statePath, c => Prepare(c, seedDefaults: false, today, purge: true));
+
+        SqliteConnection state;
+        try
+        {
+            state = OpenResilient(statePath, c => Prepare(c, seedDefaults: false, today, purge: true));
+        }
+        catch
+        {
+            config.Dispose();
+            throw;
+        }
+
+        // Migrate when the legacy single-file database still exists and config.db
+        // either did not exist yet or was merely bootstrapped (defaults only) by a
+        // non-privileged process before the service got its first chance — the
+        // bootstrap marker distinguishes that from a config the parent has owned
+        // for a while, which must never be overwritten with stale legacy values.
+        var migrate = configWritable && !string.IsNullOrEmpty(legacyPath) && File.Exists(legacyPath)
+            && (!configExisted || GetDirect(config, BootstrapMarkerKey) == "1");
 
         if (migrate)
         {
@@ -204,26 +222,96 @@ public sealed class SettingsStore : IDisposable
             catch (SqliteException) { /* corrupt legacy file — ignore */ }
         }
 
+        // The service owns config.db from here on; the bootstrap marker has served
+        // its purpose either way (migrated, or there was no legacy data to migrate).
+        if (configWritable)
+        {
+            try { Execute(config, $"DELETE FROM settings WHERE key = '{BootstrapMarkerKey}'"); }
+            catch (SqliteException) { /* best effort */ }
+        }
+
         return new SettingsStore(config, state, today);
     }
 
-    /// <summary>Opens a connection and runs <paramref name="setup"/>, recreating the file once if it is corrupt.</summary>
-    private static SqliteConnection OpenResilient(string path, Action<SqliteConnection> setup)
+    /// <summary>
+    /// Marker row set when a non-privileged process bootstraps config.db (see
+    /// <see cref="OpenConfigReadOnly"/>), so the service can still tell that the
+    /// legacy migration has not happened yet even though the file exists.
+    /// </summary>
+    private const string BootstrapMarkerKey = "config_bootstrap";
+
+    /// <summary>
+    /// Journal mode for config.db. WAL would put committed config data into
+    /// child-writable <c>-wal</c>/<c>-shm</c> sidecars (the deny-ACE covers only
+    /// the main file) and WAL readers need write access to <c>-shm</c>; PERSIST
+    /// keeps a single permanent <c>-journal</c> file the service can ACL alongside
+    /// the database, and read-only opens need no sidecar writes at all.
+    /// </summary>
+    private const string ConfigJournalMode = "PERSIST";
+
+    /// <summary>Reads one raw row off a specific connection, bypassing routing/scoping.</summary>
+    private static string? GetDirect(SqliteConnection connection, string key)
     {
         try
         {
-            return InitConnection(path, setup);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT value FROM settings WHERE key = $k";
+            cmd.Parameters.AddWithValue("$k", key);
+            return cmd.ExecuteScalar() as string;
         }
         catch (SqliteException)
         {
-            // Corrupt/truncated/not-SQLite: drop it and recreate from defaults so the
-            // controls keep working. A second failure propagates (it's the directory).
-            TryDeleteDatabaseFiles(path);
-            return InitConnection(path, setup);
+            return null;
         }
     }
 
-    private static SqliteConnection InitConnection(string path, Action<SqliteConnection> setup, bool readOnly = false)
+    /// <summary>Opens a connection and runs <paramref name="setup"/>, recreating the file once if it is corrupt.</summary>
+    private static SqliteConnection OpenResilient(string path, Action<SqliteConnection> setup, string journalMode = "WAL")
+    {
+        try
+        {
+            return InitConnection(path, setup, journalMode: journalMode);
+        }
+        catch (SqliteException ex) when (IsCorruption(ex))
+        {
+            // Corrupt/truncated/not-SQLite: drop it and recreate from defaults so the
+            // controls keep working. A second failure propagates (it's the directory).
+            // Anything that is NOT corruption (BUSY/LOCKED contention, an I/O error,
+            // a permission problem) propagates immediately instead — deleting a
+            // healthy database over a transient lock would destroy the parent's
+            // settings, including the passcode.
+            TryDeleteDatabaseFiles(path);
+            RecordStoreRecreated(path);
+            return InitConnection(path, setup, journalMode: journalMode);
+        }
+    }
+
+    /// <summary>
+    /// Whether a SQLite failure means the file itself is not a usable database
+    /// (as opposed to a transient lock, an I/O problem, or a permission error).
+    /// </summary>
+    private static bool IsCorruption(SqliteException ex) =>
+        ex.SqliteErrorCode is 11 or 26; // SQLITE_CORRUPT, SQLITE_NOTADB
+
+    /// <summary>
+    /// Leaves a parent-visible event when a store had to be deleted and recreated:
+    /// for state.db that wipes the day's counters back to a fresh budget, which a
+    /// child could provoke deliberately by corrupting the child-writable file.
+    /// </summary>
+    private static void RecordStoreRecreated(string path)
+    {
+        try
+        {
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.StoreRecreated, Path.GetFileName(path));
+        }
+        catch
+        {
+            // Diagnostics only; recreating the store must proceed regardless.
+        }
+    }
+
+    private static SqliteConnection InitConnection(
+        string path, Action<SqliteConnection> setup, bool readOnly = false, string journalMode = "WAL")
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -241,7 +329,12 @@ public sealed class SettingsStore : IDisposable
             {
                 // WAL lets readers and a writer proceed concurrently (several processes
                 // share these files) and forces a header check, surfacing corruption.
-                Execute(connection, "PRAGMA journal_mode = WAL");
+                // config.db uses PERSIST instead (see ConfigJournalMode). Changing the
+                // mode needs an exclusive lock, so a refusal while another process
+                // holds the file is tolerated (the next open tries again) — but a
+                // corruption verdict must still propagate so OpenResilient recreates.
+                try { Execute(connection, $"PRAGMA journal_mode = {journalMode}"); }
+                catch (SqliteException ex) when (!IsCorruption(ex)) { /* keep the current mode */ }
                 Execute(connection,
                     "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
             }
@@ -270,7 +363,14 @@ public sealed class SettingsStore : IDisposable
             catch (SqliteException) { /* fall through and try to bootstrap it */ }
         }
 
-        return OpenResilient(path, c => Prepare(c, seedDefaults: true, today, purge: false));
+        // Mark the bootstrap so the service can still run the legacy migration on
+        // its next start: a defaults-only file created here must not be mistaken
+        // for a config the parent already owns (see OpenSplit's migrate decision).
+        return OpenResilient(path, c =>
+        {
+            Prepare(c, seedDefaults: true, today, purge: false);
+            Execute(c, $"INSERT OR REPLACE INTO settings (key, value) VALUES ('{BootstrapMarkerKey}', '1')");
+        }, ConfigJournalMode);
     }
 
     private static void Prepare(SqliteConnection connection, bool seedDefaults, DateOnly today, bool purge)
@@ -301,16 +401,24 @@ public sealed class SettingsStore : IDisposable
                 rows.Add((reader.GetString(0), reader.GetString(1)));
         }
 
-        // Overwrite the seeded config defaults with the parent's real values.
+        // Overwrite the seeded config defaults with the parent's real values. One
+        // transaction per target store so an interruption (power loss, a thrown
+        // exception mid-copy) leaves no half-migrated database behind — either all
+        // of a store's rows land or none do, and the next boot can retry cleanly.
+        using var configTx = config.BeginTransaction();
+        using var stateTx = state.BeginTransaction();
         foreach (var (key, value) in rows)
         {
-            var target = SettingsPartition.StoreFor(key) == SettingsStoreKind.State ? state : config;
-            using var cmd = target.CreateCommand();
+            var isState = SettingsPartition.StoreFor(key) == SettingsStoreKind.State;
+            using var cmd = (isState ? state : config).CreateCommand();
+            cmd.Transaction = isState ? stateTx : configTx;
             cmd.CommandText = "INSERT OR REPLACE INTO settings (key, value) VALUES ($k, $v)";
             cmd.Parameters.AddWithValue("$k", key);
             cmd.Parameters.AddWithValue("$v", value);
             cmd.ExecuteNonQuery();
         }
+        configTx.Commit();
+        stateTx.Commit();
     }
 
     private static void SeedDefaults(SqliteConnection connection, SqliteTransaction transaction)
@@ -335,7 +443,10 @@ public sealed class SettingsStore : IDisposable
         SqliteConnection connection, SqliteTransaction transaction, DateOnly today)
     {
         // Drop per-day rows from previous days so the table cannot grow forever.
-        var todaySuffix = today.ToString("yyyy-MM-dd");
+        // Invariant culture to match the writers exactly: a user-selected region
+        // with a non-Gregorian calendar would otherwise format a different "today"
+        // and purge the live rows.
+        var todaySuffix = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         using var cmd = connection.CreateCommand();
         cmd.Transaction = transaction;
         // Keep only rows whose key ends in today's date. Matching the date as a
@@ -464,6 +575,12 @@ public sealed class SettingsStore : IDisposable
     /// record report zero. These rows are intentionally exempt from the per-day
     /// purge so history accumulates.
     /// </summary>
+    /// <remarks>
+    /// The overlay writes usage as <c>used_time_&lt;sid&gt;_&lt;date&gt;</c>. With
+    /// <see cref="UserSid"/> set this reads that user's rows; otherwise it sums all
+    /// users for the day (which also covers legacy <c>used_time_&lt;date&gt;</c>
+    /// rows written before per-user counters existed).
+    /// </remarks>
     public IReadOnlyList<UsageDay> GetUsageHistory(int days)
     {
         if (days < 1) days = 1;
@@ -472,10 +589,37 @@ public sealed class SettingsStore : IDisposable
         for (var i = days - 1; i >= 0; i--)
         {
             var date = _today.AddDays(-i);
-            var seconds = GetInt(UsagePrefix + date.ToString("yyyy-MM-dd"), 0);
+            var suffix = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var seconds = UserSid is { Length: > 0 } sid
+                ? GetInt($"{UsagePrefix}{sid}_{suffix}", 0)
+                : SumUsageForDate(suffix);
             history.Add(new UsageDay(date, Math.Max(0, seconds) / 60));
         }
         return history;
+    }
+
+    /// <summary>Sums one day's usage rows across every user (and the legacy unscoped row).</summary>
+    private int SumUsageForDate(string dateSuffix)
+    {
+        var total = 0;
+        try
+        {
+            using var cmd = _state.CreateCommand();
+            cmd.CommandText = "SELECT value FROM settings WHERE key LIKE $p || '%' AND key LIKE '%' || $d";
+            cmd.Parameters.AddWithValue("$p", UsagePrefix);
+            cmd.Parameters.AddWithValue("$d", dateSuffix);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (int.TryParse(reader.GetString(0), out var seconds) && seconds > 0)
+                    total += seconds;
+            }
+        }
+        catch (SqliteException)
+        {
+            // A read failure just reports zero for the day; the chart is advisory.
+        }
+        return total;
     }
 
     /// <summary>Closes the underlying database connection(s).</summary>

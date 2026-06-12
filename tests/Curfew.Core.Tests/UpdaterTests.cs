@@ -210,6 +210,25 @@ public class UpdaterTests
         // The installer path is embedded quoted inside the cmd.exe action so paths
         // with spaces survive.
         Assert.Contains($"\"{installerPath}\"", script, StringComparison.Ordinal);
+
+        // Laptops: the default task settings refuse to start (and kill) on battery.
+        Assert.Contains("-AllowStartIfOnBatteries", script, StringComparison.Ordinal);
+        Assert.Contains("-DontStopIfGoingOnBatteries", script, StringComparison.Ordinal);
+
+        // The detached install records its exit code so the service can log a
+        // failed silent install on its next pass instead of it vanishing silently.
+        Assert.Contains("%ERRORLEVEL%", script, StringComparison.Ordinal);
+        Assert.Contains(Updater.InstallResultFileName, script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildScheduledInstallScript_rejects_path_containing_a_single_quote()
+    {
+        // The action is embedded in a single-quoted PowerShell string; a single
+        // quote in the path would break out of it.
+        var ex = Assert.Throws<ArgumentException>(() =>
+            Updater.BuildScheduledInstallScript(@"C:\o'brien\setup.exe"));
+        Assert.Equal("installerPath", ex.ParamName);
     }
 
     [Fact]

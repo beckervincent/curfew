@@ -230,17 +230,50 @@ public class SntpTests
     public void ParseReply_accepts_a_zero_seconds_field_with_a_non_zero_fraction()
     {
         // Only an entirely zero timestamp is "unspecified"; a non-zero fraction
-        // alone must still be parsed (it maps just after the NTP epoch).
+        // alone must still be parsed. With era handling, a seconds value below the
+        // 1970 offset is an era-1 timestamp, so 0 seconds means the era-1 epoch
+        // (2036-02-07T06:28:16Z), not 1900.
         var packet = new byte[Sntp.PacketSize];
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset + 4, 4), 0x8000_0000u);
 
         var parsed = Sntp.ParseReply(packet);
 
-        // Seconds == 0 maps to the NTP epoch (1900-01-01); the 0x8000_0000 fraction
-        // adds exactly half a second on top of it.
-        var expected = new DateTimeOffset(1900, 1, 1, 0, 0, 0, 500, TimeSpan.Zero);
+        var era1Epoch = new DateTimeOffset(1900, 1, 1, 0, 0, 0, TimeSpan.Zero).AddSeconds(0x1_0000_0000L);
+        Assert.Equal(era1Epoch.AddMilliseconds(500), parsed);
+    }
+
+    [Fact]
+    public void ParseReply_handles_the_2036_era_rollover()
+    {
+        // After 2036-02-07 the 32-bit seconds field wraps to small values. Without
+        // the era pivot every server would "agree" on ~1900 and the time guard
+        // would force the clock 136 years back. One day into era 1 must parse as
+        // 2036-02-08, not 1900-01-02.
+        var packet = new byte[Sntp.PacketSize];
+        BinaryPrimitives.WriteUInt32BigEndian(
+            packet.AsSpan(TransmitTimestampOffset, 4), 86_400u);
+
+        var parsed = Sntp.ParseReply(packet);
+
+        var expected = new DateTimeOffset(1900, 1, 1, 0, 0, 0, TimeSpan.Zero)
+            .AddSeconds(0x1_0000_0000L + 86_400);
         Assert.Equal(expected, parsed);
+        Assert.Equal(2036, parsed.Year);
+    }
+
+    [Fact]
+    public void ParseReply_keeps_era_0_timestamps_unchanged()
+    {
+        // A current-era timestamp (high bit set, e.g. 2026) must not be shifted.
+        var nowNtpSeconds = 2_208_988_800u + 1_780_000_000u; // ≈ 2026 in Unix time
+        var packet = new byte[Sntp.PacketSize];
+        BinaryPrimitives.WriteUInt32BigEndian(
+            packet.AsSpan(TransmitTimestampOffset, 4), nowNtpSeconds);
+
+        var parsed = Sntp.ParseReply(packet);
+
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1_780_000_000), parsed);
     }
 
     [Fact]

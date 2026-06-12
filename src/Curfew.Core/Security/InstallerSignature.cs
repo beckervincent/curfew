@@ -131,6 +131,9 @@ public static class InstallerSignature
         }
         finally
         {
+            // DestroyStructure releases the native copy of the LPWStr path that
+            // StructureToPtr allocated; FreeHGlobal alone would leak it every check.
+            Marshal.DestroyStructure<WINTRUST_FILE_INFO>(pFileInfo);
             Marshal.FreeHGlobal(pFileInfo);
         }
     }

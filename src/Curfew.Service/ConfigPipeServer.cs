@@ -49,9 +49,12 @@ internal sealed class ConfigPipeServer
     private static NamedPipeServerStream CreateServer()
     {
         var security = new PipeSecurity();
+        // ReadWrite only — granting CreateNewInstance would let any local user add
+        // their own server instance under this name and harvest the passcodes that
+        // clients send in the clear. Only SYSTEM (below) may host instances.
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
-            PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+            PipeAccessRights.ReadWrite,
             AccessControlType.Allow));
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
@@ -88,7 +91,7 @@ internal sealed class ConfigPipeServer
             ConfigPipe.OpSet => HandleSet(request),
             ConfigPipe.OpProvision => HandleProvision(request),
             ConfigPipe.OpRecordFailure => HandleRecordFailure(),
-            ConfigPipe.OpResetFailures => HandleResetFailures(),
+            ConfigPipe.OpResetFailures => HandleResetFailures(request),
             _ => new ConfigResponse(false, $"unknown op '{request.Op}'"),
         };
     }
@@ -118,9 +121,22 @@ internal sealed class ConfigPipeServer
         return new ConfigResponse(true);
     }
 
-    /// <summary>Clears the failed-attempt counter after a success.</summary>
-    private ConfigResponse HandleResetFailures()
+    /// <summary>
+    /// Clears the failed-attempt counter after a success. Gated on the code that
+    /// just succeeded (parent passcode or device code): an unauthenticated reset
+    /// would let the child zero the counter between guesses and defeat the
+    /// brute-force lockout entirely.
+    /// </summary>
+    private ConfigResponse HandleResetFailures(ConfigRequest request)
     {
+        var passcode = _config.Get("passcode");
+        var deviceCode = _config.Get("device_code");
+        var authenticated =
+            (string.IsNullOrEmpty(passcode) && string.IsNullOrEmpty(deviceCode))
+            || (!string.IsNullOrEmpty(passcode) && PasscodeHash.Verify(request.Passcode, passcode))
+            || (!string.IsNullOrEmpty(deviceCode) && PasscodeHash.Verify(request.Passcode, deviceCode));
+        if (!authenticated) return new ConfigResponse(false, "wrong code");
+
         _config.Set("failed_attempts", "0");
         return new ConfigResponse(true);
     }

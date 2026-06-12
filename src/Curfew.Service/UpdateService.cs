@@ -72,9 +72,12 @@ internal static class UpdateService
 
         if (!settings.GetBool(AutoUpdateEnabledKey, true)) return;
 
+        ReportPreviousInstallResult();
+
         // Pre-releases are only auto-installed when the parent opts into that channel.
         var includePrereleases = settings.Get(UpdateChannelKey) == PrereleaseChannel;
-        var release = await Updater.CheckForUpdateAsync(currentVersion, Updater.HttpFetchAsync, includePrereleases, ct)
+        var release = await Updater.CheckForUpdateAsync(currentVersion, Updater.HttpFetchAsync, includePrereleases, ct,
+                onCheckFailure: reason => ServiceLog.Write($"update check failed: {reason}"))
             .ConfigureAwait(false);
         if (release is null) return;
 
@@ -104,6 +107,33 @@ internal static class UpdateService
         }
         else
             ServiceLog.Write($"update scheduling failed (powershell exit {exitCode})");
+    }
+
+    /// <summary>
+    /// Logs (and clears) the exit code the previous scheduled install left behind.
+    /// The install runs as a detached one-shot task, so this marker is the only
+    /// place a failed silent install (locked files, disk full, another installer
+    /// running) ever surfaces.
+    /// </summary>
+    private static void ReportPreviousInstallResult()
+    {
+        var marker = Path.Combine(CurfewPaths.UpdateDirectory, Updater.InstallResultFileName);
+        try
+        {
+            if (!File.Exists(marker)) return;
+
+            var raw = File.ReadAllText(marker).Trim();
+            File.Delete(marker);
+
+            if (raw == "0")
+                ServiceLog.Write("previous update install completed (exit 0)");
+            else
+                ServiceLog.Write($"previous update install FAILED (installer exit {raw})");
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"update result marker: {ex.Message}");
+        }
     }
 
     /// <summary>

@@ -33,8 +33,13 @@ public static class SettingsPartition
     {
         "remaining_time_", "used_time_", "pause_used_", "pause_log_", "session_active_",
         // Runtime coordination written by the child-side processes (not policy):
-        // the lock handshake, the tray command, and the offline-code replay counter.
-        "lock_", "tray_", "unlock_last_counter",
+        // the lock handshake (exact keys below, NOT a broad "lock_" prefix — that
+        // would also catch policy keys like lock_screen_timeout and hand the child
+        // write access to them), the tray command, and the offline-code replay
+        // counter.
+        "lock_active", "lock_reason", "lock_deadline_unix", "lock_action",
+        "lock_action_at", "lock_sid", "lock_code",
+        "tray_", "unlock_last_counter",
     };
 
     /// <summary>

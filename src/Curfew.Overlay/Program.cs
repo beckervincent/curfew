@@ -177,10 +177,22 @@ namespace Curfew.Overlay
         private const int ReloadEverySeconds = 30;
         private static int _reloadCounter;
 
+        /// <summary>
+        /// Directories an allow-listed app must run from to be exempt. All are
+        /// admin-writable only, so the child cannot place a renamed executable
+        /// there to stop the budget clock (see <see cref="AppAllowlist.AllowsTrusted"/>).
+        /// </summary>
+        private static readonly string[] TrustedAppRoots = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+        }.Where(p => !string.IsNullOrEmpty(p)).ToArray();
+
         /// <summary>Whether the foreground app is allow-listed, so this second is exempt from the budget.</summary>
         private static bool ForegroundExempt() =>
             OverlayState.AllowedApps.Count > 0
-            && AppAllowlist.Allows(OverlayState.AllowedApps, ForegroundApp.ProcessName());
+            && AppAllowlist.AllowsTrusted(OverlayState.AllowedApps, ForegroundApp.ProcessImagePath(), TrustedAppRoots);
 
         private static void Tick(IntPtr hwnd)
         {
@@ -392,7 +404,9 @@ namespace Curfew.Overlay
             return ColorWhite;
         }
 
+        // Invariant culture: must match OverlayState's writer and the store's purge
+        // exactly even under a region format with a non-Gregorian calendar.
         private static string RemainingKey(DateOnly date) =>
-            $"remaining_time_{OverlayState.CurrentSid}_{date:yyyy-MM-dd}";
+            $"remaining_time_{OverlayState.CurrentSid}_{date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}";
     }
 }

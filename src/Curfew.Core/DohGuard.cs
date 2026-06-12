@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Curfew.Core;
@@ -86,27 +87,36 @@ public static class DohGuard
     /// <see cref="BlockedResolvers"/> address on the encrypted-DNS ports.
     /// </summary>
     /// <remarks>
-    /// Existing Curfew DoH rules are removed first so the script is idempotent:
-    /// re-running it (for example on a network change) refreshes the rules
-    /// without piling up duplicates. Separate TCP and UDP rules are created
-    /// because <c>New-NetFirewallRule</c> does not accept multiple protocols in
-    /// a single rule.
+    /// The rules carry a content stamp (a hash of the resolver list and ports) in
+    /// their Description. When rules with the current stamp already exist the
+    /// script exits without touching them: tearing down and recreating working
+    /// rules on every reconcile would open a brief allow window each time, and a
+    /// transient creation failure after the removal would leave encrypted DNS
+    /// wide open until the next pass. Rules are only removed and rebuilt when the
+    /// stamp differs (a release changed the resolver list) or a rule is missing.
+    /// Separate TCP and UDP rules are created because <c>New-NetFirewallRule</c>
+    /// does not accept multiple protocols in a single rule.
     /// </remarks>
     public static string BuildBlockScript()
     {
         var addresses = string.Join(",", BlockedResolvers.Select(Quote));
+        var stamp = RuleStamp;
         var sb = new StringBuilder();
         // Fail closed: a failure to (re)create the block rules must surface as a
         // non-zero exit, not be silently swallowed. Only the removal — which may
         // legitimately find no existing rules — is allowed to continue on error.
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
+        sb.AppendLine($"$out = Get-NetFirewallRule -DisplayName '{RulePrefix}-out' -ErrorAction SilentlyContinue");
+        sb.AppendLine($"$udp = Get-NetFirewallRule -DisplayName '{RulePrefix}-udp' -ErrorAction SilentlyContinue");
+        sb.AppendLine(
+            $"if ($out -and $udp -and $out.Description -eq '{stamp}' -and $udp.Description -eq '{stamp}') {{ exit 0 }}");
         sb.AppendLine(RemoveRulesCommand);
         sb.AppendLine($"$ips = @({addresses})");
         sb.AppendLine(
-            $"New-NetFirewallRule -DisplayName '{RulePrefix}-out' -Direction Outbound -Action Block " +
+            $"New-NetFirewallRule -DisplayName '{RulePrefix}-out' -Description '{stamp}' -Direction Outbound -Action Block " +
             $"-Protocol TCP -RemoteAddress $ips -RemotePort {BlockedPorts} -Profile Any | Out-Null");
         sb.AppendLine(
-            $"New-NetFirewallRule -DisplayName '{RulePrefix}-udp' -Direction Outbound -Action Block " +
+            $"New-NetFirewallRule -DisplayName '{RulePrefix}-udp' -Description '{stamp}' -Direction Outbound -Action Block " +
             $"-Protocol UDP -RemoteAddress $ips -RemotePort {BlockedPorts} -Profile Any | Out-Null");
         // Verify both rules exist; if the removal above tore down enforcement and a
         // re-add silently failed to take, exit non-zero so the service logs it and
@@ -115,6 +125,21 @@ public static class DohGuard
             $"if (-not (Get-NetFirewallRule -DisplayName '{RulePrefix}-out' -ErrorAction SilentlyContinue) -or " +
             $"-not (Get-NetFirewallRule -DisplayName '{RulePrefix}-udp' -ErrorAction SilentlyContinue)) {{ exit 1 }}");
         return sb.ToString().TrimEnd('\n', '\r');
+    }
+
+    /// <summary>
+    /// Stable fingerprint of the blocked-resolver list and ports, stored in the
+    /// rules' Description so a reconcile pass can tell "rules are current" apart
+    /// from "rules predate a resolver-list change" without rebuilding them.
+    /// </summary>
+    public static string RuleStamp
+    {
+        get
+        {
+            var content = string.Join(",", BlockedResolvers) + "|" + BlockedPorts;
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(content));
+            return "curfew-" + Convert.ToHexString(hash)[..16];
+        }
     }
 
     /// <summary>

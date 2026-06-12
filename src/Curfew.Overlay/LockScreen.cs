@@ -319,7 +319,7 @@ internal static class LockScreen
                 OverlayState.Settings.Set("lock_code", string.Empty);
                 if (ConfigClient.Provision(OverlayState.CurrentSid, provCode))
                 {
-                    ConfigClient.ResetFailures();
+                    ConfigClient.ResetFailures(provCode);
                     EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user activated");
                     if (!OverlayState.ShouldBlock) Hide();
                 }
@@ -508,7 +508,7 @@ internal static class LockScreen
                 {
                     if (ConfigClient.Provision(OverlayState.CurrentSid, EnteredText()))
                     {
-                        ConfigClient.ResetFailures();
+                        ConfigClient.ResetFailures(EnteredText());
                         if (!OverlayState.ShouldBlock) Hide();
                     }
                     else Reject(hwnd);

@@ -107,14 +107,17 @@ public sealed partial class LockWindow : Window
 
         if (passcodeOk || deviceOk)
         {
-            ConfigClient.ResetFailures();
+            ConfigClient.ResetFailures(entered);
             ActionConfirmed?.Invoke(action, _newUser ? entered : null);
             return;
         }
 
         if (!_newUser && IsValidUnlockCode(entered))
         {
-            ConfigClient.ResetFailures();
+            // An offline unlock code cannot authenticate the reset (the service
+            // only verifies passcode/device code), so the counter simply keeps its
+            // value until the next passcode success — fail-closed and harmless.
+            ConfigClient.ResetFailures(entered);
             ActionConfirmed?.Invoke("redeem", entered);
             return;
         }

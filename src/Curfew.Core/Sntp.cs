@@ -75,7 +75,13 @@ public static class Sntp
         if (seconds == 0 && fraction == 0)
             throw new ArgumentException("SNTP reply has an unset (zero) Transmit Timestamp", nameof(reply));
 
-        var unixSeconds = (long)seconds - NtpToUnixSeconds;
+        // NTP's 32-bit seconds field wraps in February 2036 (end of era 0). Values
+        // below the 1970 offset must therefore be era-1 timestamps, not 1900-era
+        // ones; without the pivot every server would "agree" on ~1900 after the
+        // rollover and the time guard would force-set the clock 136 years back.
+        var unixSeconds = (long)seconds
+            + (seconds < NtpToUnixSeconds ? 0x1_0000_0000L : 0L)
+            - NtpToUnixSeconds;
 
         // Convert the fractional part to ticks (100 ns) for sub-millisecond
         // precision instead of rounding straight to whole milliseconds.

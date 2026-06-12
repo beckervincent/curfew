@@ -41,6 +41,29 @@ public static class AppAllowlist
         return allow.Contains(Normalize(processName));
     }
 
+    /// <summary>
+    /// Whether the process at <paramref name="imagePath"/> is allow-listed AND runs
+    /// from one of <paramref name="trustedRoots"/> (e.g. Program Files / Windows).
+    /// Matching on the image name alone would let the child copy any executable to
+    /// a writable folder under an allow-listed name and stop the budget forever;
+    /// the trusted roots require admin rights to write to, which the child lacks.
+    /// A null/unknown path is NOT exempt (fail closed).
+    /// </summary>
+    public static bool AllowsTrusted(
+        IReadOnlySet<string> allow, string? imagePath, IReadOnlyList<string> trustedRoots)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath)) return false;
+        if (!Allows(allow, imagePath)) return false;
+
+        foreach (var root in trustedRoots)
+        {
+            if (string.IsNullOrEmpty(root)) continue;
+            var prefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
+            if (imagePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
     /// <summary>Lower-cases, strips any directory and a trailing <c>.exe</c>, trims.</summary>
     private static string Normalize(string value)
     {
