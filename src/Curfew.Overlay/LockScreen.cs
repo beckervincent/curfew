@@ -95,6 +95,7 @@ internal static class LockScreen
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
         ShowWindow(_hwnd, SW_SHOW);
         SetForegroundWindow(_hwnd);
+        SetTaskbarHidden(true);
 
         SetTimer(_hwnd, new IntPtr(TimerReassert), 500, IntPtr.Zero);
         SetTimer(_hwnd, new IntPtr(TimerCountdown), 1000, IntPtr.Zero);
@@ -114,6 +115,7 @@ internal static class LockScreen
         KillTimer(_hwnd, new IntPtr(TimerReassert));
         KillTimer(_hwnd, new IntPtr(TimerCountdown));
         ShowWindow(_hwnd, SW_HIDE);
+        SetTaskbarHidden(false);
 
         if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
 
@@ -322,6 +324,10 @@ internal static class LockScreen
             // absent the cover IS the visible lock, so keep it on top.
             if (!LockAppHost.IsRunning)
                 SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+            // Keep the shell taskbar down: it re-asserts itself topmost on shell events
+            // and would otherwise float above the lock and be clickable.
+            SetTaskbarHidden(true);
         }
         else if (id == TimerCountdown)
         {
@@ -346,6 +352,21 @@ internal static class LockScreen
         var rect = new RECT { left = x, top = y, right = x + w, bottom = y + h };
         FillRect(hdc, ref rect, brush);
         DeleteObject(brush);
+    }
+
+    /// <summary>
+    /// Hides or restores the shell taskbar (<c>Shell_TrayWnd</c>) while the lock is up.
+    /// The full-screen cover and the WinUI surface are both topmost, but the taskbar is
+    /// topmost too and re-asserts itself above them on shell events — leaving it
+    /// visible and clickable (a mouse route to the Start menu / other apps that the
+    /// keyboard hook can't block). Taking it out of the picture entirely is the
+    /// deterministic fix; it is restored when the lock is dismissed. Re-applied on each
+    /// reassert tick in case the shell re-shows it.
+    /// </summary>
+    private static void SetTaskbarHidden(bool hidden)
+    {
+        var tray = FindWindowW("Shell_TrayWnd", null);
+        if (tray != IntPtr.Zero) ShowWindow(tray, hidden ? SW_HIDE : SW_SHOW);
     }
 
     private static IntPtr KeyboardHookProc(int code, IntPtr wParam, IntPtr lParam)
