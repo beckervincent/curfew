@@ -42,11 +42,14 @@ internal sealed class LockController
         _primary = new LockWindow(_settings, reason);
         _primary.ActionConfirmed += OnAction;
 
-        var displays = DisplayArea.FindAll();
+        var displays = AllDisplays();
         var primaryArea = PrimaryDisplay(displays);
 
-        if (primaryArea is not null) PlaceFullScreen(_primary, primaryArea);
+        // Activate first so the content composes, THEN switch to the full-screen
+        // presenter. Going full-screen before the first Activate() can leave a
+        // WinUI 3 window showing an uncomposed (black) surface.
         _primary.Activate();
+        if (primaryArea is not null) PlaceFullScreen(_primary, primaryArea);
         _primary.FocusInput();
 
         foreach (var display in displays)
@@ -56,8 +59,8 @@ internal sealed class LockController
             var cover = new LockCoverWindow();
             var target = display;
             cover.MoveHereRequested += () => MovePrimaryTo(target);
-            PlaceFullScreen(cover, display);
             cover.Activate();
+            PlaceFullScreen(cover, display);
             _covers.Add(cover);
         }
 
@@ -69,11 +72,29 @@ internal sealed class LockController
         return _primary;
     }
 
-    private static DisplayArea? PrimaryDisplay(IReadOnlyList<DisplayArea> displays)
+    private static DisplayArea? PrimaryDisplay(List<DisplayArea> displays)
     {
         foreach (var d in displays)
             if (d.IsPrimary) return d;
         return displays.Count > 0 ? displays[0] : null;
+    }
+
+    /// <summary>
+    /// Copies <see cref="DisplayArea.FindAll"/> into a plain list element by element.
+    /// FindAll returns a projected WinRT <c>IReadOnlyList</c> whose enumerator
+    /// interface CsWinRT cannot resolve: <c>foreach</c>/LINQ over it throws
+    /// <see cref="InvalidCastException"/> ("interface not supported"). That crash
+    /// previously killed the whole lock surface on launch and left the overlay
+    /// showing only its black cover (the "inescapable black screen"). Indexer access
+    /// (<c>Count</c> + <c>this[i]</c>) maps to <c>IVectorView.Size</c>/<c>GetAt</c>,
+    /// which IS supported, so we read it positionally instead of enumerating.
+    /// </summary>
+    private static List<DisplayArea> AllDisplays()
+    {
+        var found = DisplayArea.FindAll();
+        var list = new List<DisplayArea>(found.Count);
+        for (var i = 0; i < found.Count; i++) list.Add(found[i]);
+        return list;
     }
 
     private static void PlaceFullScreen(Window window, DisplayArea area)

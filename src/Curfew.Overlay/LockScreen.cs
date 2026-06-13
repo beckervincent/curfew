@@ -174,8 +174,9 @@ internal static class LockScreen
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
         OverlayState.Settings.Set("lock_active", "1");
         SetControlsVisible(true);
-        // The WinUI surface is opt-in (default off) until it is proven on-device: it
-        // has rendered black/empty in the field. The GDI card above is the real lock.
+        // Launch the WinUI lock surface on top — the lock the user actually sees. The
+        // GDI card above stays painted underneath as the hard floor, so if the app
+        // cannot be launched the lock is still fully usable, never a blank black screen.
         if (WinuiLockEnabled) LockAppHost.Launch();
 
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked,
@@ -379,8 +380,13 @@ internal static class LockScreen
         }
     }
 
-    /// <summary>Whether to launch the WinUI lock surface on top of the GDI card (opt-in).</summary>
-    private static bool WinuiLockEnabled => OverlayState.Settings.GetBool("winui_lock_enabled", false);
+    /// <summary>
+    /// Whether to launch the WinUI lock surface on top of the GDI card. On by
+    /// default: the WinUI card is the lock the user sees; the GDI card stays painted
+    /// underneath as the hard floor for the rare case the app cannot be launched.
+    /// Set <c>winui_lock_enabled=0</c> to force the plain GDI card.
+    /// </summary>
+    private static bool WinuiLockEnabled => OverlayState.Settings.GetBool("winui_lock_enabled", true);
 
     /// <summary>
     /// Applies a one-shot action the WinUI lock recorded after verifying the

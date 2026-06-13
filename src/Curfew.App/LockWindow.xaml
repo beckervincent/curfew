@@ -7,7 +7,7 @@
 
     <!-- Solid black backdrop (no Mica): the lock must hide the desktop, and the
          overlay's black Win32 cover sits underneath as the hard enforcement floor. -->
-    <Grid x:Name="RootGrid" Background="#000000">
+    <Grid x:Name="RootGrid" Background="#000000" RequestedTheme="Dark">
         <Border MaxWidth="460"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"

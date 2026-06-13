@@ -7,7 +7,7 @@
 
     <!-- Secondary-monitor cover: nothing interactive except the failover button
          that pulls the primary lock card onto this display. -->
-    <Grid Background="#000000">
+    <Grid Background="#000000" RequestedTheme="Dark">
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="24">
             <FontIcon Glyph="&#xE72E;"
                       FontSize="96"
