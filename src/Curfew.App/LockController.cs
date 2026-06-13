@@ -99,8 +99,16 @@ internal sealed class LockController
     private void OnTick(object? sender, object e)
     {
         // The overlay clears lock_active when it decides the session is no longer
-        // blocked; exit so it can drop its black cover.
-        if (_settings.Get("lock_active") != "1")
+        // blocked; exit so it can drop its black cover. The read hits state.db,
+        // which the child can hold locked: a transient SqliteException here must
+        // not kill the tick (that would freeze the lock and stop us ever noticing
+        // lock_active clearing). Treat a failed read as "still active" and retry
+        // next tick — the overlay's GDI cover stays up regardless.
+        string? active;
+        try { active = _settings.Get("lock_active"); }
+        catch { return; }
+
+        if (active != "1")
         {
             Close();
             return;
@@ -143,7 +151,13 @@ internal sealed class LockController
     {
         if (_primary is null) return;
 
-        if (!long.TryParse(_settings.Get("lock_deadline_unix"), out var deadline))
+        // The deadline read also hits state.db; a transient lock must not throw out
+        // of the tick. Leave the last-shown countdown in place and refresh next tick.
+        string? rawDeadline;
+        try { rawDeadline = _settings.Get("lock_deadline_unix"); }
+        catch { return; }
+
+        if (!long.TryParse(rawDeadline, out var deadline))
         {
             _primary.SetCountdown(string.Empty);
             return;
@@ -164,11 +178,27 @@ internal sealed class LockController
     private void OnAction(string action, string? code)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        _settings.Set("lock_action_at", now.ToString());
-        if (action == "redeem" && code is not null) _settings.Set("lock_code", code);
-        // Written last so the overlay never pairs a fresh action with a stale
-        // timestamp (same ordering rule as the tray command).
-        _settings.Set("lock_action", action);
+        // These writes land in state.db, which the child can hold locked: a write
+        // throwing SqliteException here would otherwise escape the ActionConfirmed
+        // handler unhandled (crashing the lock process) AND silently discard the
+        // parent's authenticated unlock/extend/redeem. Catch it, keep the lock
+        // window up, and surface a retry prompt instead of acting on a half-written
+        // handshake. lock_action is still written last, so a failure before it is
+        // set leaves the overlay nothing to consume (no fresh action paired with a
+        // stale timestamp).
+        try
+        {
+            _settings.Set("lock_action_at", now.ToString());
+            if (action == "redeem" && code is not null) _settings.Set("lock_code", code);
+            _settings.Set("lock_action", action);
+        }
+        catch
+        {
+            // A momentary state.db lock (typically the child contending for it) must
+            // not drop the action — let the parent retry on the still-open window.
+            _primary?.ShowActionError(Loc.T("lock.action.failed"));
+            return;
+        }
         Close();
     }
 

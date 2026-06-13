@@ -122,9 +122,11 @@ internal static class OverlayState
     /// <summary>
     /// When the administrator changes today's daily limit while a session is live,
     /// shift the remaining budget by the same delta (e.g. limit 2:00 -> 2:30 with
-    /// 1:30 left bumps remaining to 2:00). A day rollover resets the baseline without
-    /// applying a delta. Runs on each enforcement reload, so a change lands within a
-    /// reload cycle.
+    /// 1:30 left bumps remaining to 2:00). A day rollover instead re-seeds the budget
+    /// for the new day so a long-lived overlay (the logon process is not restarted at
+    /// midnight on a machine left on overnight) grants the fresh allowance rather than
+    /// carrying yesterday's depleted — or leftover — Remaining across the boundary.
+    /// Runs on each enforcement reload, so a change lands within a reload cycle.
     /// </summary>
     private static void ApplyLimitChangeToRemaining()
     {
@@ -132,7 +134,17 @@ internal static class OverlayState
         var weekday = TimeMath.MondayBasedWeekday(today);
         var limitMinutes = Settings.GetDailyLimit(weekday);
 
-        if (_limitTracked && today == _lastLimitDate && limitMinutes != _lastLimitMinutes)
+        if (_limitTracked && today != _lastLimitDate)
+        {
+            // Day rollover. Re-seed exactly as startup does (Program.cs): honour any
+            // value already persisted for the new day, otherwise grant a fresh
+            // allowance from the new day's limit. Mirrors RecordActiveSecond, which
+            // resets its usage counter at the same boundary.
+            var saved = int.TryParse(Settings.Get(RemainingKey(today)), out var s) ? (int?)s : null;
+            Remaining = TimeKeeper.InitialRemaining(saved, limitMinutes);
+            Persist();
+        }
+        else if (_limitTracked && limitMinutes != _lastLimitMinutes)
         {
             Remaining = Math.Max(0, Remaining + (limitMinutes - _lastLimitMinutes) * 60);
             Persist();

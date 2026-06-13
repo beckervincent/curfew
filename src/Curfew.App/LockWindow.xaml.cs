@@ -22,6 +22,19 @@ public sealed partial class LockWindow : Window
     private readonly bool _newUser;
 
     /// <summary>
+    /// Fail-closed cooldown deadline (Unix seconds, UTC) used when the SYSTEM
+    /// service could not record a failure. The persisted counter lives in
+    /// config.db and is the only thing that drives <see cref="LockoutPolicy"/>'s
+    /// backoff; the WinUI lock can only advance it via the best-effort config
+    /// pipe, which returns false (never throws) whenever the service is down,
+    /// restarting, or the pipe is busy. If we re-accepted input in that window the
+    /// lock would become an unthrottled oracle, so a failed RecordFailure() arms
+    /// this local floor instead — re-checked by <see cref="IsLockedOut"/> on every
+    /// attempt and cleared automatically once the wall clock passes it.
+    /// </summary>
+    private long _localCooldownUntilUnix;
+
+    /// <summary>
     /// Raised on a confirmed action (extend15/30/60 / unlock / ignore_schedule /
     /// redeem / provision / logoff). The second argument is the entered code for
     /// redeem/provision, otherwise null.
@@ -122,9 +135,26 @@ public sealed partial class LockWindow : Window
             return;
         }
 
-        ConfigClient.RecordFailure();
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, _reason);
-        ShowError(Loc.T("lock.incorrect"));
+
+        // The persisted counter is what throttles guessing; advancing it is a
+        // best-effort pipe round-trip to the SYSTEM service that returns false
+        // (never throws) when the service is stopped/restarting or the pipe is
+        // busy. If we cannot advance it, re-prompting would let the child grind
+        // freely for the whole outage window — including the brief restart windows
+        // the child can provoke. Fail closed: arm a local cooldown (the policy's
+        // first throttle step) so IsLockedOut keeps refusing input until either the
+        // server counter advances or the local floor expires.
+        if (ConfigClient.RecordFailure())
+        {
+            ShowError(Loc.T("lock.incorrect"));
+        }
+        else
+        {
+            _localCooldownUntilUnix =
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds() + LockoutPolicy.BaseBackoffSeconds;
+            ShowError(Loc.T("lock.lockedout", LockoutPolicy.BaseBackoffSeconds));
+        }
     }
 
     private void ShowError(string message)
@@ -135,12 +165,41 @@ public sealed partial class LockWindow : Window
         PinBox.Focus(FocusState.Programmatic);
     }
 
+    /// <summary>
+    /// Surfaces a controller-side failure (e.g. the lock-handshake write to state.db
+    /// could not land) on the still-open lock window so the parent can retry, rather
+    /// than the action being silently dropped. Called by <see cref="LockController"/>
+    /// after a verified action fails to persist.
+    /// </summary>
+    public void ShowActionError(string message)
+    {
+        ErrorBar.Message = message;
+        ErrorBar.IsOpen = true;
+        PinBox.Focus(FocusState.Programmatic);
+    }
+
     private bool IsLockedOut(out int retryAfterSeconds)
     {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
         var state = new LockoutState(
             _settings.GetInt("failed_attempts", 0),
             long.TryParse(_settings.Get("failed_attempt_at"), out var at) ? at : 0);
-        return LockoutPolicy.IsLockedOut(state, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), out retryAfterSeconds);
+        if (LockoutPolicy.IsLockedOut(state, now, out retryAfterSeconds))
+            return true;
+
+        // Local floor armed when the service could not advance the persisted
+        // counter (see TryAction): hold input shut until it expires so a service
+        // outage cannot turn the lock into an unthrottled oracle.
+        var localRemaining = (int)(_localCooldownUntilUnix - now);
+        if (localRemaining > 0)
+        {
+            retryAfterSeconds = localRemaining;
+            return true;
+        }
+
+        retryAfterSeconds = 0;
+        return false;
     }
 
     private bool IsValidUnlockCode(string entered)

@@ -217,7 +217,7 @@ public class UpdaterTests
 
         // The detached install records its exit code so the service can log a
         // failed silent install on its next pass instead of it vanishing silently.
-        Assert.Contains("%ERRORLEVEL%", script, StringComparison.Ordinal);
+        Assert.Contains("!ERRORLEVEL!", script, StringComparison.Ordinal);
         Assert.Contains(Updater.InstallResultFileName, script, StringComparison.Ordinal);
     }
 

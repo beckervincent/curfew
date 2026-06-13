@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Curfew.Core;
 using Curfew.Core.Security;
 
@@ -202,13 +204,39 @@ internal static class UpdateService
                 return null;
             }
 
-            var path = Path.Combine(CurfewPaths.UpdateDirectory, InstallerFileName);
+            // Stage the installer where the child cannot tamper with it. The update
+            // folder inherits Users=Modify from %ProgramData%\Curfew (the installer
+            // grants it so state.db and SQLite's sidecars stay writable), which would
+            // otherwise let a limited child overwrite the staged exe AFTER Verify()
+            // returns but BEFORE the detached SYSTEM task opens it — a signature TOCTOU
+            // that lands attacker code with SYSTEM rights. Drop the directory's
+            // inheritance and deny Users write/delete before we write the payload, then
+            // lock the file the same way and verify AFTER the lockdown, so the bytes the
+            // task later executes are exactly the bytes that passed the signature check.
             Directory.CreateDirectory(CurfewPaths.UpdateDirectory);
-            await File.WriteAllBytesAsync(path, bytes, ct).ConfigureAwait(false);
+            ProtectFromChild(CurfewPaths.UpdateDirectory, isDirectory: true);
+
+            var path = Path.Combine(CurfewPaths.UpdateDirectory, InstallerFileName);
+
+            // CreateNew + FileShare.None: no other handle may write or delete the file
+            // while we hold it, and a pre-created decoy left by the child is rejected
+            // rather than appended to. A stale exe from a previous pass is cleared first.
+            try { File.Delete(path); } catch { /* may not exist; recreated below */ }
+            await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                await file.WriteAsync(bytes, ct).ConfigureAwait(false);
+            }
+
+            // Lock the file down with the same deny-ACE as the directory, so it is no
+            // longer child-writable once our handle is closed. This must happen before
+            // verification: a Verify() that races a still-writable file proves nothing.
+            ProtectFromChild(path, isDirectory: false);
 
             // Last line of defence before this SYSTEM process schedules the installer
             // to run: it must be Authenticode-signed by Curfew's own key. Anything
             // else — unsigned, tampered, or signed by a different key — is discarded.
+            // Run AFTER the lockdown so the verified bytes are the bytes the detached
+            // task will open; the child can no longer swap them in the window between.
             if (!InstallerSignature.Verify(path))
             {
                 ServiceLog.Write("update download rejected: installer is not signed by Curfew's key");
@@ -277,4 +305,69 @@ internal static class UpdateService
         bytes.Length >= PortableExecutableMagic.Length
         && bytes[0] == PortableExecutableMagic[0]
         && bytes[1] == PortableExecutableMagic[1];
+
+    /// <summary>
+    /// Locks down the staging folder (and the staged installer) so a limited child
+    /// cannot write, swap or delete the file this SYSTEM process will later execute.
+    /// Drops ACL inheritance — otherwise the update folder keeps the Users=Modify ACE
+    /// the installer grants on %ProgramData%\Curfew — and adds an explicit deny for the
+    /// Users group, while SYSTEM and Administrators keep full control. Mirrors
+    /// <see cref="ConfigFileGuard"/>; best-effort and Windows-only, a failure is logged.
+    /// </summary>
+    /// <param name="path">The directory or file to protect.</param>
+    /// <param name="isDirectory">
+    /// When true the deny is made inheritable so files later created in the folder
+    /// (a swapped-in payload, the install-result marker) cannot be child-written; the
+    /// SYSTEM scheduled task still writes its marker because SYSTEM keeps full control.
+    /// </param>
+    private static void ProtectFromChild(string path, bool isDirectory)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+
+            // A directory's allow/deny rules propagate to the files inside it; a file's
+            // do not inherit anywhere. Match the inheritance scope to the target kind.
+            var inherit = isDirectory
+                ? InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit
+                : InheritanceFlags.None;
+
+            if (isDirectory)
+            {
+                var security = new DirectorySecurity();
+                security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                security.SetOwner(system);
+                security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+                // Deny wins over allow: the child can neither replace the staged exe nor
+                // create new files in the folder to redirect the install.
+                security.AddAccessRule(new FileSystemAccessRule(
+                    users,
+                    FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,
+                    inherit, PropagationFlags.None, AccessControlType.Deny));
+                new DirectoryInfo(path).SetAccessControl(security);
+            }
+            else
+            {
+                var security = new FileSecurity();
+                security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                security.SetOwner(system);
+                security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(
+                    users,
+                    FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,
+                    AccessControlType.Deny));
+                new FileInfo(path).SetAccessControl(security);
+            }
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"update staging guard: {Path.GetFileName(path)}: {ex.Message}");
+        }
+    }
 }

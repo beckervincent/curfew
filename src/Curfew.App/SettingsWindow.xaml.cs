@@ -317,8 +317,17 @@ public sealed partial class SettingsWindow : Window
         var secret = _settings.Get("unlock_secret");
         if (string.IsNullOrEmpty(secret))
         {
+            // Seeding the secret routes through the SYSTEM service. If that write
+            // never lands, the device has no secret, so don't show a freshly
+            // generated one the parent would enrol but the lock screen would reject.
+            ConfigBridge.ResetWriteStatus();
             secret = UnlockCode.GenerateSecret();
             _settings.Set("unlock_secret", secret);
+            if (!ConfigBridge.LastWriteOk)
+            {
+                ShowError(Loc.T("settings.err.savefailed"));
+                return;
+            }
         }
         ShowUnlockSecret(secret);
         UnlockBonus.Value = _settings.GetInt("unlock_bonus_minutes", 30);
@@ -374,8 +383,21 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Issues a fresh secret and resets the replay counter so old codes stop working.</summary>
     private void OnRegenerateUnlock(object sender, RoutedEventArgs e)
     {
+        ClearError();
+
+        // The secret write goes through the SYSTEM service. If it fails the stored
+        // secret has NOT rotated, so don't show the new one (the parent would enrol
+        // a secret the device never accepted) and don't zero the replay counter
+        // against a secret that didn't actually change.
+        ConfigBridge.ResetWriteStatus();
         var secret = UnlockCode.GenerateSecret();
         _settings.Set("unlock_secret", secret);
+        if (!ConfigBridge.LastWriteOk)
+        {
+            ShowError(Loc.T("settings.err.savefailed"));
+            return;
+        }
+
         _settings.Set("unlock_last_counter", string.Empty);
         ShowUnlockSecret(secret);
     }
@@ -622,6 +644,7 @@ public sealed partial class SettingsWindow : Window
         ClearError();
         ConfigBridge.ResetWriteStatus();
         if (!TrySavePasscode()) return;
+        if (!ValidateDeviceCode()) return;
 
         SaveToggles();
         SaveDailyLimits();
@@ -699,9 +722,32 @@ public sealed partial class SettingsWindow : Window
 
         // Device activation code: only update it when the parent typed a new one, so
         // an untouched field never wipes the existing code. Stored as a salted hash.
+        // Length is enforced in ValidateDeviceCode (run before any save), so anything
+        // reaching here already meets the minimum.
         var code = DeviceCodeBox.Password;
         if (!string.IsNullOrEmpty(code))
             _settings.Set("device_code", PasscodeHash.Hash(code));
+    }
+
+    /// <summary>
+    /// Enforces the same minimum length on the device activation code as on the
+    /// passcode. Like the passcode, the device-code hash lives in child-readable
+    /// config.db, so a short code is crackable offline regardless of the PBKDF2
+    /// iteration count — and recovering it lets a child self-activate any
+    /// unprovisioned account, defeating the new-user gate. An empty box means
+    /// "leave the current code untouched" and passes.
+    /// </summary>
+    /// <returns><c>true</c> when the box is blank or the typed code is long enough.</returns>
+    private bool ValidateDeviceCode()
+    {
+        var code = DeviceCodeBox.Password;
+        if (code.Length == 0) return true;
+        if (code.Length < PasscodeLength)
+        {
+            ShowError(Loc.T("settings.err.newlen", PasscodeLength));
+            return false;
+        }
+        return true;
     }
 
     /// <summary>

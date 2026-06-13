@@ -30,6 +30,11 @@ internal static class LockAppHost
             var app = Path.Combine(installRoot, "app", "Curfew.App.exe");
             if (!File.Exists(app)) return false;
 
+            // Release the prior surface's Win32 handle before overwriting the field.
+            // WhileLockedTick() relaunches once per second while the surface is dead, so
+            // without this every relaunch leaks a process handle until GC finalization —
+            // a child can amplify this by killing Curfew.App.exe on a tight loop.
+            _process?.Dispose();
             _process = Process.Start(new ProcessStartInfo(app, "--lock") { UseShellExecute = false });
             return _process is not null;
         }
@@ -60,6 +65,8 @@ internal static class LockAppHost
         {
             // Already gone or no rights — nothing more to do.
         }
+        // Free the handle (and its exit wait registration), not just the reference.
+        _process?.Dispose();
         _process = null;
     }
 }

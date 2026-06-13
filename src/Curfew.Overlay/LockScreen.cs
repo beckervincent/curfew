@@ -102,6 +102,17 @@ internal static class LockScreen
 
     private static int _shutdownCountdown = -1;
     private static bool _error;
+    // When > 0, the last attempt was refused by the brute-force backoff and this is
+    // the remaining wait (seconds) shown in the error slot instead of "incorrect".
+    private static int _lockedOutWait;
+
+    // Provisioning a new user makes a blocking ConfigClient.Provision pipe call that
+    // must NOT run on the pump thread (it would freeze the keyboard hook — see
+    // DispatchPipe). We run it on a background task and apply the outcome back on the
+    // next WhileLockedTick. _provisionTask is the in-flight call (null when idle); the
+    // overlay is single-threaded so these fields need no locking.
+    private static Task<bool>? _provisionTask;
+    private static IntPtr _provisionHwnd;
 
     public static void Register(IntPtr hInstance)
     {
@@ -133,6 +144,8 @@ internal static class LockScreen
         if (OverlayState.MiniHwnd != IntPtr.Zero) ShowWindow(OverlayState.MiniHwnd, SW_HIDE);
 
         _error = false;
+        _lockedOutWait = 0;
+        _provisionTask = null; // drop any stale outcome from a previous lock
         _shutdownCountdown = OverlayState.Settings.GetInt("lock_screen_timeout", 600);
 
         // Schedule block (outside allowed hours) when the budget is not the cause.
@@ -140,7 +153,13 @@ internal static class LockScreen
         // the schedule, so the added minutes are usable even during a curfew block.
         // Only the primary action's label changes between the two modes.
         _scheduleMode = !OverlayState.BudgetBlocked;
-        SetWindowTextW(_btnUnlock, _scheduleMode ? Loc.T("lock.schedule.ignore") : Loc.T("lock.unlock"));
+        // A new, unprovisioned user has a fresh budget (so BudgetBlocked is false and
+        // _scheduleMode would be true), but the primary action activates the account
+        // rather than ignoring a schedule — give it the plain unlock label, not the
+        // schedule-ignore one.
+        SetWindowTextW(_btnUnlock,
+            OverlayState.NewUserBlocked ? Loc.T("lock.unlock")
+            : _scheduleMode ? Loc.T("lock.schedule.ignore") : Loc.T("lock.unlock"));
 
         // The GDI card is the ALWAYS-VISIBLE lock — it works on its own. We also
         // publish the lock state and launch the WinUI surface as a best-effort pretty
@@ -206,13 +225,100 @@ internal static class LockScreen
     private static string EnteredText()
     {
         if (_edit == IntPtr.Zero) return string.Empty;
-        var buffer = new char[16];
+        // Size to the field's EM_SETLIMITTEXT cap (64) plus the null terminator, so a
+        // full-length parent password is read whole — a smaller buffer would silently
+        // truncate it and the hash could never match (the same 64-char convention as
+        // WindowText). GetWindowTextW copies at most buffer.Length - 1 characters.
+        var buffer = new char[65];
         var len = GetWindowTextW(_edit, buffer, buffer.Length);
         return new string(buffer, 0, Math.Clamp(len, 0, buffer.Length));
     }
 
     private static bool PasscodeMatches() =>
         PasscodeHash.Verify(EnteredText(), OverlayState.Settings.Get("passcode"));
+
+    /// <summary>
+    /// Whether the brute-force backoff currently blocks a new attempt, and if so for
+    /// how long. The GDI card is the DEFAULT (always-visible) lock, so it must honour
+    /// the same SYSTEM-owned lockout the WinUI surface does (LockWindow.IsLockedOut):
+    /// without it a child could grind the passcode and the offline TOTP code for free
+    /// on the only lock that ships by default. The counter lives in config.db and is a
+    /// fast local read (no pipe call), so this is safe on the message-pump thread.
+    /// </summary>
+    private static bool IsLockedOut(out int retryAfterSeconds)
+    {
+        var state = new LockoutState(
+            OverlayState.Settings.GetInt("failed_attempts", 0),
+            long.TryParse(OverlayState.Settings.Get("failed_attempt_at"), out var at) ? at : 0);
+        return LockoutPolicy.IsLockedOut(state, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), out retryAfterSeconds);
+    }
+
+    /// <summary>
+    /// Runs a best-effort config-pipe write OFF the message-pump thread. The overlay
+    /// is single-threaded: the WM_TIMER tick, WM_COMMAND handlers and the WH_KEYBOARD_LL
+    /// hook all share the one pump. ConfigClient.* blocks for seconds on a slow/dead
+    /// service, and a frozen pump means the low-level keyboard hook misses Windows'
+    /// LowLevelHooksTimeout — so Esc/Win/Alt+Tab leak through and the lock can be escaped.
+    /// These writes (RecordFailure / ResetFailures) need no synchronous result, so we
+    /// fire them on a background thread with a short timeout and let the pump keep running.
+    /// </summary>
+    private static void DispatchPipe(Action call) =>
+        Task.Run(() => { try { call(); } catch { /* best-effort, never throws back */ } });
+
+    /// <summary>
+    /// Kicks off the new-user provisioning pipe call (device code or parent passcode)
+    /// on a background thread so the pump/keyboard hook keep running, then resets or
+    /// records the lockout counter on the same background thread. The UI outcome
+    /// (event log + Hide) is applied by <see cref="ApplyProvisionResult"/> on the next
+    /// tick. One at a time: a second request while one is in flight is ignored.
+    /// </summary>
+    private static void StartProvision(IntPtr hwnd, string code)
+    {
+        if (_provisionTask is { IsCompleted: false }) return;
+        _provisionHwnd = hwnd;
+        _provisionTask = Task.Run(() =>
+        {
+            try
+            {
+                if (ConfigClient.Provision(OverlayState.CurrentSid, code))
+                {
+                    ConfigClient.ResetFailures(code);
+                    return true;
+                }
+                ConfigClient.RecordFailure();
+                return false;
+            }
+            catch { return false; }
+        });
+    }
+
+    /// <summary>
+    /// Applies a completed background provision on the pump thread: on success logs the
+    /// activation and tears the lock down; on failure shows the wrong-entry feedback.
+    /// Called once per tick from <see cref="WhileLockedTick"/>.
+    /// </summary>
+    private static void ApplyProvisionResult()
+    {
+        if (_provisionTask is not { IsCompleted: true } task) return;
+        var ok = task.Result;
+        _provisionTask = null;
+
+        if (ok)
+        {
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user activated");
+            if (!OverlayState.ShouldBlock) Hide();
+        }
+        else
+        {
+            // RecordFailure already ran on the background task; just show the feedback
+            // (don't call Reject — it would record a second failure).
+            _error = true;
+            _lockedOutWait = 0;
+            ClearEdit();
+            if (_edit != IntPtr.Zero) SetFocus(_edit);
+            InvalidateRect(_provisionHwnd, IntPtr.Zero, false);
+        }
+    }
 
     /// <summary>
     /// Redeems a valid offline unlock code (TOTP): grants the configured bonus
@@ -255,6 +361,10 @@ internal static class LockScreen
     /// </summary>
     public static void WhileLockedTick()
     {
+        // Apply any background provisioning that finished since the last tick before
+        // it can tear the lock down or surface its error.
+        ApplyProvisionResult();
+
         ConsumeLockAction();
 
         if (!OverlayState.Locked) return;
@@ -315,18 +425,12 @@ internal static class LockScreen
             case "provision":
                 // Activate this Windows user via the SYSTEM service (device code or
                 // parent passcode). The service adds the SID to provisioned_users.
+                // This branch runs once per second on the pump thread, so the blocking
+                // Provision/ResetFailures/RecordFailure pipe calls go on a background
+                // thread (StartProvision) and the outcome is applied on the next tick.
                 var provCode = OverlayState.Settings.Get("lock_code") ?? string.Empty;
                 OverlayState.Settings.Set("lock_code", string.Empty);
-                if (ConfigClient.Provision(OverlayState.CurrentSid, provCode))
-                {
-                    ConfigClient.ResetFailures(provCode);
-                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user activated");
-                    if (!OverlayState.ShouldBlock) Hide();
-                }
-                else
-                {
-                    ConfigClient.RecordFailure();
-                }
+                StartProvision(_hwnd, provCode);
                 break;
             case "logoff":
                 LockNative.Logoff();
@@ -502,16 +606,19 @@ internal static class LockScreen
         switch (id)
         {
             case IdUnlock:
+                // Brute-force gate FIRST, before any verification: the GDI card is the
+                // default lock, so without this a child could grind the passcode and
+                // the offline TOTP code for free. Refuse without verifying while the
+                // backoff is active and show the remaining wait.
+                if (IsLockedOut(out var unlockWait)) { RejectLockedOut(hwnd, unlockWait); break; }
+
                 // New, unprovisioned user: activate via the service (device code or
-                // parent passcode). Handled before the normal unlock paths.
+                // parent passcode). Handled before the normal unlock paths. The pipe
+                // call blocks, so it runs on a background thread (StartProvision) and
+                // the outcome is applied on the next tick.
                 if (OverlayState.NewUserBlocked)
                 {
-                    if (ConfigClient.Provision(OverlayState.CurrentSid, EnteredText()))
-                    {
-                        ConfigClient.ResetFailures(EnteredText());
-                        if (!OverlayState.ShouldBlock) Hide();
-                    }
-                    else Reject(hwnd);
+                    StartProvision(hwnd, EnteredText());
                     break;
                 }
 
@@ -520,6 +627,12 @@ internal static class LockScreen
                 // override only. Either way a valid unlock code still works.
                 if (PasscodeMatches())
                 {
+                    // A passcode success clears the SYSTEM-owned lockout counter so a
+                    // count accrued here can't later lock the parent out of the WinUI
+                    // surface. Capture the entered code NOW (Hide clears the field) and
+                    // reset off the pump thread — the reset is a blocking pipe call.
+                    var entered = EnteredText();
+                    DispatchPipe(() => ConfigClient.ResetFailures(entered));
                     if (_scheduleMode) OverlayState.IgnoreScheduleUntilRestart = true;
                     OverlayState.ScheduleOverride = true;
                     Hide();
@@ -542,8 +655,16 @@ internal static class LockScreen
 
     private static void Extend(IntPtr hwnd, int minutes)
     {
+        // Same brute-force gate as the unlock path: extending also verifies the parent
+        // passcode, so it must honour the backoff before checking it.
+        if (IsLockedOut(out var wait)) { RejectLockedOut(hwnd, wait); return; }
+
         if (PasscodeMatches())
         {
+            // Clear the SYSTEM-owned lockout counter on a passcode success (off the
+            // pump thread). Capture the entry first — Hide clears the field.
+            var entered = EnteredText();
+            DispatchPipe(() => ConfigClient.ResetFailures(entered));
             OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
             OverlayState.ScheduleOverride = true;
             OverlayState.Persist();
@@ -555,8 +676,26 @@ internal static class LockScreen
     private static void Reject(IntPtr hwnd)
     {
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, "lock");
-        ConfigClient.RecordFailure();
+        // Advance the SYSTEM-owned lockout counter off the pump thread: a blocking
+        // pipe call here would freeze the keyboard hook (see DispatchPipe), and a
+        // child could trigger it on purpose by mashing wrong codes to escape the lock.
+        DispatchPipe(() => ConfigClient.RecordFailure());
         _error = true;
+        _lockedOutWait = 0; // a plain wrong entry shows "incorrect", not a wait
+        ClearEdit();
+        SetFocus(_edit);
+        InvalidateRect(hwnd, IntPtr.Zero, false);
+    }
+
+    /// <summary>
+    /// Rejects an attempt the brute-force backoff currently blocks, without verifying
+    /// the entry, and shows the remaining wait in the error slot. Does NOT record a
+    /// failure (the attempt never reached verification).
+    /// </summary>
+    private static void RejectLockedOut(IntPtr hwnd, int retryAfterSeconds)
+    {
+        _error = true;
+        _lockedOutWait = retryAfterSeconds;
         ClearEdit();
         SetFocus(_edit);
         InvalidateRect(hwnd, IntPtr.Zero, false);
@@ -632,8 +771,11 @@ internal static class LockScreen
         FillRoundRect(hdc, fieldX, py + FieldTop, FieldWidth, FieldHeight, ControlCornerDiameter, ColorFieldBg, ColorBtnBorder);
         FillSolid(hdc, fieldX + 10, py + FieldTop + FieldHeight - 2, FieldWidth - 20, 2, ColorAccent);
 
-        // Title reflects why we're locked.
-        var title = OverlayState.BudgetBlocked ? Loc.T("lock.title.budget") : Loc.T("lock.title.schedule");
+        // Title reflects why we're locked. A new, unprovisioned user has a fresh
+        // budget, so it would otherwise fall through to the schedule wording — show
+        // the activation prompt instead so the child knows to enter the device code.
+        var title = OverlayState.NewUserBlocked ? Loc.T("lock.title.newuser")
+            : OverlayState.BudgetBlocked ? Loc.T("lock.title.budget") : Loc.T("lock.title.schedule");
         DrawText(hdc, _fontTitle, title, innerX, py + 36, innerW, 52, ColorWhite, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         // Shutdown countdown — escalates colour as the clock runs out.
@@ -650,7 +792,11 @@ internal static class LockScreen
         // to a budget block; a schedule block uses its own wording (showing the
         // "time limit reached" text outside allowed hours would be misleading).
         string message;
-        if (OverlayState.BudgetBlocked)
+        if (OverlayState.NewUserBlocked)
+        {
+            message = Loc.T("lock.newuser.message");
+        }
+        else if (OverlayState.BudgetBlocked)
         {
             var configured = OverlayState.Settings.Get("blocking_message");
             message = string.IsNullOrWhiteSpace(configured) ? Loc.T("lock.default.message") : configured;
@@ -667,7 +813,12 @@ internal static class LockScreen
         // Caption above the passcode field, replaced inline by the error on a wrong
         // entry (same slot, directly above the field).
         if (_error)
-            DrawText(hdc, _fontError, Loc.T("lock.incorrect"), innerX, py + 290, innerW, 18, ColorRed, DT_CENTER | DT_SINGLELINE);
+        {
+            // While the brute-force backoff is active, tell the user how long to wait
+            // instead of "incorrect" — the attempt was refused before verification.
+            var errorText = _lockedOutWait > 0 ? Loc.T("lock.lockedout", _lockedOutWait) : Loc.T("lock.incorrect");
+            DrawText(hdc, _fontError, errorText, innerX, py + 290, innerW, 18, ColorRed, DT_CENTER | DT_SINGLELINE);
+        }
         else
             DrawText(hdc, _fontCaption, Loc.T("lock.enter.caption"), innerX, py + 292, innerW, 16, ColorMuted, DT_CENTER | DT_SINGLELINE);
 

@@ -319,7 +319,20 @@ begin
     'Start-ScheduledTask -TaskName "CurfewOverlay"' + #13#10 +
     '' + #13#10 +
     'schtasks /delete /tn "CurfewAutoUpdate" /f 2>$null | Out-Null' + #13#10 +
-    'Remove-Item -Recurse -Force (Join-Path $dbDir "update") -EA SilentlyContinue' + #13#10;
+    'Remove-Item -Recurse -Force (Join-Path $dbDir "update") -EA SilentlyContinue' + #13#10 +
+    '' + #13#10 +
+    '# Stage the auto-updater''s download dir with a protected ACL: the data dir' + #13#10 +
+    '# grants Users=Modify (so the app can write state.db), and that ACE inherits' + #13#10 +
+    '# down. Left inherited, a child could overwrite the staged, signature-checked' + #13#10 +
+    '# curfew-update.exe in the TOCTOU gap before the SYSTEM install task fires.' + #13#10 +
+    '# Break inheritance here so only SYSTEM+Admins can write the update folder.' + #13#10 +
+    '$up = Join-Path $dbDir "update"' + #13#10 +
+    'New-Item -ItemType Directory -Path $up -Force | Out-Null' + #13#10 +
+    '$upAcl = Get-Acl $up' + #13#10 +
+    '$upAcl.SetAccessRuleProtection($true, $false)' + #13#10 +
+    '$upAcl.AddAccessRule((AclRule "S-1-5-32-544" "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
+    '$upAcl.AddAccessRule((AclRule "S-1-5-18"     "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
+    'Set-Acl $up $upAcl' + #13#10;
 
   if not WriteScript(ScriptPath, Script) then
   begin

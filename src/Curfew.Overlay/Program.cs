@@ -270,6 +270,18 @@ namespace Curfew.Overlay
                     OverlayLog.Write("tray: resumed");
                     break;
                 case "quit":
+                    // Refuse to quit while the lock is up. DestroyWindow here would
+                    // exit the message loop and terminate the process WITHOUT running
+                    // LockScreen.Hide(), leaving lock_active=1 and the WinUI lock app
+                    // orphaned — the session stays locked-down with no live enforcer
+                    // until the watchdog respawns. The command is already consumed
+                    // above, so it is dropped (not replayed): the parent can re-issue
+                    // quit after unlocking, when teardown runs cleanly.
+                    if (OverlayState.Locked)
+                    {
+                        OverlayLog.Write("tray: quit ignored while locked");
+                        break;
+                    }
                     OverlayLog.Write("tray: quit requested");
                     DestroyWindow(hwnd); // triggers WM_DESTROY -> tray removal + PostQuitMessage
                     break;

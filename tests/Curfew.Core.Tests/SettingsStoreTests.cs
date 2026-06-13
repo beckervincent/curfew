@@ -1,4 +1,5 @@
 using Curfew.Core;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace Curfew.Core.Tests;
@@ -302,6 +303,107 @@ public sealed class SettingsStoreTests : IDisposable
 
         // Recreated from defaults, so seeded values are present again.
         Assert.Equal("120", store.Get("limit_monday"));
+    }
+
+    [Fact]
+    public void Recreating_a_corrupt_store_emits_a_parent_visible_event()
+    {
+        // A corruption-recreate wipes the store's rows; for the child-writable
+        // state store that resets the day's counters to a fresh budget, so the
+        // recreation must leave a trace the parent can see. A clean open must NOT.
+        var logPath = Path.Combine(Path.GetTempPath(), $"curfew-evt-{Guid.NewGuid():N}.log");
+        try
+        {
+            File.WriteAllBytes(_dbPath, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x42 });
+            using (SettingsStore.Open(_dbPath, Today, eventLogPath: logPath)) { }
+
+            var events = EventLog.ReadRecent(logPath, 10);
+            var recreated = events.Where(e => e.Kind == CurfewEventKind.StoreRecreated).ToList();
+            Assert.Single(recreated);
+            Assert.Equal(Path.GetFileName(_dbPath), recreated[0].Detail);
+
+            // Reopening a now-healthy store emits nothing further.
+            var freshLog = Path.Combine(Path.GetTempPath(), $"curfew-evt-{Guid.NewGuid():N}.log");
+            using (SettingsStore.Open(_dbPath, Today, eventLogPath: freshLog)) { }
+            Assert.DoesNotContain(EventLog.ReadRecent(freshLog, 10), e => e.Kind == CurfewEventKind.StoreRecreated);
+            try { File.Delete(freshLog); } catch { /* best effort */ }
+        }
+        finally
+        {
+            try { File.Delete(logPath); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void ConfigWriter_intercepts_config_writes_but_never_state_writes()
+    {
+        using var store = OpenStore();
+        var captured = new List<(string Key, string Value)>();
+
+        // An accepting writer (the App's pipe-to-service bridge) handles config
+        // writes: the value must NOT also land in the local config row.
+        store.ConfigWriter = (k, v) => { captured.Add((k, v)); return true; };
+        store.Set("limit_monday", "99");
+        Assert.Contains(("limit_monday", "99"), captured);
+        Assert.Equal("120", store.Get("limit_monday")); // unchanged locally — routed away
+
+        // A state key bypasses the writer entirely and is written directly.
+        captured.Clear();
+        store.Set("remaining_time_2026-06-10", "42");
+        Assert.Empty(captured);
+        Assert.Equal("42", store.Get("remaining_time_2026-06-10"));
+
+        // A declining writer falls through to a direct local config write.
+        store.ConfigWriter = (_, _) => false;
+        store.Set("limit_monday", "77");
+        Assert.Equal("77", store.Get("limit_monday"));
+    }
+
+    [Fact]
+    public void Open_does_not_recreate_the_store_on_a_transient_lock()
+    {
+        // The security-critical mirror of the corruption test above: OpenResilient
+        // must delete+reseed ONLY on SQLITE_CORRUPT/SQLITE_NOTADB. A transient
+        // BUSY/LOCKED (another process mid-write) must PROPAGATE untouched — wiping
+        // a healthy config.db over a momentary lock would destroy the parent's
+        // passcode and every policy. A regression that widened IsCorruption (or
+        // caught the wrong exception) would silently turn a lock into a full reseed.
+        using (var seed = OpenStore())
+        {
+            seed.Set("passcode", "1234");      // the value a bad recreate would wipe
+            seed.Set("limit_monday", "7");     // a customised policy, ditto
+        }
+
+        // Hold an exclusive write lock on the file from another connection so the
+        // seeding transaction inside Open() hits SQLITE_BUSY (code 5) rather than a
+        // corruption verdict. BEGIN IMMEDIATE takes the write lock up front and we
+        // never commit, so the lock outlives the Open() attempt below.
+        using var holder = new SqliteConnection(
+            new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString());
+        holder.Open();
+        using (var begin = holder.CreateCommand())
+        {
+            begin.CommandText = "BEGIN IMMEDIATE";
+            begin.ExecuteNonQuery();
+        }
+
+        // A non-corruption SqliteException must surface, not a silently recreated
+        // store. (DefaultTimeout makes Open() wait a few seconds for the lock first.)
+        var ex = Assert.Throws<SqliteException>(() => OpenStore());
+        Assert.NotEqual(11, ex.SqliteErrorCode); // not SQLITE_CORRUPT
+        Assert.NotEqual(26, ex.SqliteErrorCode); // not SQLITE_NOTADB
+
+        // Release the lock and confirm the file was preserved verbatim: the passcode
+        // and the customised limit are still there, proving no delete+reseed ran.
+        using (var rollback = holder.CreateCommand())
+        {
+            rollback.CommandText = "ROLLBACK";
+            rollback.ExecuteNonQuery();
+        }
+
+        using var reopened = OpenStore();
+        Assert.Equal("1234", reopened.Get("passcode"));
+        Assert.Equal("7", reopened.Get("limit_monday"));
     }
 
     public void Dispose()

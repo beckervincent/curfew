@@ -197,10 +197,16 @@ public static class Updater
         // failed silent install leaves — the service logs it on its next pass),
         // then delete the task so it does not persist and re-run. cmd /c strips the
         // outermost quote pair, so the inner quotes survive for paths with spaces.
+        // /v:on enables delayed expansion and the exit code is read with !ERRORLEVEL!
+        // rather than %ERRORLEVEL%: cmd expands percent-variables once, when it first
+        // parses the whole line, BEFORE the installer runs — so %ERRORLEVEL% would
+        // record the value inherited by this fresh cmd (always 0), never the
+        // installer's result. !ERRORLEVEL! is evaluated when the echo actually
+        // executes, after the installer exits, so it captures the real exit code.
         var resultPath = Path.Combine(Path.GetDirectoryName(installerPath) ?? string.Empty, InstallResultFileName);
         var cmdArgument =
-            $"/c \"\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART " +
-            $"& echo %ERRORLEVEL% > \"{resultPath}\" " +
+            $"/v:on /c \"\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART " +
+            $"& echo !ERRORLEVEL! > \"{resultPath}\" " +
             $"& schtasks /delete /tn {taskName} /f\"";
 
         return string.Join('\n', new[]

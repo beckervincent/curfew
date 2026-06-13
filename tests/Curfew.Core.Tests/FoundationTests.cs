@@ -146,6 +146,13 @@ public class AppAllowlistTests
         // renaming any exe to an allow-listed name stops the budget clock forever.
         Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}users{sep}kid{sep}code.exe", roots));
 
+        // Sibling directory whose name merely *starts with* the trusted root's text:
+        // NOT exempt. AllowsTrusted appends a separator to each root before StartsWith
+        // precisely so "Program FilesEvil" (a folder the child could create) is not
+        // treated as inside "Program Files". Drop that separator-append and this path
+        // wrongly becomes exempt, stopping the budget clock forever.
+        Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}trusted{sep}Program FilesEvil{sep}code.exe", roots));
+
         // Non-listed name in a trusted root: not exempt either.
         Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}trusted{sep}Program Files{sep}chrome.exe", roots));
 

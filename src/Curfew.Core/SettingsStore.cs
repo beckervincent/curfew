@@ -154,16 +154,22 @@ public sealed class SettingsStore : IDisposable
     /// </summary>
     /// <param name="databasePath">Absolute path to the SQLite database file.</param>
     /// <param name="today">The current local date, used to decide which per-day rows to keep.</param>
+    /// <param name="eventLogPath">
+    /// Where a corruption-recreate's <see cref="CurfewEventKind.StoreRecreated"/>
+    /// event is appended; defaults to the production log. Tests pass a temp file to
+    /// assert the emission.
+    /// </param>
     /// <returns>An open <see cref="SettingsStore"/>; never <see langword="null"/>.</returns>
     /// <exception cref="ArgumentException"><paramref name="databasePath"/> is null, empty or whitespace.</exception>
-    public static SettingsStore Open(string databasePath, DateOnly today)
+    public static SettingsStore Open(string databasePath, DateOnly today, string? eventLogPath = null)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
             throw new ArgumentException("Database path must be provided.", nameof(databasePath));
 
         // Single-file mode: one connection backs both config and state. Defaults are
         // seeded and stale per-day rows purged on the same file.
-        var connection = OpenResilient(databasePath, c => Prepare(c, seedDefaults: true, today, purge: true));
+        var connection = OpenResilient(
+            databasePath, c => Prepare(c, seedDefaults: true, today, purge: true), eventLogPath: eventLogPath);
         return new SettingsStore(connection, connection, today);
     }
 
@@ -182,8 +188,14 @@ public sealed class SettingsStore : IDisposable
     /// app/overlay, which open config.db read-only (it is ACL'd read-only for them);
     /// they never migrate — the service does that on boot.
     /// </param>
+    /// <param name="eventLogPath">
+    /// Where a corruption-recreate's <see cref="CurfewEventKind.StoreRecreated"/>
+    /// event is appended; defaults to the production log. Tests pass a temp file to
+    /// assert that recreating state.db (a child-triggerable counter reset) is traced.
+    /// </param>
     public static SettingsStore OpenSplit(
-        string configPath, string statePath, string? legacyPath, DateOnly today, bool configWritable = true)
+        string configPath, string statePath, string? legacyPath, DateOnly today,
+        bool configWritable = true, string? eventLogPath = null)
     {
         if (string.IsNullOrWhiteSpace(configPath))
             throw new ArgumentException("Config path must be provided.", nameof(configPath));
@@ -193,13 +205,16 @@ public sealed class SettingsStore : IDisposable
         var configExisted = File.Exists(configPath);
 
         var config = configWritable
-            ? OpenResilient(configPath, c => Prepare(c, seedDefaults: true, today, purge: false), ConfigJournalMode)
-            : OpenConfigReadOnly(configPath, today);
+            ? OpenResilient(
+                configPath, c => Prepare(c, seedDefaults: true, today, purge: false),
+                ConfigJournalMode, eventLogPath)
+            : OpenConfigReadOnly(configPath, today, eventLogPath);
 
         SqliteConnection state;
         try
         {
-            state = OpenResilient(statePath, c => Prepare(c, seedDefaults: false, today, purge: true));
+            state = OpenResilient(
+                statePath, c => Prepare(c, seedDefaults: false, today, purge: true), eventLogPath: eventLogPath);
         }
         catch
         {
@@ -266,7 +281,13 @@ public sealed class SettingsStore : IDisposable
     }
 
     /// <summary>Opens a connection and runs <paramref name="setup"/>, recreating the file once if it is corrupt.</summary>
-    private static SqliteConnection OpenResilient(string path, Action<SqliteConnection> setup, string journalMode = "WAL")
+    /// <param name="eventLogPath">
+    /// Destination for the <see cref="CurfewEventKind.StoreRecreated"/> event on a
+    /// corruption-recreate; defaults to the production log. Threaded through so tests
+    /// can redirect it to a temp file and assert the emission.
+    /// </param>
+    private static SqliteConnection OpenResilient(
+        string path, Action<SqliteConnection> setup, string journalMode = "WAL", string? eventLogPath = null)
     {
         try
         {
@@ -281,7 +302,7 @@ public sealed class SettingsStore : IDisposable
             // healthy database over a transient lock would destroy the parent's
             // settings, including the passcode.
             TryDeleteDatabaseFiles(path);
-            RecordStoreRecreated(path);
+            RecordStoreRecreated(path, eventLogPath);
             return InitConnection(path, setup, journalMode: journalMode);
         }
     }
@@ -298,11 +319,22 @@ public sealed class SettingsStore : IDisposable
     /// for state.db that wipes the day's counters back to a fresh budget, which a
     /// child could provoke deliberately by corrupting the child-writable file.
     /// </summary>
-    private static void RecordStoreRecreated(string path)
+    /// <param name="path">The database file that was recreated (its name is the event detail).</param>
+    /// <param name="eventLogPath">
+    /// Where to append the event, or <see langword="null"/> to use the production log
+    /// (<see cref="CurfewPaths.EventLogFile"/>). Tests redirect it to a temp file to
+    /// assert the emission (the only parent-facing trace of a child-triggerable state
+    /// reset). The default-path lookup is resolved INSIDE the try below: computing
+    /// <see cref="CurfewPaths.EventLogFile"/> creates <c>%ProgramData%\Curfew</c> and
+    /// can itself throw (a reparse-point junction makes <see cref="CurfewPaths.DataDirectory"/>
+    /// fail closed), and recreating the store must still proceed regardless.
+    /// </param>
+    private static void RecordStoreRecreated(string path, string? eventLogPath)
     {
         try
         {
-            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.StoreRecreated, Path.GetFileName(path));
+            EventLog.Append(
+                eventLogPath ?? CurfewPaths.EventLogFile, CurfewEventKind.StoreRecreated, Path.GetFileName(path));
         }
         catch
         {
@@ -355,7 +387,7 @@ public sealed class SettingsStore : IDisposable
     /// keeps unlock working (a direct read of the passcode hash) even though the
     /// app can no longer WRITE config once the ACL is on.
     /// </summary>
-    private static SqliteConnection OpenConfigReadOnly(string path, DateOnly today)
+    private static SqliteConnection OpenConfigReadOnly(string path, DateOnly today, string? eventLogPath = null)
     {
         if (File.Exists(path))
         {
@@ -370,7 +402,7 @@ public sealed class SettingsStore : IDisposable
         {
             Prepare(c, seedDefaults: true, today, purge: false);
             Execute(c, $"INSERT OR REPLACE INTO settings (key, value) VALUES ('{BootstrapMarkerKey}', '1')");
-        }, ConfigJournalMode);
+        }, ConfigJournalMode, eventLogPath);
     }
 
     private static void Prepare(SqliteConnection connection, bool seedDefaults, DateOnly today, bool purge)

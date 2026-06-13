@@ -145,7 +145,20 @@ public sealed partial class SetupWindow : Window
             return;
 
         ClearError();
+        ConfigBridge.ResetWriteStatus();
         PersistConfiguration(pin);
+
+        // Every first-run value (the passcode hash and setup_complete included) is
+        // written through the service over the config pipe. If any of those writes
+        // could not reach the service, the device would be left unprotected
+        // (HasPasscode==false) while the wizard claimed success — so keep the window
+        // open and tell the parent to retry once the service is reachable.
+        if (!ConfigBridge.LastWriteOk)
+        {
+            ShowError(Loc.T("settings.err.savefailed"));
+            return;
+        }
+
         Close();
     }
 
