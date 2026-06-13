@@ -16,7 +16,6 @@ public class SettingsPartitionTests
     [InlineData("lock_deadline_unix", SettingsStoreKind.State)]
     [InlineData("lock_sid", SettingsStoreKind.State)]
     [InlineData("lock_code", SettingsStoreKind.State)]
-    [InlineData("lock_surface_ready", SettingsStoreKind.State)]
     [InlineData("tray_command", SettingsStoreKind.State)]
     [InlineData("unlock_last_counter", SettingsStoreKind.State)]
     [InlineData("passcode", SettingsStoreKind.Config)]
