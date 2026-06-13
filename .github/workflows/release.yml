@@ -139,7 +139,12 @@ jobs:
           "$sha  $installer" | Out-File -FilePath "$installer.sha256" -Encoding ascii
           Write-Host "SHA-256: $sha"
 
+          # Ship as a pre-release: the v1.6.x line is still being validated on the
+          # test fleet, so it must NOT become the "Latest" release that stable users
+          # auto-update to (they stay pinned to the current stable). The updater's
+          # prerelease channel still picks it up. Promote to stable later by editing
+          # the release to --latest once a build is proven in the field.
           # No --clobber: never silently overwrite an already-published artifact. A
           # re-run on an existing tag fails loudly instead of replacing the release.
-          gh release create $tag --title "Curfew v$version" --notes-file "RELEASE_NOTES.md" --latest $installer "$installer.sha256"
+          gh release create $tag --title "Curfew v$version" --notes-file "RELEASE_NOTES.md" --prerelease $installer "$installer.sha256"
           if ($LASTEXITCODE -ne 0) { throw "Release creation failed (does the tag already have a release?)" }
