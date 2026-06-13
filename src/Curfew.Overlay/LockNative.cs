@@ -5,7 +5,7 @@ namespace Curfew.Overlay;
 /// <summary>
 /// Extra Win32 surface used exclusively by the full-screen lock screen: child
 /// control / button / edit styles, the low-level keyboard hook used to swallow
-/// escape shortcuts, and the privileged system-shutdown path.
+/// escape shortcuts, and the forced session logoff.
 /// </summary>
 /// <remarks>
 /// This is a thin, dependency-free P/Invoke shim. The general overlay window
@@ -77,28 +77,19 @@ internal static class LockNative
     public const uint MB_DEFBUTTON2 = 0x0100;
     public const int IDYES = 6;
 
-    // ---- Shutdown / privilege adjustment ----------------------------------
+    // ---- Logoff -----------------------------------------------------------
 
-    public const uint EWX_SHUTDOWN = 0x0001;
     /// <summary>EWX_LOGOFF — end the calling user's session (not a machine shutdown).</summary>
     public const uint EWX_LOGOFF = 0x0000;
     /// <summary>EWX_FORCE — close apps without waiting; a child must not be able to veto the curfew.</summary>
     public const uint EWX_FORCE = 0x0004;
-    /// <summary>EWX_FORCEIFHUNG — proceed even if a window stops responding.</summary>
-    public const uint EWX_FORCEIFHUNG = 0x0010;
-    public const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
-    public const uint TOKEN_QUERY = 0x0008;
-    public const uint SE_PRIVILEGE_ENABLED = 0x0002;
-
-    /// <summary>SeShutdownPrivilege — required before <see cref="ExitWindowsEx"/>.</summary>
-    private const string SE_SHUTDOWN_NAME = "SeShutdownPrivilege";
 
     /// <summary>
     /// SHTDN_REASON_MAJOR_APPLICATION | SHTDN_REASON_MINOR_MAINTENANCE |
-    /// SHTDN_REASON_FLAG_PLANNED — a tidy entry in the shutdown event log so an
-    /// administrator can see Curfew (not a crash) triggered the shutdown.
+    /// SHTDN_REASON_FLAG_PLANNED — a tidy reason code on the logoff so an
+    /// administrator can see Curfew (not a crash) ended the session.
     /// </summary>
-    private const uint SHUTDOWN_REASON = 0x00040000u | 0x00000001u | 0x80000000u;
+    private const uint LOGOFF_REASON = 0x00040000u | 0x00000001u | 0x80000000u;
 
     // ---- Delegates --------------------------------------------------------
 
@@ -118,21 +109,6 @@ internal static class LockNative
         public uint flags;
         public uint time;
         public IntPtr dwExtraInfo;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct LUID
-    {
-        public uint LowPart;
-        public int HighPart;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct TOKEN_PRIVILEGES
-    {
-        public uint PrivilegeCount;
-        public LUID Luid;
-        public uint Attributes;
     }
 
     // ---- user32 -----------------------------------------------------------
@@ -170,26 +146,6 @@ internal static class LockNative
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool ExitWindowsEx(uint flags, uint reason);
 
-    // ---- kernel32 ---------------------------------------------------------
-
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr GetCurrentProcess();
-
-    [DllImport("kernel32.dll")]
-    public static extern bool CloseHandle(IntPtr h);
-
-    // ---- advapi32 ---------------------------------------------------------
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    public static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
-
-    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    public static extern bool LookupPrivilegeValueW(string? system, string name, out LUID luid);
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    public static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll,
-        ref TOKEN_PRIVILEGES newState, uint len, IntPtr prev, IntPtr retLen);
-
     // ---- Helpers ----------------------------------------------------------
 
     /// <summary>
@@ -203,7 +159,7 @@ internal static class LockNative
     /// </summary>
     public static void Logoff()
     {
-        if (!ExitWindowsEx(EWX_LOGOFF | EWX_FORCE, SHUTDOWN_REASON))
+        if (!ExitWindowsEx(EWX_LOGOFF | EWX_FORCE, LOGOFF_REASON))
             OverlayLog.Write($"logoff: ExitWindowsEx failed err={Marshal.GetLastWin32Error()}");
         else
             OverlayLog.Write("logoff: requested");

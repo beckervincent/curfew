@@ -33,7 +33,6 @@ internal static class Native
     public const int WS_POPUP = unchecked((int)0x80000000);
     public const int WS_VISIBLE = 0x10000000;
     public const int WS_CHILD = 0x40000000;
-    public const int WS_BORDER = 0x00800000;
 
     // ── Extended window styles (WS_EX_*) ────────────────────────────────────
     public const int WS_EX_TOPMOST = 0x00000008;
@@ -44,7 +43,6 @@ internal static class Native
 
     // ── Layered-window attribute flags ──────────────────────────────────────
     public const uint LWA_ALPHA = 0x2;
-    public const uint LWA_COLORKEY = 0x1;
 
     // ── ShowWindow commands (SW_*) ──────────────────────────────────────────
     public const int SW_SHOW = 5;
@@ -69,7 +67,6 @@ internal static class Native
     public const uint WM_CLOSE = 0x0010;
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_SETFONT = 0x0030;
-    public const uint WM_KEYDOWN = 0x0100;
     // Owner-draw + control-colour messages used to give the lock's child controls
     // (buttons, passcode field) the same dark, rounded look as the WinUI app.
     public const uint WM_DRAWITEM = 0x002B;
@@ -79,20 +76,15 @@ internal static class Native
     public const int SM_CXSCREEN = 0;
     public const int SM_CYSCREEN = 1;
 
-    /// <summary>System colour index for the window background (GetSysColor / +1 for brush).</summary>
-    public const int COLOR_WINDOW = 5;
-
     // ── DrawText formatting flags (DT_*) ────────────────────────────────────
     public const int DT_CENTER = 0x1;
     public const int DT_VCENTER = 0x4;
     public const int DT_WORDBREAK = 0x10;
     public const int DT_SINGLELINE = 0x20;
-    public const int DT_END_ELLIPSIS = 0x8000;
     public const int DT_NOPREFIX = 0x0800;
 
     // ── Background mix modes (SetBkMode) ────────────────────────────────────
     public const int TRANSPARENT = 1;
-    public const int OPAQUE = 2;
 
     // ── CreateFontW: weights, quality, charset, precision, pitch ────────────
     public const int FW_NORMAL = 400;
@@ -100,12 +92,8 @@ internal static class Native
     public const int FW_BOLD = 700;
 
     public const uint DEFAULT_CHARSET = 1;
-    public const uint OUT_DEFAULT_PRECIS = 0;
-    public const uint OUT_TT_PRECIS = 4;
     public const uint CLIP_DEFAULT_PRECIS = 0;
 
-    /// <summary>Greyscale anti-aliasing — fine for solid backgrounds.</summary>
-    public const uint ANTIALIASED_QUALITY = 4;
     /// <summary>ClearType — best for opaque text on the panel; preferred default.</summary>
     public const uint CLEARTYPE_QUALITY = 5;
 
@@ -114,13 +102,9 @@ internal static class Native
 
     // ── CreatePen styles ────────────────────────────────────────────────────
     public const int PS_SOLID = 0;
-    public const int PS_NULL = 5;
 
     // ── GetStockObject indices ──────────────────────────────────────────────
     public const int NULL_BRUSH = 5;
-    public const int NULL_PEN = 8;
-    public const int DC_BRUSH = 18;
-    public const int DC_PEN = 19;
 
     // ── BitBlt raster operation ─────────────────────────────────────────────
     public const uint SRCCOPY = 0x00CC0020;
