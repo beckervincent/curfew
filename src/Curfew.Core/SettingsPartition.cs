@@ -38,7 +38,7 @@ public static class SettingsPartition
         // write access to them), the tray command, and the offline-code replay
         // counter.
         "lock_active", "lock_reason", "lock_deadline_unix", "lock_action",
-        "lock_action_at", "lock_sid", "lock_code",
+        "lock_action_at", "lock_sid", "lock_code", "lock_surface_ready",
         "tray_", "unlock_last_counter",
     };
 

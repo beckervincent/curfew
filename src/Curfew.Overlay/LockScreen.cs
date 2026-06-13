@@ -86,6 +86,17 @@ internal static class LockScreen
     /// <summary>True while the current lock is a schedule block (outside allowed hours), not a budget block.</summary>
     private static bool _scheduleMode;
 
+    /// <summary>
+    /// True once the WinUI lock surface has signalled it is up and painted (via the
+    /// <c>lock_surface_ready</c> state key), so the overlay hides its own GDI card and
+    /// its child controls and serves only as the black floor beneath the surface.
+    /// Without this the two near-identical cards render stacked and the GDI one bleeds
+    /// out from under the WinUI one. Reset on every <see cref="Show"/> and the moment
+    /// the surface dies, so the GDI card returns instantly as the fallback. Only ever
+    /// set while <c>winui_lock_enabled</c>.
+    /// </summary>
+    private static bool _winuiCovering;
+
     // Cached fonts/brushes created once and reused on every paint, then freed in
     // Dispose. Reusing GDI handles avoids per-frame churn and keeps the countdown
     // repaint cheap (it fires once a second).
@@ -173,10 +184,16 @@ internal static class LockScreen
         OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
         OverlayState.Settings.Set("lock_active", "1");
+        // The WinUI surface sets this to "1" once it has painted; clear any stale value
+        // from a previous lock so the overlay shows its own card until the surface is
+        // confirmed up this time.
+        OverlayState.Settings.Set("lock_surface_ready", "0");
+        _winuiCovering = false;
         SetControlsVisible(true);
         // Launch the WinUI lock surface on top — the lock the user actually sees. The
-        // GDI card above stays painted underneath as the hard floor, so if the app
-        // cannot be launched the lock is still fully usable, never a blank black screen.
+        // GDI card is shown underneath only until the surface signals it has painted
+        // (then WhileLockedTick hides it), and is brought back if the surface ever
+        // dies, so the lock is always usable and the two cards never show stacked.
         if (WinuiLockEnabled) LockAppHost.Launch();
 
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked,
@@ -356,9 +373,10 @@ internal static class LockScreen
 
     /// <summary>
     /// Per-second work while the lock is up: apply any action the WinUI surface
-    /// recorded, and keep that (best-effort) surface alive. The GDI card underneath
-    /// is always shown, so a missing WinUI surface just means a plainer lock — never
-    /// a blank black screen. Called from the overlay tick.
+    /// recorded, and reconcile the GDI fallback card with the surface — hide it once
+    /// the surface has painted (so the two near-identical cards never show stacked),
+    /// and bring it back the moment the surface dies, so the lock is never blank.
+    /// Called from the overlay tick.
     /// </summary>
     public static void WhileLockedTick()
     {
@@ -369,10 +387,36 @@ internal static class LockScreen
         ConsumeLockAction();
 
         if (!OverlayState.Locked) return;
+        if (!WinuiLockEnabled) return;  // GDI-only mode: the card is always the lock.
 
-        // While the (opt-in) WinUI layer is gone, make sure the GDI card underneath is
-        // painted on top and focused so it is usable, then try to bring it back.
-        if (WinuiLockEnabled && !LockAppHost.IsRunning)
+        // The WinUI surface is the visible lock; the overlay's own GDI card is only the
+        // fallback when the surface is not (yet) up. "Up" means the process is alive AND
+        // it has reported a painted window — a running-but-not-yet-painted surface must
+        // keep the GDI card showing so the launch never flashes black.
+        var surfaceUp = LockAppHost.IsRunning
+            && OverlayState.Settings.Get("lock_surface_ready") == "1";
+
+        if (surfaceUp)
+        {
+            if (!_winuiCovering)
+            {
+                _winuiCovering = true;
+                SetControlsVisible(false);
+                InvalidateRect(_hwnd, IntPtr.Zero, false);  // repaint plain black under the surface
+            }
+            return;
+        }
+
+        // Surface not up. Make sure the GDI card is the visible, usable lock again.
+        if (_winuiCovering)
+        {
+            _winuiCovering = false;
+            SetControlsVisible(true);
+            InvalidateRect(_hwnd, IntPtr.Zero, false);
+        }
+
+        // Truly gone (not merely still painting): repaint, refocus the field, relaunch.
+        if (!LockAppHost.IsRunning)
         {
             InvalidateRect(_hwnd, IntPtr.Zero, false);
             if (_edit != IntPtr.Zero) SetFocus(_edit);
@@ -749,9 +793,15 @@ internal static class LockScreen
         // Fill the full backdrop ourselves (no class brush) so there is no flash.
         FillSolid(hdc, client.left, client.top, client.right - client.left, client.bottom - client.top, ColorOverlayBg);
 
-        // Always draw the full GDI card: it is the real, always-usable lock. The
-        // WinUI surface (when it appears) sits on top of it; when it doesn't, this
-        // card is what the user sees and uses, so there is never a blank black screen.
+        // When the WinUI surface is up and covering, the overlay is only the black
+        // floor beneath it — drawing the GDI card too would show it stacked under the
+        // (near-identical) surface, bleeding out wherever the surface doesn't perfectly
+        // cover. Paint just the backdrop in that case; the card is the fallback only.
+        if (_winuiCovering)
+        {
+            EndPaint(hwnd, ref ps);
+            return;
+        }
 
         var px = (client.right - PanelWidth) / 2;
         var py = (client.bottom - PanelHeight) / 2;

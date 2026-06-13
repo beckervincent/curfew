@@ -32,6 +32,7 @@ internal sealed class LockController
     private LockWindow? _primary;
     private DispatcherTimer? _timer;
     private bool _closing;
+    private bool _surfaceReady;
 
     public LockController(SettingsStore settings) => _settings = settings;
 
@@ -135,6 +136,17 @@ internal sealed class LockController
             return;
         }
 
+        // Tell the overlay the surface is up and painted. This tick runs ~1s after the
+        // window was activated, so the FullScreen card is on screen by now; the overlay
+        // then hides its GDI fallback card so the two near-identical lock cards never
+        // show stacked. Best-effort: if the state.db write fails, leave the flag unset
+        // and retry next tick — the overlay just keeps showing its card a little longer.
+        if (!_surfaceReady)
+        {
+            try { _settings.Set("lock_surface_ready", "1"); _surfaceReady = true; }
+            catch { /* state.db momentarily locked; retry next tick */ }
+        }
+
         // Keep every lock window pinned to the top so nothing can cover it (the
         // overlay's black cover deliberately does NOT fight us for the top spot).
         ReassertTopmost(_primary);
@@ -229,6 +241,9 @@ internal sealed class LockController
         _closing = true;
 
         _timer?.Stop();
+        // Drop the readiness flag so the next lock starts with the overlay showing its
+        // own card until a fresh surface reports it has painted.
+        try { _settings.Set("lock_surface_ready", "0"); } catch { /* best effort */ }
         try { foreach (var cover in _covers) cover.Close(); } catch { /* tearing down */ }
         try { _primary?.Close(); } catch { /* tearing down */ }
 
