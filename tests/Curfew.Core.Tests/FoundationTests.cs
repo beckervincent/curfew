@@ -36,6 +36,12 @@ public class SettingsPartitionTests
     [InlineData("provisioned_users", false)] // device-wide set-up list
     [InlineData("app_allowlist", false)]
     [InlineData("auto_update_enabled", false)]
+    // machine-wide enforcement: the SYSTEM service applies these once for the whole
+    // machine and reads them with no UserSid, so they must NOT be per-user (else a
+    // per-user write would never reach the service)
+    [InlineData("dns_filter_mode", false)]
+    [InlineData("block_doh_bypass", false)]
+    [InlineData("time_guard_enabled", false)]
     [InlineData("lock_active", false)]     // state, not per-user config
     public void IsPerUser_only_for_per_child_policy(string key, bool expected) =>
         Assert.Equal(expected, SettingsPartition.IsPerUser(key));

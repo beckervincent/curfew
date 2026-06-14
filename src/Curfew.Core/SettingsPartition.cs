@@ -29,12 +29,19 @@ public static class SettingsPartition
         "tray_", "unlock_last_counter",
     };
 
-    /// <summary>Device-wide config keys (not per-user): passcode, activation code, provisioned-user list, app allow-list, schema version, failed-attempt counters, update prefs. Else per-user.</summary>
+    /// <summary>Device-wide config keys (not per-user): passcode, provisioned-user list, app allow-list,
+    /// schema version, failed-attempt counters, update prefs, and the machine-wide enforcement settings.
+    /// Else per-user. dns_filter_mode / block_doh_bypass / time_guard_enabled MUST be global: the SYSTEM
+    /// service applies them once for the whole machine (Cloudflare DNS on every adapter, DoH firewall rules,
+    /// system-clock guard) and reads them with no UserSid. Were they per-user the parent's change would land
+    /// under u:&lt;sid&gt;:... while the service kept reading the global key, so content filtering / time guard
+    /// would silently never apply.</summary>
     private static readonly HashSet<string> GlobalConfigKeys = new(StringComparer.Ordinal)
     {
         "passcode", "provisioned_users", "app_allowlist",
         "schema_version", "auto_update_enabled", "update_channel",
         "failed_attempts", "failed_attempt_at",
+        "dns_filter_mode", "block_doh_bypass", "time_guard_enabled",
     };
 
     /// <summary>Store a (fully-formed) key belongs to.</summary>
