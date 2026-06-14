@@ -180,18 +180,8 @@ internal static class OverlayState
     public static bool ScheduleBlocked =>
         ScheduleEnabled && !ScheduleAllows() && !ScheduleOverride && !IgnoreScheduleUntilRestart;
 
-    /// <summary>
-    /// True when this Windows user has not been activated on the device. Only in
-    /// force once the parent has set a device code; until then every user is allowed
-    /// (no provisioning configured). Activation happens at the lock via the device
-    /// code or the parent passcode.
-    /// </summary>
-    public static bool NewUserBlocked =>
-        !string.IsNullOrEmpty(Settings.Get("device_code"))
-        && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
-
     /// <summary>True when any enforcement reason currently requires the lock screen.</summary>
-    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked || NewUserBlocked;
+    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked;
 
     /// <summary>
     /// Persists today's remaining budget so a restart (e.g. watchdog respawn)

@@ -9,17 +9,16 @@ namespace Curfew.App;
 
 /// <summary>
 /// The primary-monitor WinUI lock surface. It collects input and verifies the
-/// parent passcode (or an unlock code, or the device code for a new user) in
-/// process, enforces the brute-force lockout, then raises <see cref="ActionConfirmed"/>;
+/// parent passcode (or an offline unlock code) in process, enforces the brute-force
+/// lockout, then raises <see cref="ActionConfirmed"/>;
 /// <see cref="LockController"/> records the action for the overlay and tears the
 /// lock down. The window has no title bar and is shown full-screen by the controller.
 /// </summary>
 public sealed partial class LockWindow : Window
 {
     private readonly SettingsStore _settings;
-    private readonly string _reason;          // "budget" | "schedule" | "newuser"
+    private readonly string _reason;          // "budget" | "schedule"
     private readonly bool _budgetMode;
-    private readonly bool _newUser;
 
     /// <summary>
     /// Fail-closed cooldown deadline (Unix seconds, UTC) used when the SYSTEM
@@ -36,8 +35,8 @@ public sealed partial class LockWindow : Window
 
     /// <summary>
     /// Raised on a confirmed action (extend15/30/60 / unlock / ignore_schedule /
-    /// redeem / provision / logoff). The second argument is the entered code for
-    /// redeem/provision, otherwise null.
+    /// redeem / logoff). The second argument is the entered code for redeem,
+    /// otherwise null.
     /// </summary>
     public event Action<string, string?>? ActionConfirmed;
 
@@ -46,26 +45,15 @@ public sealed partial class LockWindow : Window
         _settings = settings;
         _reason = reason;
         _budgetMode = reason == "budget";
-        _newUser = reason == "newuser";
         InitializeComponent();
 
         Add15.Content = Loc.T("lock.extend.minutes", 15);
         Add30.Content = Loc.T("lock.extend.minutes", 30);
         Add60.Content = Loc.T("lock.extend.hour");
 
-        if (_newUser)
-        {
-            TitleText.Text = Loc.T("lock.title.newuser");
-            MessageText.Text = Loc.T("lock.newuser.message");
-            UnlockButton.Content = Loc.T("lock.activate");
-            AddTimePanel.Visibility = Visibility.Collapsed;   // no time to add for a new user
-        }
-        else
-        {
-            TitleText.Text = _budgetMode ? Loc.T("lock.title.budget") : Loc.T("lock.title.schedule");
-            MessageText.Text = _budgetMode ? BudgetMessage() : Loc.T("lock.schedule.message");
-            UnlockButton.Content = _budgetMode ? Loc.T("lock.unlock") : Loc.T("lock.schedule.ignore");
-        }
+        TitleText.Text = _budgetMode ? Loc.T("lock.title.budget") : Loc.T("lock.title.schedule");
+        MessageText.Text = _budgetMode ? BudgetMessage() : Loc.T("lock.schedule.message");
+        UnlockButton.Content = _budgetMode ? Loc.T("lock.unlock") : Loc.T("lock.schedule.ignore");
     }
 
     /// <summary>Updates the logoff-countdown line (driven by the controller's timer).</summary>
@@ -85,7 +73,7 @@ public sealed partial class LockWindow : Window
     private void OnAdd60(object sender, RoutedEventArgs e) => TryAction("extend60");
 
     private void OnUnlock(object sender, RoutedEventArgs e) =>
-        TryAction(_newUser ? "provision" : _budgetMode ? "unlock" : "ignore_schedule");
+        TryAction(_budgetMode ? "unlock" : "ignore_schedule");
 
     private void OnLogoff(object sender, RoutedEventArgs e) =>
         ActionConfirmed?.Invoke("logoff", null);
@@ -113,19 +101,15 @@ public sealed partial class LockWindow : Window
 
         var entered = PinBox.Password;
 
-        // A new user activates with the device code OR the parent passcode; an
-        // ordinary lock accepts the parent passcode or an offline unlock code.
-        var passcodeOk = PasscodeHash.Verify(entered, _settings.Get("passcode"));
-        var deviceOk = _newUser && PasscodeHash.Verify(entered, _settings.Get("device_code"));
-
-        if (passcodeOk || deviceOk)
+        // The lock accepts the parent passcode or an offline unlock code.
+        if (PasscodeHash.Verify(entered, _settings.Get("passcode")))
         {
             ConfigClient.ResetFailures(entered);
-            ActionConfirmed?.Invoke(action, _newUser ? entered : null);
+            ActionConfirmed?.Invoke(action, null);
             return;
         }
 
-        if (!_newUser && IsValidUnlockCode(entered))
+        if (IsValidUnlockCode(entered))
         {
             // An offline unlock code cannot authenticate the reset (the service
             // only verifies passcode/device code), so the counter simply keeps its

@@ -50,7 +50,7 @@ public static class SettingsPartition
     /// </summary>
     private static readonly HashSet<string> GlobalConfigKeys = new(StringComparer.Ordinal)
     {
-        "passcode", "device_code", "provisioned_users", "app_allowlist",
+        "passcode", "app_allowlist",
         "schema_version", "auto_update_enabled", "update_channel",
         "failed_attempts", "failed_attempt_at",
     };

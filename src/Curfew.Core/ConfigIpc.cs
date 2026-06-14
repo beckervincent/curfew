@@ -14,9 +14,6 @@ public static class ConfigPipe
     /// <summary>Set a config key (passcode-gated unless no passcode exists yet).</summary>
     public const string OpSet = "set";
 
-    /// <summary>Provision a Windows user (device code or passcode-gated).</summary>
-    public const string OpProvision = "provision";
-
     /// <summary>Record a failed unlock attempt (advances the lockout counter).</summary>
     public const string OpRecordFailure = "fail";
 
@@ -29,8 +26,7 @@ public sealed record ConfigRequest(
     string Op,
     string? Key = null,
     string? Value = null,
-    string? Passcode = null,
-    string? Sid = null);
+    string? Passcode = null);
 
 /// <summary>A config-IPC response.</summary>
 public sealed record ConfigResponse(bool Ok, string? Error = null, string? Value = null);
@@ -96,10 +92,6 @@ public static class ConfigClient
     /// <summary>Writes a config key via the service. Returns whether it was accepted.</summary>
     public static bool SetConfig(string key, string value, string? passcode) =>
         Send(new ConfigRequest(ConfigPipe.OpSet, Key: key, Value: value, Passcode: passcode)).Ok;
-
-    /// <summary>Activates a Windows user given the device code (or parent passcode).</summary>
-    public static bool Provision(string sid, string? code) =>
-        Send(new ConfigRequest(ConfigPipe.OpProvision, Sid: sid, Passcode: code)).Ok;
 
     /// <summary>Records a failed unlock attempt (advances the lockout counter).</summary>
     public static bool RecordFailure() =>

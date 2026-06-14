@@ -148,13 +148,13 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Guards the user-picker handler while it is populated programmatically.</summary>
     private bool _loadingUser;
 
-    /// <summary>Fills the picker with "All users" plus each provisioned user.</summary>
+    /// <summary>Fills the picker with "All users" plus each Windows user that has recorded usage.</summary>
     private void PopulateUserPicker()
     {
         _loadingUser = true;
         UserPicker.Items.Clear();
         UserPicker.Items.Add(new ComboBoxItem { Content = Loc.T("settings.user.all"), Tag = string.Empty });
-        foreach (var sid in Curfew.Core.UserProvisioning.Parse(_settings.Get("provisioned_users")))
+        foreach (var sid in _settings.UsersWithHistory())
             UserPicker.Items.Add(new ComboBoxItem { Content = ResolveUserName(sid), Tag = sid });
         UserPicker.SelectedIndex = 0;
         _loadingUser = false;
@@ -644,7 +644,6 @@ public sealed partial class SettingsWindow : Window
         ClearError();
         ConfigBridge.ResetWriteStatus();
         if (!TrySavePasscode()) return;
-        if (!ValidateDeviceCode()) return;
 
         SaveToggles();
         SaveDailyLimits();
@@ -719,35 +718,6 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("time_guard_enabled", ToFlag(TimeGuard.IsOn));
         _settings.Set("auto_update_enabled", ToFlag(AutoUpdate.IsOn));
         _settings.Set("update_channel", SelectedChannel());
-
-        // Device activation code: only update it when the parent typed a new one, so
-        // an untouched field never wipes the existing code. Stored as a salted hash.
-        // Length is enforced in ValidateDeviceCode (run before any save), so anything
-        // reaching here already meets the minimum.
-        var code = DeviceCodeBox.Password;
-        if (!string.IsNullOrEmpty(code))
-            _settings.Set("device_code", PasscodeHash.Hash(code));
-    }
-
-    /// <summary>
-    /// Enforces the same minimum length on the device activation code as on the
-    /// passcode. Like the passcode, the device-code hash lives in child-readable
-    /// config.db, so a short code is crackable offline regardless of the PBKDF2
-    /// iteration count — and recovering it lets a child self-activate any
-    /// unprovisioned account, defeating the new-user gate. An empty box means
-    /// "leave the current code untouched" and passes.
-    /// </summary>
-    /// <returns><c>true</c> when the box is blank or the typed code is long enough.</returns>
-    private bool ValidateDeviceCode()
-    {
-        var code = DeviceCodeBox.Password;
-        if (code.Length == 0) return true;
-        if (code.Length < PasscodeLength)
-        {
-            ShowError(Loc.T("settings.err.newlen", PasscodeLength));
-            return false;
-        }
-        return true;
     }
 
     /// <summary>
