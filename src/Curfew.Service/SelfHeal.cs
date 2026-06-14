@@ -2,9 +2,10 @@ namespace Curfew.Service;
 
 /// <summary>
 /// Boot-time self-healing: re-registers the overlay's logon scheduled task if it
-/// has been removed. The SYSTEM service itself survives a missing task (it keeps
-/// running), and full removal still needs admin — but a child deleting the logon
-/// task should not permanently stop the overlay from spawning.
+/// has been removed, or repairs it if an older install left it with the wrong
+/// multiple-instances policy. The SYSTEM service itself survives a missing task
+/// (it keeps running), and full removal still needs admin — but a child deleting
+/// the logon task should not permanently stop the overlay from spawning.
 /// </summary>
 internal static class SelfHeal
 {
@@ -12,8 +13,15 @@ internal static class SelfHeal
     {
         try
         {
-            // Already present — nothing to do.
-            if (PowerShellRunner.Run($"schtasks /query /tn \"{SessionManager.TaskName}\" 2>$null") == 0)
+            // Present AND already using the Parallel multiple-instances policy —
+            // nothing to do. Older installs registered the task IgnoreNew, which left
+            // every session after the first without an overlay: the first session's
+            // overlay never exits its message loop, so that single running instance
+            // suppressed every later logon trigger and on-demand run. Re-register such
+            // tasks (and missing ones) so each interactive session is covered.
+            if (PowerShellRunner.Run(
+                    $"$t = Get-ScheduledTask -TaskName '{SessionManager.TaskName}' -ErrorAction SilentlyContinue; " +
+                    "if ($t -and \"$($t.Settings.MultipleInstances)\" -eq 'Parallel') { exit 0 }; exit 1") == 0)
                 return;
 
             var servicePath = Environment.ProcessPath; // ...\service\Curfew.Service.exe
@@ -32,7 +40,7 @@ internal static class SelfHeal
                 "$trg = New-ScheduledTaskTrigger -AtLogOn\n" +
                 "$prn = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited\n" +
                 "$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries " +
-                "-MultipleInstances IgnoreNew -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)\n" +
+                "-MultipleInstances Parallel -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)\n" +
                 "$set.ExecutionTimeLimit = 'PT0S'\n" +
                 $"Register-ScheduledTask -TaskName '{SessionManager.TaskName}' -Action $act -Trigger $trg " +
                 "-Principal $prn -Settings $set -Force | Out-Null";
