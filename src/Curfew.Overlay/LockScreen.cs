@@ -63,7 +63,7 @@ internal static class LockScreen
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         OverlayState.Settings.Set("lock_reason",
             OverlayState.NewUserBlocked ? "newuser"
-            : OverlayState.BudgetBlocked ? "budget" : "schedule");
+            : OverlayState.BudgetBlocked || OverlayState.WeeklyBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         OverlayState.Settings.Set("lock_action", string.Empty); // clear stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
@@ -146,6 +146,7 @@ internal static class LockScreen
             case "extend60": ExtendApply(60); break;
             case "unlock":
                 OverlayState.ScheduleOverride = true;
+                OverlayState.WeeklyOverride = true; // parent authorized more time past the weekly cap this session
                 EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "passcode");
                 if (!OverlayState.ShouldBlock) Hide();
                 break;
@@ -193,7 +194,8 @@ internal static class LockScreen
     /// is not something a break can lift, so it publishes 0 there.</summary>
     private static void PublishBreakOffer()
     {
-        var minutes = OverlayState.BudgetBlocked && !OverlayState.ScheduleBlocked && !OverlayState.NewUserBlocked
+        var minutes = OverlayState.BudgetBlocked && !OverlayState.WeeklyBlocked
+                      && !OverlayState.ScheduleBlocked && !OverlayState.NewUserBlocked
             ? OverlayState.BreakOfferSeconds() / 60
             : 0;
         OverlayState.Settings.Set("lock_break_minutes", minutes.ToString());
@@ -238,6 +240,7 @@ internal static class LockScreen
     {
         OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
         OverlayState.ScheduleOverride = true;
+        OverlayState.WeeklyOverride = true; // granted minutes must be usable past the weekly cap too
         OverlayState.Persist();
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"+{minutes} min");
         if (!OverlayState.ShouldBlock) Hide();

@@ -531,6 +531,27 @@ public sealed class SettingsStore : IDisposable
         return total;
     }
 
+    /// <summary>
+    /// Total recorded screen time (minutes) from Monday through <paramref name="today"/> inclusive — the
+    /// running weekly total for the weekly budget. Scoped to <see cref="UserSid"/> when set, else summed
+    /// across all users per day (like <see cref="GetUsageHistory"/>). Takes <paramref name="today"/> as a
+    /// parameter rather than using the open-date so a long-running overlay computes the right week across a
+    /// day/week boundary without reopening the store.
+    /// </summary>
+    public int UsedThisWeekMinutes(DateOnly today)
+    {
+        var weekday = TimeMath.MondayBasedWeekday(today); // 0 = Monday … 6 = Sunday
+        var totalSeconds = 0;
+        for (var i = 0; i <= weekday; i++)
+        {
+            var suffix = today.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            totalSeconds += UserSid is { Length: > 0 } sid
+                ? GetInt($"{UsagePrefix}{sid}_{suffix}", 0)
+                : SumUsageForDate(suffix);
+        }
+        return Math.Max(0, totalSeconds) / 60;
+    }
+
     /// <summary>Distinct Windows-user SIDs with recorded usage, from <c>used_time_&lt;sid&gt;_&lt;date&gt;</c> keys in state.db. Populates settings per-user picker (each Windows user keeps own budget; no provisioned-user list). Legacy unscoped <c>used_time_&lt;date&gt;</c> rows have no SID, skipped. Order unspecified.</summary>
     public IReadOnlyList<string> UsersWithHistory()
     {

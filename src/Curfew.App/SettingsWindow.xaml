@@ -134,6 +134,14 @@
                     <StackPanel Spacing="12" Padding="0,4,0,4">
                         <StackPanel x:Name="DailyLimitsPanel" Spacing="12" />
                         <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="WeeklyLimitEnabled" Header="{local:Loc Key=settings.weekly.toggle}"
+                                          OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                            <NumberBox x:Name="WeeklyLimit" Header="{local:Loc Key=settings.weekly.hours}"
+                                       Minimum="0" Maximum="168" Width="220" HorizontalAlignment="Left"
+                                       SpinButtonPlacementMode="Inline" SmallChange="0.5"
+                                       ToolTipService.ToolTip="Total screen-time cap for the whole week (Mon–Sun)" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
                             <TextBlock Text="{local:Loc Key=settings.allowlist.title}" Style="{StaticResource BodyTextBlockStyle}" />
                             <TextBlock Text="{local:Loc Key=settings.allowlist.desc}"
                                        Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />

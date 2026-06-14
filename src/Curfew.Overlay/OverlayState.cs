@@ -71,6 +71,18 @@ internal static class OverlayState
     /// <summary>parent ignores weekly schedule rest of session. unlike <see cref="ScheduleOverride"/> never cleared on allowed window, so later blocked windows don't re-lock. in-memory -> resets <c>false</c> on next restart (reboot/logon) = "until next restart" lifetime</summary>
     public static bool IgnoreScheduleUntilRestart;
 
+    /// <summary>weekly total screen-time cap enforced (on top of the daily budget)</summary>
+    public static bool WeeklyLimitEnabled;
+
+    /// <summary>weekly cap in minutes (0 = no cap)</summary>
+    public static int WeeklyLimitMinutes;
+
+    /// <summary>screen time used so far this week (Mon..today), minutes; refreshed each enforcement reload</summary>
+    public static int WeeklyUsedMinutes;
+
+    /// <summary>parent lifted the weekly cap for the rest of this session (set from the lock's unlock/extend). in-memory -> re-enforced next restart</summary>
+    public static bool WeeklyOverride;
+
     /// <summary>(re)load parent enforcement choices from store; each accessor falls back to safe default on missing/malformed key so partial DB never throws</summary>
     public static void LoadEnforcement()
     {
@@ -78,6 +90,9 @@ internal static class OverlayState
         ScheduleEnabled = Settings.GetBool(KeyScheduleEnabled, false);
         Schedule = Schedule.Parse(Settings.Get(KeySchedule));
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
+        WeeklyLimitEnabled = Settings.GetBool("weekly_limit_enabled", false);
+        WeeklyLimitMinutes = Settings.GetInt("weekly_limit_minutes", 0);
+        WeeklyUsedMinutes = Settings.UsedThisWeekMinutes(DateOnly.FromDateTime(DateTime.Now));
         ApplyLimitChangeToRemaining();
     }
 
@@ -126,6 +141,10 @@ internal static class OverlayState
     /// <summary>daily budget enabled + exhausted</summary>
     public static bool BudgetBlocked => LimitEnabled && Remaining <= 0;
 
+    /// <summary>weekly cap enabled, this week's usage has reached it, and the parent has not lifted it this session</summary>
+    public static bool WeeklyBlocked =>
+        WeeklyLimitEnabled && WeeklyLimitMinutes > 0 && WeeklyUsedMinutes >= WeeklyLimitMinutes && !WeeklyOverride;
+
     /// <summary>schedule enabled, current slot blocked, parent neither overrode nor ignored for session</summary>
     public static bool ScheduleBlocked =>
         ScheduleEnabled && !ScheduleAllows() && !ScheduleOverride && !IgnoreScheduleUntilRestart;
@@ -138,7 +157,7 @@ internal static class OverlayState
         && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
 
     /// <summary>any enforcement reason requires lock screen now</summary>
-    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked || NewUserBlocked;
+    public static bool ShouldBlock => BudgetBlocked || WeeklyBlocked || ScheduleBlocked || NewUserBlocked;
 
     /// <summary>genuinely new user the gate must still hold: no usage history at startup, not yet in
     /// provisioned_users. unlike <see cref="NewUserBlocked"/> does NOT depend on passcode, so stays true

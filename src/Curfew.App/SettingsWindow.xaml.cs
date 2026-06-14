@@ -433,6 +433,10 @@ public sealed partial class SettingsWindow : Window
         }
 
         AppAllowlistBox.Text = _settings.Get("app_allowlist") ?? string.Empty;
+
+        // weekly cap: stored in minutes, edited in hours
+        WeeklyLimitEnabled.IsOn = _settings.GetBool("weekly_limit_enabled", false);
+        WeeklyLimit.Value = MinutesToHours(_settings.GetInt("weekly_limit_minutes", 0));
     }
 
     private void LoadWarnings()
@@ -675,6 +679,11 @@ public sealed partial class SettingsWindow : Window
 
         // apps whose foreground time is exempt from budget. stored raw; overlay parses (AppAllowlist.Parse) when enforcing
         _settings.Set("app_allowlist", AppAllowlistBox.Text ?? string.Empty);
+
+        // weekly cap: edited in hours, stored in minutes
+        _settings.Set("weekly_limit_enabled", ToFlag(WeeklyLimitEnabled.IsOn));
+        var weeklyHours = double.IsNaN(WeeklyLimit.Value) ? 0 : WeeklyLimit.Value;
+        _settings.Set("weekly_limit_minutes", ((int)Math.Round(Math.Clamp(weeklyHours, 0, 168) * 60)).ToString());
     }
 
     private void SaveWarnings()

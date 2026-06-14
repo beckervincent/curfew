@@ -141,4 +141,17 @@ public class SettingsStoreSplitTests : IDisposable
         var all = s.GetUsageHistory(1);
         Assert.Equal(16, all[^1].Minutes); // 600 + 300 + 60 seconds = 16 minutes
     }
+
+    [Fact]
+    public void UsedThisWeekMinutes_sums_monday_through_today_and_excludes_earlier()
+    {
+        // Today (2026-06-11) is a Thursday; its week is Mon 06-08 .. Thu 06-11.
+        using var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today);
+        s.UserSid = "S-1-5-21-9";
+        s.Set("used_time_S-1-5-21-9_2026-06-08", "3600"); // Mon, in week, 60 min
+        s.Set("used_time_S-1-5-21-9_2026-06-11", "1800"); // Thu (today), 30 min
+        s.Set("used_time_S-1-5-21-9_2026-06-07", "9999"); // Sun before the week — excluded
+
+        Assert.Equal(90, s.UsedThisWeekMinutes(Today));
+    }
 }
