@@ -703,12 +703,13 @@ public sealed class SettingsStore : IDisposable
         try
         {
             using var cmd = _state.CreateCommand();
-            // Check for both scoped (used_time_<sid>_*) and legacy unscoped (used_time_<yyyy>-*)
-            // keys. GLOB (not LIKE) so underscores in the key/SID are literal, '*' the wildcard.
-            // Legacy pattern starts with 4 digits (year) to avoid matching scoped keys.
-            cmd.CommandText = "SELECT 1 FROM settings WHERE key GLOB $scoped OR key GLOB $legacy LIMIT 1";
-            cmd.Parameters.AddWithValue("$scoped", $"{UsagePrefix}{sid}_*");
-            cmd.Parameters.AddWithValue("$legacy", $"{UsagePrefix}[0-9][0-9][0-9][0-9]-*");
+            // ONLY this user's scoped rows (used_time_<sid>_<date>). NOT the legacy
+            // unscoped used_time_<date> aggregate rows: those carry no SID, so matching
+            // them would grandfather EVERY user (including a genuinely new one) on any
+            // device that still has a legacy row — defeating the new-user gate. GLOB
+            // (not LIKE) so the underscores in the key/SID are literal, '*' the wildcard.
+            cmd.CommandText = "SELECT 1 FROM settings WHERE key GLOB $g LIMIT 1";
+            cmd.Parameters.AddWithValue("$g", $"{UsagePrefix}{sid}_*");
             return cmd.ExecuteScalar() is not null;
         }
         catch (SqliteException)

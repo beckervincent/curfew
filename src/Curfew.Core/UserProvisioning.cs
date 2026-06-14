@@ -26,7 +26,7 @@ public static class UserProvisioning
     /// <summary>Returns the list with <paramref name="sid"/> added (idempotent).</summary>
     public static string Add(string? stored, string sid)
     {
-        if (string.IsNullOrEmpty(sid)) return stored ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sid)) return stored ?? string.Empty;
         var users = Parse(stored).ToList();
         if (!users.Contains(sid, StringComparer.OrdinalIgnoreCase)) users.Add(sid);
         return string.Join(';', users);

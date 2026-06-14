@@ -421,18 +421,17 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public void HasUsageHistory_detects_legacy_unscoped_usage_keys()
+    public void HasUsageHistory_ignores_legacy_unscoped_rows()
     {
         using var store = OpenStore();
         const string sid = "S-1-5-21-1234567890-1234567890-1234567890-1001";
 
-        Assert.False(store.HasUsageHistory(sid));
-
-        // Add a legacy unscoped usage key (used_time_<date>)
+        // A legacy unscoped used_time_<date> row carries no SID, so it must NOT
+        // grandfather this user — otherwise a genuinely new user on any device that
+        // still has a legacy aggregate row would skip the new-user setup gate.
         store.Set("used_time_2026-06-09", "1800");
 
-        // Should detect legacy keys for grandfathering
-        Assert.True(store.HasUsageHistory(sid));
+        Assert.False(store.HasUsageHistory(sid));
     }
 
     [Fact]
@@ -459,23 +458,7 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public void HasUsageHistory_grandfathers_all_users_when_legacy_keys_exist()
-    {
-        using var store = OpenStore();
-        const string sid1 = "S-1-5-21-1111111111-1111111111-1111111111-1001";
-        const string sid2 = "S-1-5-21-2222222222-2222222222-2222222222-1002";
-
-        // Add a legacy unscoped usage key
-        store.Set("used_time_2026-06-09", "1800");
-
-        // Both users should be grandfathered because legacy keys indicate
-        // this is an upgraded installation where users existed before per-user tracking
-        Assert.True(store.HasUsageHistory(sid1));
-        Assert.True(store.HasUsageHistory(sid2));
-    }
-
-    [Fact]
-    public void HasUsageHistory_only_matches_specific_sid_when_no_legacy_keys()
+    public void HasUsageHistory_only_matches_the_specific_sid()
     {
         using var store = OpenStore();
         const string sid1 = "S-1-5-21-1111111111-1111111111-1111111111-1001";
