@@ -28,21 +28,24 @@ function Fail-Closed {
 trap { Fail-Closed $_.Exception.Message }
 
 $configDb = Join-Path $env:ProgramData 'Curfew\config.db'
-$sqliteDll = Join-Path $AppDir 'app\e_sqlite3.dll'
+$appBin = Join-Path $AppDir 'app'
+$sqliteDll = Join-Path $appBin 'e_sqlite3.dll'
 
 # Nothing installed/configured to protect: allow. A child cannot reach this state
 # by deleting config.db — it is deny-ACL'd against Users for delete/write.
 if (-not (Test-Path -LiteralPath $configDb)) { exit 0 }
 if (-not (Test-Path -LiteralPath $sqliteDll)) { Fail-Closed 'sqlite missing' }
 
-# Bind to the real, write-protected e_sqlite3.dll by full path before any P/Invoke,
-# so the loader never resolves a planted DLL from a writable directory.
+# Resolve e_sqlite3 (and its dependencies) by name from the install's app dir,
+# which is ACL'd ReadAndExecute for Users — a child cannot plant a DLL there.
+# Pointing the process current directory at that trusted dir lets the loader find
+# it without copying to (and loading from) a user-writable location.
+[Environment]::CurrentDirectory = $appBin
+
 $interop = @"
 using System;
 using System.Runtime.InteropServices;
 public static class CurfewUninstallSqlite {
-    [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern IntPtr LoadLibrary(string path);
     [DllImport("e_sqlite3", CharSet = CharSet.Ansi)]
     public static extern int sqlite3_open_v2(string filename, out IntPtr db, int flags, IntPtr vfs);
     [DllImport("e_sqlite3")]
@@ -58,10 +61,6 @@ public static class CurfewUninstallSqlite {
 }
 "@
 Add-Type -TypeDefinition $interop
-
-if ([CurfewUninstallSqlite]::LoadLibrary($sqliteDll) -eq [IntPtr]::Zero) {
-    Fail-Closed 'could not load sqlite'
-}
 
 # Read the stored passcode with a READONLY open (flags = SQLITE_OPEN_READONLY = 1)
 # so the running service's open handle never causes a write-lock conflict.
