@@ -12,8 +12,8 @@ namespace Curfew.Overlay;
 /// logoff countdown. The visible, interactive lock is the WinUI surface
 /// (<c>Curfew.App --lock</c>), which this launches on top and relaunches if it
 /// dies; this process only enforces and applies the actions the surface records
-/// (extend / unlock / ignore-schedule / redeem / provision / logoff). Plain Win32
-/// so it starts reliably from the logon scheduled task.
+/// (extend / unlock / ignore-schedule / redeem / logoff). Plain Win32 so it starts
+/// reliably from the logon scheduled task.
 /// </summary>
 internal static class LockScreen
 {
@@ -35,14 +35,6 @@ internal static class LockScreen
 
     /// <summary>Seconds until the session is logged off; counts down once a second while locked.</summary>
     private static int _shutdownCountdown = -1;
-
-    // New-user provisioning runs a blocking ConfigClient pipe call that must NOT run
-    // on the message-pump thread (it would freeze the keyboard hook and let escape
-    // shortcuts leak through). It runs on a background task and the outcome is applied
-    // on the next tick. _provisionTask is the in-flight call (null when idle); the
-    // overlay is single-threaded so these fields need no locking.
-    private static Task<bool>? _provisionTask;
-    private static IntPtr _provisionHwnd;
 
     public static void Register(IntPtr hInstance)
     {
@@ -72,7 +64,6 @@ internal static class LockScreen
 
         if (OverlayState.MiniHwnd != IntPtr.Zero) ShowWindow(OverlayState.MiniHwnd, SW_HIDE);
 
-        _provisionTask = null; // drop any stale outcome from a previous lock
         _shutdownCountdown = OverlayState.Settings.GetInt("lock_screen_timeout", 600);
 
         // Publish the lock state the WinUI surface reads, then launch it on top. This
@@ -81,8 +72,7 @@ internal static class LockScreen
         // black-locked with the keyboard hook active, so nothing leaks through.
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         OverlayState.Settings.Set("lock_reason",
-            OverlayState.NewUserBlocked ? "newuser"
-            : OverlayState.BudgetBlocked ? "budget" : "schedule");
+            OverlayState.BudgetBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
@@ -138,10 +128,6 @@ internal static class LockScreen
     /// </summary>
     public static void WhileLockedTick()
     {
-        // Apply any background provisioning that finished since the last tick before it
-        // can tear the lock down.
-        ApplyProvisionResult();
-
         ConsumeLockAction();
 
         if (!OverlayState.Locked) return;
@@ -191,14 +177,6 @@ internal static class LockScreen
                     if (!OverlayState.ShouldBlock) Hide();
                 }
                 break;
-            case "provision":
-                // Activate this Windows user via the SYSTEM service (device code or
-                // parent passcode). The pipe call blocks, so it runs on a background
-                // thread and the outcome is applied on the next tick.
-                var provCode = OverlayState.Settings.Get("lock_code") ?? string.Empty;
-                OverlayState.Settings.Set("lock_code", string.Empty);
-                StartProvision(_hwnd, provCode);
-                break;
             case "logoff":
                 LockNative.Logoff();
                 break;
@@ -242,53 +220,6 @@ internal static class LockScreen
         OverlayState.Persist();
         OverlayLog.Write($"unlock code redeemed (+{bonus} min)");
         return true;
-    }
-
-    /// <summary>
-    /// Kicks off the new-user provisioning pipe call (device code or parent passcode)
-    /// on a background thread so the pump/keyboard hook keep running, then resets or
-    /// records the lockout counter on the same background thread. The outcome is applied
-    /// by <see cref="ApplyProvisionResult"/> on the next tick. One at a time: a second
-    /// request while one is in flight is ignored.
-    /// </summary>
-    private static void StartProvision(IntPtr hwnd, string code)
-    {
-        if (_provisionTask is { IsCompleted: false }) return;
-        _provisionHwnd = hwnd;
-        _provisionTask = Task.Run(() =>
-        {
-            try
-            {
-                if (ConfigClient.Provision(OverlayState.CurrentSid, code))
-                {
-                    ConfigClient.ResetFailures(code);
-                    return true;
-                }
-                ConfigClient.RecordFailure();
-                return false;
-            }
-            catch { return false; }
-        });
-    }
-
-    /// <summary>
-    /// Applies a completed background provision on the pump thread: on success logs the
-    /// activation and tears the lock down. On failure the lock simply stays up and the
-    /// WinUI surface is relaunched (by <see cref="WhileLockedTick"/>) so the user can
-    /// retry — the surface verified the code locally before sending it, so a failure
-    /// here means the service rejected it (typically momentarily unavailable).
-    /// </summary>
-    private static void ApplyProvisionResult()
-    {
-        if (_provisionTask is not { IsCompleted: true } task) return;
-        var ok = task.Result;
-        _provisionTask = null;
-
-        if (ok)
-        {
-            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user activated");
-            if (!OverlayState.ShouldBlock) Hide();
-        }
     }
 
     private static IntPtr LockProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)

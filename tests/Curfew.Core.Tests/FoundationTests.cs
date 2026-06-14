@@ -21,7 +21,6 @@ public class SettingsPartitionTests
     [InlineData("passcode", SettingsStoreKind.Config)]
     [InlineData("schedule", SettingsStoreKind.Config)]
     [InlineData("limit_enabled", SettingsStoreKind.Config)]
-    [InlineData("device_code", SettingsStoreKind.Config)]
     // Policy, NOT runtime handshake: a broad "lock_" prefix once routed this into
     // the child-writable state store, letting the child set their own logoff delay.
     [InlineData("lock_screen_timeout", SettingsStoreKind.Config)]
@@ -33,8 +32,6 @@ public class SettingsPartitionTests
     [InlineData("schedule", true)]
     [InlineData("unlock_secret", true)]
     [InlineData("passcode", false)]        // device-wide
-    [InlineData("device_code", false)]     // device-wide
-    [InlineData("provisioned_users", false)]
     [InlineData("app_allowlist", false)]
     [InlineData("auto_update_enabled", false)]
     [InlineData("lock_active", false)]     // state, not per-user config
@@ -83,22 +80,6 @@ public class LockoutPolicyTests
         var state = new LockoutState(LockoutPolicy.FreeAttempts + 3, 10_000);
         // Clock rolled back to before the attempt — must still be locked (fail closed).
         Assert.True(LockoutPolicy.IsLockedOut(state, 9_000, out _));
-    }
-}
-
-public class UserProvisioningTests
-{
-    [Fact]
-    public void Add_is_idempotent_and_membership_is_case_insensitive()
-    {
-        var list = UserProvisioning.Add(null, "S-1-5-21-1");
-        list = UserProvisioning.Add(list, "S-1-5-21-2");
-        list = UserProvisioning.Add(list, "S-1-5-21-1"); // duplicate
-
-        Assert.Equal(2, UserProvisioning.Parse(list).Count);
-        Assert.True(UserProvisioning.IsProvisioned(list, "s-1-5-21-2"));
-        Assert.False(UserProvisioning.IsProvisioned(list, "S-1-5-21-9"));
-        Assert.False(UserProvisioning.IsProvisioned(list, null));
     }
 }
 

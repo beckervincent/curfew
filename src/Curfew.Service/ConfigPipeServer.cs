@@ -150,34 +150,12 @@ internal sealed class ConfigPipeServer
         return request.Op switch
         {
             ConfigPipe.OpSet => HandleSet(request),
-            ConfigPipe.OpProvision => HandleProvision(request),
             ConfigPipe.OpRecordFailure => HandleRecordFailure(),
             ConfigPipe.OpResetFailures => HandleResetFailures(request),
             _ => new ConfigResponse(false, $"unknown op '{request.Op}'"),
         };
     }
 
-    /// <summary>Activates a Windows user after the device code (or parent passcode) is verified.</summary>
-    private ConfigResponse HandleProvision(ConfigRequest request)
-    {
-        if (string.IsNullOrEmpty(request.Sid))
-            return new ConfigResponse(false, "sid required");
-
-        // The pipe is the authoritative verification path and any AuthenticatedUser
-        // can connect, so the brute-force lockout must be enforced here — not just in
-        // the client UIs. Refuse while locked out without evaluating the code (a
-        // short device_code would otherwise be ground directly against the service).
-        if (IsLockedOut(out var locked)) return locked;
-
-        var deviceCode = _config.Get("device_code");
-        var passcode = _config.Get("passcode");
-        var ok = (!string.IsNullOrEmpty(deviceCode) && PasscodeHash.Verify(request.Passcode, deviceCode))
-                 || (!string.IsNullOrEmpty(passcode) && PasscodeHash.Verify(request.Passcode, passcode));
-        if (!ok) return RecordFailureAndReject();
-
-        _config.Set("provisioned_users", UserProvisioning.Add(_config.Get("provisioned_users"), request.Sid));
-        return new ConfigResponse(true);
-    }
 
     /// <summary>Advances the failed-attempt lockout counter (no auth — it only rate-limits).</summary>
     private ConfigResponse HandleRecordFailure()
@@ -226,19 +204,17 @@ internal sealed class ConfigPipeServer
     }
 
     /// <summary>
-    /// Clears the failed-attempt counter after a success. Gated on the code that
-    /// just succeeded (parent passcode or device code): an unauthenticated reset
-    /// would let the child zero the counter between guesses and defeat the
-    /// brute-force lockout entirely.
+    /// Clears the failed-attempt counter after a success. Gated on the parent
+    /// passcode that just succeeded: an unauthenticated reset would let the child
+    /// zero the counter between guesses and defeat the brute-force lockout entirely.
     /// </summary>
     private ConfigResponse HandleResetFailures(ConfigRequest request)
     {
         var passcode = _config.Get("passcode");
-        var deviceCode = _config.Get("device_code");
 
-        // Bootstrap: no code is set yet, so the reset is trivially allowed and must
+        // Bootstrap: no passcode is set yet, so the reset is trivially allowed and must
         // not touch the counter (there is nothing to brute-force against).
-        if (string.IsNullOrEmpty(passcode) && string.IsNullOrEmpty(deviceCode))
+        if (string.IsNullOrEmpty(passcode))
         {
             _config.Set("failed_attempts", "0");
             return new ConfigResponse(true);
@@ -248,10 +224,7 @@ internal sealed class ConfigPipeServer
         // grind reset guesses (each a free PBKDF2) against the service unhindered.
         if (IsLockedOut(out var locked)) return locked;
 
-        var authenticated =
-            (!string.IsNullOrEmpty(passcode) && PasscodeHash.Verify(request.Passcode, passcode))
-            || (!string.IsNullOrEmpty(deviceCode) && PasscodeHash.Verify(request.Passcode, deviceCode));
-        if (!authenticated) return RecordFailureAndReject();
+        if (!PasscodeHash.Verify(request.Passcode, passcode)) return RecordFailureAndReject();
 
         _config.Set("failed_attempts", "0");
         return new ConfigResponse(true);

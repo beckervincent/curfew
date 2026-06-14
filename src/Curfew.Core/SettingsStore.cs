@@ -654,6 +654,41 @@ public sealed class SettingsStore : IDisposable
         return total;
     }
 
+    /// <summary>
+    /// The distinct Windows-user SIDs that have recorded usage, parsed from the
+    /// <c>used_time_&lt;sid&gt;_&lt;date&gt;</c> keys in state.db. Used to populate the
+    /// settings per-user picker (each Windows user keeps its own budget; there is no
+    /// provisioned-user list). Legacy unscoped <c>used_time_&lt;date&gt;</c> rows have
+    /// no SID and are skipped. Order is unspecified.
+    /// </summary>
+    public IReadOnlyList<string> UsersWithHistory()
+    {
+        var sids = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var cmd = _state.CreateCommand();
+            cmd.CommandText = "SELECT DISTINCT key FROM settings WHERE key LIKE $p || '%'";
+            cmd.Parameters.AddWithValue("$p", UsagePrefix);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var rest = reader.GetString(0)[UsagePrefix.Length..];
+                // Key is used_time_<sid>_<yyyy-MM-dd>; the SID has no underscores and the
+                // date uses hyphens, so the last underscore splits SID from date.
+                var cut = rest.LastIndexOf('_');
+                if (cut <= 0) continue; // legacy unscoped used_time_<date>
+                var sid = rest[..cut];
+                if (sid.Length > 0 && seen.Add(sid)) sids.Add(sid);
+            }
+        }
+        catch (SqliteException)
+        {
+            // Advisory list; an empty result just means the picker shows "All users" only.
+        }
+        return sids;
+    }
+
     /// <summary>Closes the underlying database connection(s).</summary>
     public void Dispose()
     {
