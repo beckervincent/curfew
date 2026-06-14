@@ -47,6 +47,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "service\*"; DestDir: "{app}\service"; Flags: recursesubdirs ignoreversion
 Source: "app\*";     DestDir: "{app}\app";     Flags: recursesubdirs ignoreversion
 Source: "overlay\*"; DestDir: "{app}\overlay"; Flags: recursesubdirs ignoreversion
+; Uninstall guard: verifies the parent passcode before an uninstall may proceed.
+; Lands in {app}, which is ACL'd ReadAndExecute for Users, so a child cannot edit it.
+Source: "verify-uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{commonprograms}\{#MyAppName}\Curfew Settings";  Filename: "{app}\app\{#AppExeName}"; Parameters: "--settings"; Comment: "Open Curfew settings"
@@ -414,11 +417,50 @@ begin
   end;
 end;
 
+{ Run the shipped uninstall guard: it reads the stored parent passcode from
+  config.db and, when one is set, requires it to be entered before the uninstall
+  may proceed. Returns True to allow the uninstall, False to block it. Fails closed
+  (blocks) if PowerShell cannot be launched, since a passcode may be set; allows
+  only when the guard is genuinely absent (an older install without it). }
+function VerifyUninstallPasscode(): Boolean;
+var
+  ScriptPath: String;
+  Interactive, ResultCode: Integer;
+begin
+  ScriptPath := ExpandConstant('{app}\verify-uninstall.ps1');
+  if not FileExists(ScriptPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  if UninstallSilent then Interactive := 0 else Interactive := 1;
+
+  if not Exec('powershell.exe',
+       '-NonInteractive -NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"' +
+       ' -AppDir "' + ExpandConstant('{app}') + '" -Interactive ' + IntToStr(Interactive),
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Result := False; { could not launch the check -> fail closed }
+    Exit;
+  end;
+
+  Result := (ResultCode = 0);
+end;
+
 function InitializeUninstall(): Boolean;
 var
   Answer: Integer;
 begin
-  Result := True;
+  Result := VerifyUninstallPasscode();
+  if not Result then
+  begin
+    if not UninstallSilent then
+      MsgBox('The parent passcode is required to uninstall Curfew.' + #13#10 +
+             'Uninstall cancelled.', mbError, MB_OK);
+    Exit;
+  end;
+
   ShouldDeleteData := False;
 
   if not UninstallSilent then
