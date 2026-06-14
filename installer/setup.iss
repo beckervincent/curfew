@@ -313,7 +313,12 @@ begin
     '$act = New-ScheduledTaskAction -Execute $overlay' + #13#10 +
     '$trg = New-ScheduledTaskTrigger -AtLogOn' + #13#10 +
     '$prn = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited' + #13#10 +
-    '$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)' + #13#10 +
+    '# MultipleInstances Parallel: the overlay runs one instance per interactive' + #13#10 +
+    '# session, and each instance never exits its message loop. IgnoreNew would let' + #13#10 +
+    '# the first session''s instance suppress every later logon trigger, leaving a' + #13#10 +
+    '# second concurrent user (fast-user-switch / lingering disconnected session)' + #13#10 +
+    '# with no overlay. The overlay''s per-session mutex still blocks duplicates.' + #13#10 +
+    '$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances Parallel -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)' + #13#10 +
     '$set.ExecutionTimeLimit = "PT0S"' + #13#10 +
     'Register-ScheduledTask -TaskName "CurfewOverlay" -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null' + #13#10 +
     'Start-ScheduledTask -TaskName "CurfewOverlay"' + #13#10 +
