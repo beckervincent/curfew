@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Curfew.Core;
 using Microsoft.UI.Xaml;
 
@@ -26,6 +27,9 @@ public partial class App : Application
 
     /// <summary>prefix for passcode-gated tray command, e.g. <c>--tray=extend15</c></summary>
     private const string TrayArgumentPrefix = "--tray=";
+
+    /// <summary>flags that print usage and exit (<c>--help</c>, <c>-h</c>, <c>/?</c>)</summary>
+    private static readonly string[] HelpArguments = { "--help", "-h", "/?" };
 
     /// <summary>tray commands accepted from overlay (validated before write-through)</summary>
     private static readonly string[] AllowedTrayCommands = { "extend15", "extend45", "pause", "resume", "quit" };
@@ -65,7 +69,11 @@ public partial class App : Application
     {
         var args = Environment.GetCommandLineArgs();
 
-        if (args.Contains(LockArgument))
+        if (args.Any(a => HelpArguments.Contains(a, StringComparer.OrdinalIgnoreCase)))
+        {
+            ShowHelp();
+        }
+        else if (args.Contains(LockArgument))
         {
             // lock surface launched by overlay while session blocked. NOT passcode-gated to open — lock IS the gate; passcode verified inside it to dismiss
             ShowLock();
@@ -84,10 +92,57 @@ public partial class App : Application
         }
         else
         {
-            // no recognised args: no foreground UI to present, so shut down instead of leaving invisible process
-            Exit();
+            // no recognised args: no foreground UI to present, so shut down instead of leaving invisible
+            // process. hard-exit — Application.Exit() does not terminate a process that never activated a
+            // window, which would leave exactly the invisible process this branch means to avoid
+            Environment.Exit(0);
         }
     }
+
+    /// <summary>print command-line usage to the parent console, then exit. as a GUI (WinExe) app this has
+    /// no console of its own, so it attaches to the console that launched it; double-clicked or launched by
+    /// the overlay there is none, so the writes are harmless no-ops and it just exits</summary>
+    private void ShowHelp()
+    {
+        try
+        {
+            AttachConsole(AttachParentProcess);
+            Console.WriteLine();
+            Console.WriteLine("Curfew - parental screen-time controls");
+            Console.WriteLine();
+            Console.WriteLine("Usage: Curfew.App.exe [option]");
+            Console.WriteLine();
+            Console.WriteLine("Options:");
+            Console.WriteLine("  --setup           Run the first-run setup wizard (gated by the parent passcode once set).");
+            Console.WriteLine("  --settings        Open the passcode-gated settings editor.");
+            Console.WriteLine("  --lock            Show the full-screen lock surface (normally launched by the overlay).");
+            Console.WriteLine("  --tray=<command>  Run a passcode-gated tray action: extend15, extend45, pause, resume, quit.");
+            Console.WriteLine("  --help, -h, /?    Show this help and exit.");
+            Console.WriteLine();
+            Console.WriteLine("With no option the app exits immediately. Enforcement runs in the Curfew service and");
+            Console.WriteLine("overlay; this executable is only the configuration UI.");
+            Console.Out.Flush();
+        }
+        catch
+        {
+            // best effort: no parent console attached, or the write failed
+        }
+        finally
+        {
+            // hard-exit: Application.Exit() does not terminate a process that never
+            // activated a window (it leaves the app running with no UI), so a console
+            // flag like --help would hang. Environment.Exit ends it deterministically
+            // after the usage text has flushed.
+            Environment.Exit(0);
+        }
+    }
+
+    /// <summary>ATTACH_PARENT_PROCESS: attach to the console of the launching process.</summary>
+    private const uint AttachParentProcess = unchecked((uint)-1);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachConsole(uint dwProcessId);
 
     /// <summary>build + show full-screen WinUI lock surface</summary>
     private void ShowLock()
