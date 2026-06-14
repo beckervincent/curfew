@@ -129,8 +129,11 @@ public sealed partial class LockWindow : Window
         // offline unlock code grants bonus time on ordinary lock, but cant skip new user's setup
         if (!_newUser && IsValidUnlockCode(entered))
         {
-            // offline unlock code cant authenticate the reset (service only verifies passcode), so counter keeps its value until next passcode success — fail-closed + harmless
-            ConfigClient.ResetFailures(entered);
+            // do NOT touch the failed-attempt counter here. the service only resets it on a
+            // verified PASSCODE, so calling ResetFailures with the unlock code makes the service
+            // verify the code as the PIN, fail, and RECORD A FAILURE — every valid redemption
+            // would then climb toward a lockout that eventually refuses all input. leave the
+            // counter as-is; a later correct passcode clears it.
             ActionConfirmed?.Invoke("redeem", entered);
             return;
         }
