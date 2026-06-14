@@ -17,8 +17,14 @@ public sealed class CurfewWorker : BackgroundService
     /// <summary>Cadence of overlay watchdog (safety-critical work).</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
-    /// <summary>Cadence of network-bound housekeeping (time guard + update check).</summary>
+    /// <summary>Cadence of the heavy network housekeeping (update check + download).</summary>
     private static readonly TimeSpan SlowInterval = TimeSpan.FromHours(6);
+
+    /// <summary>Cadence of the clock-tamper check. Far tighter than <see cref="SlowInterval"/>: it used to
+    /// be bundled into the 6-hour cycle, which left a child up to six hours of farmed daily budget (and a
+    /// bypassed brute-force lockout) after a forward clock jump before the next NTP correction. The check is
+    /// a light UDP query to a few NTP servers, so a few-minute cadence is cheap and shrinks that window.</summary>
+    private static readonly TimeSpan TimeGuardInterval = TimeSpan.FromMinutes(5);
 
     /// <summary>Max time shutdown waits for in-flight slow cycle (maybe mid update-download) before service stops anyway.</summary>
     private static readonly TimeSpan ShutdownDrainTimeout = TimeSpan.FromSeconds(10);
@@ -40,6 +46,12 @@ public sealed class CurfewWorker : BackgroundService
 
     /// <summary>Most recent slow-cycle task, kept only so shutdown can wait for it (maybe mid update-download). Fire-and-forget otherwise.</summary>
     private Task _slowCycle = Task.CompletedTask;
+
+    /// <summary>Guard against overlapping clock-tamper checks: a hung NTP round must not stack a second.</summary>
+    private volatile bool _timeGuardRunning;
+
+    /// <summary>Most recent clock-tamper task, kept so shutdown can drain it.</summary>
+    private Task _timeGuardCycle = Task.CompletedTask;
 
     public CurfewWorker(ILogger<CurfewWorker> logger) => _logger = logger;
 
@@ -63,14 +75,21 @@ public sealed class CurfewWorker : BackgroundService
         ConfigFileGuard.Protect(CurfewPaths.ConfigFile);
         var pipeServer = Task.Run(() => new ConfigPipeServer(pipeStore).RunAsync(stoppingToken), CancellationToken.None);
 
-        // MinValue forces first slow cycle to run immediately, not wait full SlowInterval for clock check
+        // MinValue forces the first clock check and slow cycle to run immediately, not after a full interval
         var lastSlow = DateTimeOffset.MinValue;
+        var lastTimeGuard = DateTimeOffset.MinValue;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 SafeTickSessions();
                 SafeReconcileTaskManagerPolicy();
+
+                if (DateTimeOffset.UtcNow - lastTimeGuard >= TimeGuardInterval && !_timeGuardRunning)
+                {
+                    lastTimeGuard = DateTimeOffset.UtcNow;
+                    StartTimeGuardCycle();
+                }
 
                 if (DateTimeOffset.UtcNow - lastSlow >= SlowInterval && !_slowCycleRunning)
                 {
@@ -100,7 +119,7 @@ public sealed class CurfewWorker : BackgroundService
         }
     }
 
-    /// <summary>Dispatch time guard and update check to thread pool, track task so shutdown can drain it. Guarded by <see cref="_slowCycleRunning"/> so cycles never overlap.</summary>
+    /// <summary>Dispatch the update check to the thread pool, track task so shutdown can drain it (it may be mid update-download). Guarded by <see cref="_slowCycleRunning"/> so cycles never overlap.</summary>
     private void StartSlowCycle(CancellationToken ct)
     {
         _slowCycleRunning = true;
@@ -108,7 +127,6 @@ public sealed class CurfewWorker : BackgroundService
         {
             try
             {
-                EnforceTimeGuard();
                 await CheckForUpdatesAsync(ct).ConfigureAwait(false);
             }
             finally
@@ -118,12 +136,25 @@ public sealed class CurfewWorker : BackgroundService
         }, CancellationToken.None);
     }
 
+    /// <summary>Dispatch the clock-tamper check to the thread pool on its own tight cadence. It shells out to
+    /// NTP and can stall for seconds, so it must never sit on the safety-critical watchdog loop; the
+    /// <see cref="_timeGuardRunning"/> flag keeps a slow NTP round from stacking with the next due check.</summary>
+    private void StartTimeGuardCycle()
+    {
+        _timeGuardRunning = true;
+        _timeGuardCycle = Task.Run(() =>
+        {
+            try { EnforceTimeGuard(); }
+            finally { _timeGuardRunning = false; }
+        }, CancellationToken.None);
+    }
+
     /// <summary>Wait, bounded timeout, for startup filter and in-flight slow cycle to settle so service no abandon update mid-write. Never throws — shutdown must complete.</summary>
     private async Task DrainOnShutdownAsync(Task startupFilter)
     {
         try
         {
-            var pending = Task.WhenAll(startupFilter, _slowCycle);
+            var pending = Task.WhenAll(startupFilter, _slowCycle, _timeGuardCycle);
             await Task.WhenAny(pending, Task.Delay(ShutdownDrainTimeout)).ConfigureAwait(false);
         }
         catch (Exception ex)
