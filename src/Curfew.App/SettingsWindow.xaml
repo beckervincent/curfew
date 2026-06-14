@@ -252,6 +252,10 @@
                                    Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
                                    ToolTipService.ToolTip="Inactivity required before screen time is paused" />
+                        <NumberBox x:Name="WindDown" Header="{local:Loc Key=settings.winddown}"
+                                   Minimum="0" Maximum="120" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Warn this many minutes before a schedule (bedtime) block; 0 = off" />
                     </StackPanel>
                 </Expander>
 

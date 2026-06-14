@@ -44,6 +44,22 @@ public sealed class Schedule
         return _allowed[weekday][minute / SlotMinutes];
     }
 
+    /// <summary>
+    /// Minutes from <paramref name="minuteOfDay"/> until the next blocked slot later today (the start of a
+    /// bedtime/curfew window), or <c>-1</c> if the rest of the day is allowed. Used to warn before a block.
+    /// Assumes the current moment is allowed (the caller checks that); since the current slot is then allowed,
+    /// the result is always positive when a later block exists.
+    /// </summary>
+    public int MinutesUntilBlock(int weekday, int minuteOfDay)
+    {
+        if (weekday is < 0 or >= Days) return -1;
+        var minute = Math.Clamp(minuteOfDay, 0, MinutesPerDay - 1);
+        for (var slot = minute / SlotMinutes; slot < SlotsPerDay; slot++)
+            if (!_allowed[weekday][slot])
+                return slot * SlotMinutes - minute;
+        return -1;
+    }
+
     /// <summary>read single slot. out-of-range = allowed</summary>
     public bool GetSlot(int weekday, int slot) =>
         !InRange(weekday, slot) || _allowed[weekday][slot];

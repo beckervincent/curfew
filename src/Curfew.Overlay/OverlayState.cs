@@ -125,6 +125,15 @@ internal static class OverlayState
         _limitTracked = true;
     }
 
+    /// <summary>minutes until the next schedule (bedtime) block today, or -1 when the schedule is off or the rest of the day is allowed. caller should check <see cref="ScheduleAllows"/> first (only meaningful while currently allowed)</summary>
+    public static int MinutesUntilScheduleBlock()
+    {
+        if (!ScheduleEnabled) return -1;
+        var now = DateTime.Now;
+        var weekday = TimeMath.MondayBasedWeekday(DateOnly.FromDateTime(now));
+        return Schedule.MinutesUntilBlock(weekday, now.Hour * 60 + now.Minute);
+    }
+
     /// <summary>usage allowed by schedule now. always true when schedule disabled -> budget is only gate</summary>
     public static bool ScheduleAllows()
     {

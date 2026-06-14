@@ -343,6 +343,10 @@ namespace Curfew.Overlay
                 : OverlayState.LimitEnabled ? Loc.T("tray.left", TimeMath.FormatCompact(OverlayState.Remaining))
                 : Loc.T("tray.idle"));
 
+            // bedtime wind-down: warn once before the next schedule block, even in schedule-only mode
+            // (so this runs before the daily-budget early-return below)
+            WarnBeforeBedtime();
+
             if (!OverlayState.LimitEnabled || OverlayState.IsPaused) return;
 
             var warn1 = OverlayState.Settings.GetInt("warning1_minutes", 10);
@@ -358,6 +362,37 @@ namespace Curfew.Overlay
         {
             var message = OverlayState.Settings.Get(key);
             return string.IsNullOrWhiteSpace(message) ? Loc.T("warn.default") : message;
+        }
+
+        /// <summary>Minute-of-day of the bedtime block we last warned about, so the wind-down balloon fires
+        /// once per upcoming block rather than every tick. -1 = no pending warning.</summary>
+        private static int _bedtimeWarnedStartMinute = -1;
+
+        /// <summary>Raise a one-shot balloon when the next schedule (bedtime) block is within the configured
+        /// wind-down window, so the child gets warning before the screen locks. No-op when the schedule is
+        /// off, currently blocked, the wind-down is disabled, or no block is imminent today.</summary>
+        private static void WarnBeforeBedtime()
+        {
+            var windDown = OverlayState.Settings.GetInt("wind_down_minutes", 10);
+            if (windDown <= 0 || !OverlayState.ScheduleEnabled || !OverlayState.ScheduleAllows())
+            {
+                _bedtimeWarnedStartMinute = -1;
+                return;
+            }
+
+            var mins = OverlayState.MinutesUntilScheduleBlock();
+            if (mins <= 0 || mins > windDown)
+            {
+                _bedtimeWarnedStartMinute = -1;
+                return;
+            }
+
+            var now = DateTime.Now;
+            var blockStartMinute = now.Hour * 60 + now.Minute + mins; // stable id for this upcoming block
+            if (_bedtimeWarnedStartMinute == blockStartMinute) return; // already warned for it
+
+            _bedtimeWarnedStartMinute = blockStartMinute;
+            TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.bedtime", mins));
         }
 
         /// <summary>paint whole pill in one pass: panel fill, colour-coded accent bar, small caption, large remaining-time (or clock) value. every GDI object released, DC originals restored</summary>

@@ -454,6 +454,7 @@ public sealed partial class SettingsWindow : Window
         LockTimeout.Value = _settings.GetInt("lock_screen_timeout", 600) / 60;
         IdleEnabled.IsOn = _settings.GetBool("idle_enabled", true);
         IdleTimeout.Value = _settings.GetInt("idle_timeout_minutes", 5);
+        WindDown.Value = _settings.GetInt("wind_down_minutes", 10);
     }
 
     private void LoadPause()
@@ -701,6 +702,7 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("lock_screen_timeout", (Clamp(LockTimeout, 1, 720, 10) * 60).ToString());
         _settings.Set("idle_enabled", ToFlag(IdleEnabled.IsOn));
         _settings.Set("idle_timeout_minutes", Clamp(IdleTimeout, 1, 600, 5).ToString());
+        _settings.Set("wind_down_minutes", Clamp(WindDown, 0, 120, 10).ToString());
     }
 
     private void SavePause()
