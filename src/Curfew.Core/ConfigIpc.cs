@@ -14,6 +14,12 @@ public static class ConfigPipe
     /// <summary>Set a config key (passcode-gated unless no passcode exists yet).</summary>
     public const string OpSet = "set";
 
+    /// <summary>
+    /// Set up a new Windows user (passcode-gated): writes that user's per-user daily
+    /// limit and adds their SID to the set-up list, in one verified call.
+    /// </summary>
+    public const string OpProvision = "provision";
+
     /// <summary>Record a failed unlock attempt (advances the lockout counter).</summary>
     public const string OpRecordFailure = "fail";
 
@@ -26,7 +32,8 @@ public sealed record ConfigRequest(
     string Op,
     string? Key = null,
     string? Value = null,
-    string? Passcode = null);
+    string? Passcode = null,
+    string? Sid = null);
 
 /// <summary>A config-IPC response.</summary>
 public sealed record ConfigResponse(bool Ok, string? Error = null, string? Value = null);
@@ -92,6 +99,15 @@ public static class ConfigClient
     /// <summary>Writes a config key via the service. Returns whether it was accepted.</summary>
     public static bool SetConfig(string key, string value, string? passcode) =>
         Send(new ConfigRequest(ConfigPipe.OpSet, Key: key, Value: value, Passcode: passcode)).Ok;
+
+    /// <summary>
+    /// Sets up a new Windows user given the parent passcode: writes that user's
+    /// per-user daily limit (<paramref name="limitMinutes"/>) and adds their SID to
+    /// the set-up list. One verified service call.
+    /// </summary>
+    public static bool Provision(string sid, string? passcode, int limitMinutes) =>
+        Send(new ConfigRequest(ConfigPipe.OpProvision, Sid: sid, Passcode: passcode,
+            Value: limitMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture))).Ok;
 
     /// <summary>Records a failed unlock attempt (advances the lockout counter).</summary>
     public static bool RecordFailure() =>

@@ -689,6 +689,30 @@ public sealed class SettingsStore : IDisposable
         return sids;
     }
 
+    /// <summary>
+    /// Whether <paramref name="sid"/> has any recorded usage (a
+    /// <c>used_time_&lt;sid&gt;_&lt;date&gt;</c> row). Used to grandfather users who were
+    /// already using the device before the new-user setup gate existed, so an upgrade
+    /// doesn't lock everyone out — only genuinely new users (no history, not set up)
+    /// are gated. A read failure reports false (treat as new).
+    /// </summary>
+    public bool HasUsageHistory(string? sid)
+    {
+        if (string.IsNullOrEmpty(sid)) return false;
+        try
+        {
+            using var cmd = _state.CreateCommand();
+            // GLOB (not LIKE) so the underscores in the key/SID are literal, '*' the wildcard.
+            cmd.CommandText = "SELECT 1 FROM settings WHERE key GLOB $g LIMIT 1";
+            cmd.Parameters.AddWithValue("$g", $"{UsagePrefix}{sid}_*");
+            return cmd.ExecuteScalar() is not null;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Closes the underlying database connection(s).</summary>
     public void Dispose()
     {

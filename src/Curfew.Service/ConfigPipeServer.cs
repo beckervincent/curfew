@@ -150,12 +150,44 @@ internal sealed class ConfigPipeServer
         return request.Op switch
         {
             ConfigPipe.OpSet => HandleSet(request),
+            ConfigPipe.OpProvision => HandleProvision(request),
             ConfigPipe.OpRecordFailure => HandleRecordFailure(),
             ConfigPipe.OpResetFailures => HandleResetFailures(request),
             _ => new ConfigResponse(false, $"unknown op '{request.Op}'"),
         };
     }
 
+    /// <summary>
+    /// Sets up a new Windows user after the parent passcode is verified: writes that
+    /// user's per-user daily limit (all weekdays, so they stop falling back to the
+    /// device default) and adds their SID to the set-up list. The pipe is the
+    /// authoritative verification path and any AuthenticatedUser can connect, so the
+    /// brute-force lockout is enforced here, not just in the lock UI.
+    /// </summary>
+    private ConfigResponse HandleProvision(ConfigRequest request)
+    {
+        if (string.IsNullOrEmpty(request.Sid))
+            return new ConfigResponse(false, "sid required");
+
+        if (IsLockedOut(out var locked)) return locked;
+
+        var passcode = _config.Get("passcode");
+        if (string.IsNullOrEmpty(passcode) || !PasscodeHash.Verify(request.Passcode, passcode))
+            return RecordFailureAndReject();
+
+        // Persist this user's per-user daily limit (every weekday) so the budget seeds
+        // from it instead of the device default. Clamp to a sane range; skip if absent.
+        if (int.TryParse(request.Value, out var limitMinutes))
+        {
+            limitMinutes = Math.Clamp(limitMinutes, 0, 24 * 60);
+            var value = limitMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            foreach (var dayKey in SettingsStore.WeekdayKeys)
+                _config.Set(SettingsPartition.Scope(dayKey, request.Sid), value);
+        }
+
+        _config.Set("provisioned_users", UserProvisioning.Add(_config.Get("provisioned_users"), request.Sid));
+        return new ConfigResponse(true);
+    }
 
     /// <summary>Advances the failed-attempt lockout counter (no auth — it only rate-limits).</summary>
     private ConfigResponse HandleRecordFailure()

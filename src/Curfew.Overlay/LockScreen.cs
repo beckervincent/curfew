@@ -36,6 +36,14 @@ internal static class LockScreen
     /// <summary>Seconds until the session is logged off; counts down once a second while locked.</summary>
     private static int _shutdownCountdown = -1;
 
+    // New-user setup runs a blocking ConfigClient.Provision pipe call (verify PIN,
+    // write the user's per-user limit, mark them set up) that must NOT run on the
+    // message-pump thread — it would freeze the keyboard hook and let escape shortcuts
+    // leak through. It runs on a background task; the outcome is applied on the next
+    // tick. _provisionTask is the in-flight call (null when idle); the overlay is
+    // single-threaded so it needs no locking.
+    private static Task<bool>? _provisionTask;
+
     public static void Register(IntPtr hInstance)
     {
         var wc = new WNDCLASSW
@@ -72,7 +80,8 @@ internal static class LockScreen
         // black-locked with the keyboard hook active, so nothing leaks through.
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         OverlayState.Settings.Set("lock_reason",
-            OverlayState.BudgetBlocked ? "budget" : "schedule");
+            OverlayState.NewUserBlocked ? "newuser"
+            : OverlayState.BudgetBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
@@ -128,6 +137,10 @@ internal static class LockScreen
     /// </summary>
     public static void WhileLockedTick()
     {
+        // Apply any background new-user setup that finished since the last tick before
+        // it can tear the lock down.
+        ApplyProvisionResult();
+
         ConsumeLockAction();
 
         if (!OverlayState.Locked) return;
@@ -177,9 +190,64 @@ internal static class LockScreen
                     if (!OverlayState.ShouldBlock) Hide();
                 }
                 break;
+            case "provision":
+                // New-user setup: the WinUI surface verified the parent PIN and chose
+                // the user's daily limit (minutes). Hand both to the service on a
+                // background thread (it re-verifies, writes the per-user limit and
+                // marks the user set up); the outcome lands in ApplyProvisionResult.
+                var provCode = OverlayState.Settings.Get("lock_code") ?? string.Empty;
+                OverlayState.Settings.Set("lock_code", string.Empty);
+                int.TryParse(OverlayState.Settings.Get("lock_setup_limit"), out var provLimit);
+                OverlayState.Settings.Set("lock_setup_limit", string.Empty);
+                StartProvision(provCode, provLimit);
+                break;
             case "logoff":
                 LockNative.Logoff();
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Runs the new-user setup pipe call off the message-pump thread, then resets or
+    /// records the lockout counter on the same background thread. One at a time: a
+    /// second request while one is in flight is ignored.
+    /// </summary>
+    private static void StartProvision(string code, int limitMinutes)
+    {
+        if (_provisionTask is { IsCompleted: false }) return;
+        _provisionTask = Task.Run(() =>
+        {
+            try
+            {
+                if (ConfigClient.Provision(OverlayState.CurrentSid, code, limitMinutes))
+                {
+                    ConfigClient.ResetFailures(code);
+                    return true;
+                }
+                ConfigClient.RecordFailure();
+                return false;
+            }
+            catch { return false; }
+        });
+    }
+
+    /// <summary>
+    /// Applies a completed new-user setup on the pump thread: on success re-reads
+    /// enforcement (so the budget seeds from the new per-user limit immediately) and
+    /// tears the lock down. On failure the lock stays up and the WinUI surface is
+    /// relaunched (by <see cref="WhileLockedTick"/>) so the parent can retry.
+    /// </summary>
+    private static void ApplyProvisionResult()
+    {
+        if (_provisionTask is not { IsCompleted: true } task) return;
+        var ok = task.Result;
+        _provisionTask = null;
+
+        if (ok)
+        {
+            OverlayState.LoadEnforcement();
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user set up");
+            if (!OverlayState.ShouldBlock) Hide();
         }
     }
 

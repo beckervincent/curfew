@@ -87,6 +87,10 @@ public static class Loc
             ["lock.extend.hour"] = "+1 hr",
             ["lock.move.here"] = "Move lock here",
             ["lock.secondary.caption"] = "Locked",
+            ["lock.title.newuser"] = "Set up this user",
+            ["lock.newuser.message"] = "Choose this user's daily limit, then enter the parent PIN.",
+            ["lock.setup.caption"] = "DAILY LIMIT (HOURS)",
+            ["lock.activate"] = "Save & unlock",
             ["lock.lockedout"] = "Too many attempts — wait {0}s.",
             ["lock.action.failed"] = "Couldn't apply that — try again.",
 
@@ -285,6 +289,10 @@ public static class Loc
             ["lock.extend.hour"] = "+1 Std",
             ["lock.move.here"] = "Sperre hierher holen",
             ["lock.secondary.caption"] = "Gesperrt",
+            ["lock.title.newuser"] = "Diesen Benutzer einrichten",
+            ["lock.newuser.message"] = "Tageslimit für diesen Benutzer wählen, dann Eltern-PIN eingeben.",
+            ["lock.setup.caption"] = "TAGESLIMIT (STUNDEN)",
+            ["lock.activate"] = "Speichern & entsperren",
             ["lock.lockedout"] = "Zu viele Versuche – {0}s warten.",
             ["lock.action.failed"] = "Konnte nicht angewendet werden – erneut versuchen.",
 

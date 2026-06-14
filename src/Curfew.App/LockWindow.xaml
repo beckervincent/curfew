@@ -54,6 +54,23 @@
                     </StackPanel>
                 </StackPanel>
 
+                <!-- New-user setup: the parent sets this user's daily limit, in hours. -->
+                <StackPanel x:Name="SetupPanel" Spacing="6" Visibility="Collapsed">
+                    <TextBlock Text="{local:Loc Key=lock.setup.caption}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Center" />
+                    <NumberBox x:Name="SetupLimitHours"
+                               Width="160"
+                               HorizontalAlignment="Center"
+                               Minimum="0"
+                               Maximum="24"
+                               SmallChange="0.5"
+                               LargeChange="1"
+                               SpinButtonPlacementMode="Inline"
+                               AutomationProperties.Name="Daily limit hours" />
+                </StackPanel>
+
                 <!-- Passcode entry -->
                 <StackPanel Spacing="6">
                     <TextBlock Text="{local:Loc Key=lock.enter.caption}"
