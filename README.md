@@ -2,7 +2,7 @@
 
 Parental screen time manager for Windows. Set daily limits — when time is up, the screen locks until you enter your passcode.
 
-![Lock screen](images/lock-screen.png)
+![Settings screen](images/eng_settings.png)
 
 ## Features
 
