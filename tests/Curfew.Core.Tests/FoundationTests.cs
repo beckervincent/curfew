@@ -31,7 +31,11 @@ public class SettingsPartitionTests
     [Theory]
     [InlineData("limit_enabled", true)]
     [InlineData("schedule", true)]
-    [InlineData("unlock_secret", true)]
+    [InlineData("blocking_message", true)]
+    // the offline unlock code is ONE device code (seeded at setup, shown in Settings,
+    // verified by the lock/overlay — all must share it), so it is device-wide
+    [InlineData("unlock_secret", false)]
+    [InlineData("unlock_bonus_minutes", false)]
     [InlineData("passcode", false)]        // device-wide
     [InlineData("provisioned_users", false)] // device-wide set-up list
     [InlineData("app_allowlist", false)]
