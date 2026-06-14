@@ -30,18 +30,24 @@ public static class SettingsPartition
     };
 
     /// <summary>Device-wide config keys (not per-user): passcode, provisioned-user list, app allow-list,
-    /// schema version, failed-attempt counters, update prefs, and the machine-wide enforcement settings.
-    /// Else per-user. dns_filter_mode / block_doh_bypass / time_guard_enabled MUST be global: the SYSTEM
-    /// service applies them once for the whole machine (Cloudflare DNS on every adapter, DoH firewall rules,
-    /// system-clock guard) and reads them with no UserSid. Were they per-user the parent's change would land
-    /// under u:&lt;sid&gt;:... while the service kept reading the global key, so content filtering / time guard
-    /// would silently never apply.</summary>
+    /// schema version, failed-attempt counters, update prefs, the machine-wide enforcement settings, and
+    /// the offline unlock code. Else per-user.
+    /// <para>dns_filter_mode / block_doh_bypass / time_guard_enabled MUST be global: the SYSTEM service
+    /// applies them once for the whole machine (Cloudflare DNS on every adapter, DoH firewall rules,
+    /// system-clock guard) and reads them with no UserSid.</para>
+    /// <para>unlock_secret / unlock_bonus_minutes are ONE device unlock code (the QR is labelled
+    /// "Curfew:Device" and the parent enrols a single authenticator entry). Were they per-user the secret
+    /// would differ between where it is seeded (first-run setup, no UserSid -> global), where it is shown
+    /// (Settings, scoped to the picked user), and where it is verified (lock/overlay, scoped to the session
+    /// user) — so the enrolled code matched nothing and redemption always failed. Global keeps all four
+    /// sites on the same secret. The replay counter (unlock_last_counter) is already device-wide state.</para></summary>
     private static readonly HashSet<string> GlobalConfigKeys = new(StringComparer.Ordinal)
     {
         "passcode", "provisioned_users", "app_allowlist",
         "schema_version", "auto_update_enabled", "update_channel",
         "failed_attempts", "failed_attempt_at",
         "dns_filter_mode", "block_doh_bypass", "time_guard_enabled",
+        "unlock_secret", "unlock_bonus_minutes",
     };
 
     /// <summary>Store a (fully-formed) key belongs to.</summary>
