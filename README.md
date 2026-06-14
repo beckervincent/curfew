@@ -1,6 +1,6 @@
 # Curfew
 
-Parental screen time manager for Windows. Set daily limits - when time is up, the screen locks until you enter your passcode.
+Parental screen time manager for Windows. Set daily limits - when time is up, the screen locks until you enter your passcode, Built with beautiful WinUI.
 
 ![Settings screen](images/eng_settings.png)
 
