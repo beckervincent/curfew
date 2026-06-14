@@ -116,6 +116,11 @@ public sealed partial class SettingsWindow : Window
     /// <summary>fill every control from persisted settings</summary>
     private void Load()
     {
+        // First: pick the active user and set the scope, so every per-user control
+        // below loads (and later saves) that user's values rather than the device
+        // default — see PopulateUserPicker for why the default matters.
+        PopulateUserPicker();
+
         LimitEnabled.IsOn = _settings.GetBool("limit_enabled", true);
         ScheduleEnabled.IsOn = _settings.GetBool("schedule_enabled", false);
         Schedule.Load(Curfew.Core.Schedule.Parse(_settings.Get("schedule")));
@@ -128,7 +133,6 @@ public sealed partial class SettingsWindow : Window
         LoadUnlock();
         LoadUsageHistory();
         LoadActivity();
-        PopulateUserPicker();
         UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
     }
 
@@ -141,10 +145,38 @@ public sealed partial class SettingsWindow : Window
         _loadingUser = true;
         UserPicker.Items.Clear();
         UserPicker.Items.Add(new ComboBoxItem { Content = Loc.T("settings.user.all"), Tag = string.Empty });
-        foreach (var sid in _settings.UsersWithHistory())
+
+        var sids = _settings.UsersWithHistory();
+        foreach (var sid in sids)
             UserPicker.Items.Add(new ComboBoxItem { Content = ResolveUserName(sid), Tag = sid });
-        UserPicker.SelectedIndex = 0;
+
+        // Default to the user whose session this is — almost always the child whose PC
+        // this is (Settings is opened from their tray, behind the PIN). Editing that
+        // user writes their per-user limit keys, which the overlay running in their
+        // session actually reads. The "All users" entry edits only the device-wide
+        // defaults, and every provisioned user has per-user limits (written at setup)
+        // that shadow those defaults — so leaving "All users" selected made a time
+        // change silently fail to affect the live session. Falls back to "All users"
+        // when the current user has no per-user row yet (e.g. Settings opened from a
+        // separate admin account).
+        var current = CurrentSessionSid();
+        var match = -1;
+        if (!string.IsNullOrEmpty(current))
+            for (var i = 0; i < sids.Count; i++)
+                if (string.Equals(sids[i], current, StringComparison.OrdinalIgnoreCase)) { match = i; break; }
+
+        UserPicker.SelectedIndex = match >= 0 ? match + 1 : 0; // +1: "All users" is slot 0
+        var tag = (UserPicker.SelectedItem as ComboBoxItem)?.Tag as string;
+        _settings.UserSid = string.IsNullOrEmpty(tag) ? null : tag;
+
         _loadingUser = false;
+    }
+
+    /// <summary>SID of the Windows session Settings runs in, or empty on failure</summary>
+    private static string CurrentSessionSid()
+    {
+        try { return System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty; }
+        catch { return string.Empty; }
     }
 
     /// <summary>resolve SID to display name, fall back to raw SID</summary>
