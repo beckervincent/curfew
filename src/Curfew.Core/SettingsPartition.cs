@@ -25,7 +25,7 @@ public static class SettingsPartition
         // lock_screen_timeout, giving child write access), tray command, offline-code
         // replay counter.
         "lock_active", "lock_reason", "lock_deadline_unix", "lock_action",
-        "lock_action_at", "lock_sid", "lock_code", "lock_setup_limit",
+        "lock_action_at", "lock_sid", "lock_code", "lock_setup_limit", "lock_break_minutes",
         "tray_", "unlock_last_counter",
     };
 

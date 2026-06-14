@@ -301,4 +301,47 @@ internal static class OverlayState
         $"pause_used_{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
 
     private static string PauseLastEndKey() => $"pause_last_end_{CurrentSid}";
+
+    /// <summary>
+    /// Break time (seconds) the child could redeem right now for bonus minutes while budget-blocked, or 0
+    /// if none is available (breaks off, daily budget spent, or still in cooldown). Pure — no mutation; the
+    /// overlay publishes this to <c>lock_break_minutes</c> so the lock screen can offer the button. Unlike
+    /// <see cref="TryStartBreak"/> there is no "time too low" gate: the whole point is that time has run out.
+    /// </summary>
+    public static int BreakOfferSeconds()
+    {
+        RollPauseDay();
+        if (!Settings.GetBool("pause_enabled", true)) return 0;
+
+        var dailyBudget = Settings.GetInt("pause_daily_budget", 45) * 60;
+        if (PauseRules.RemainingBudget(dailyBudget, _pauseUsedSeconds) <= 0) return 0;
+
+        if (_lastPauseEndUnix > 0)
+        {
+            var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastPauseEndUnix;
+            if (since < Settings.GetInt("pause_cooldown", 15) * 60) return 0;
+        }
+
+        return PauseRules.MaxPauseDuration(
+            Settings.GetInt("pause_max_duration", 20) * 60, dailyBudget, _pauseUsedSeconds);
+    }
+
+    /// <summary>
+    /// Redeem the available break as bonus screen time while budget-blocked: adds the granted minutes to
+    /// <see cref="Remaining"/>, charges them against the daily break budget, and starts the cooldown.
+    /// Returns the granted seconds, or 0 when nothing is available (see <see cref="BreakOfferSeconds"/>).
+    /// </summary>
+    public static int TryRedeemBreak()
+    {
+        var granted = BreakOfferSeconds();
+        if (granted <= 0) return 0;
+
+        Remaining = TimeKeeper.Extend(Math.Max(0, Remaining), granted / 60);
+        _pauseUsedSeconds += granted;
+        PersistPauseUsed();
+        _lastPauseEndUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Settings.Set(PauseLastEndKey(), _lastPauseEndUnix.ToString(CultureInfo.InvariantCulture));
+        Persist();
+        return granted;
+    }
 }

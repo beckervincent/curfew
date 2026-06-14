@@ -67,6 +67,7 @@ internal static class LockScreen
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         OverlayState.Settings.Set("lock_action", string.Empty); // clear stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
+        PublishBreakOffer();
         OverlayState.Settings.Set("lock_active", "1");
         LockAppHost.Launch();
 
@@ -121,6 +122,9 @@ internal static class LockScreen
 
         if (!OverlayState.Locked) return;
 
+        // keep the lock's break offer current as the budget/cooldown change while it sits up
+        PublishBreakOffer();
+
         // WinUI surface IS the lock UI; if dies relaunch. cover black-locks the gap, nothing leaks
         if (!LockAppHost.IsRunning) LockAppHost.Launch();
     }
@@ -168,10 +172,31 @@ internal static class LockScreen
                 OverlayState.Settings.Set("lock_setup_limit", string.Empty);
                 StartProvision(provCode, provLimit);
                 break;
+            case "break":
+                // ungated child self-service: spend remaining daily break budget for bonus minutes.
+                // no passcode — abuse is bounded by the pause policy (budget + cooldown) in TryRedeemBreak.
+                var grantedSeconds = OverlayState.TryRedeemBreak();
+                if (grantedSeconds > 0)
+                {
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"break +{grantedSeconds / 60} min");
+                    if (!OverlayState.ShouldBlock) Hide();
+                }
+                break;
             case "logoff":
                 LockNative.Logoff();
                 break;
         }
+    }
+
+    /// <summary>Publish the break time (whole minutes) the child may redeem now, so the lock surface can show
+    /// or hide its "Take a break" button. Only offered for a pure budget block; a schedule or new-user lock
+    /// is not something a break can lift, so it publishes 0 there.</summary>
+    private static void PublishBreakOffer()
+    {
+        var minutes = OverlayState.BudgetBlocked && !OverlayState.ScheduleBlocked && !OverlayState.NewUserBlocked
+            ? OverlayState.BreakOfferSeconds() / 60
+            : 0;
+        OverlayState.Settings.Set("lock_break_minutes", minutes.ToString());
     }
 
     /// <summary>run new-user setup pipe call off pump thread, reset/record lockout counter on same bg thread. one at a time; second request while in-flight ignored</summary>
