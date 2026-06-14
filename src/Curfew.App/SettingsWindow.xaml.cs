@@ -471,6 +471,7 @@ public sealed partial class SettingsWindow : Window
             default: FilterOff.IsChecked = true; break;
         }
         BlockDoh.IsOn = _settings.GetBool("block_doh_bypass", true);
+        BlockedDomains.Text = _settings.Get("blocked_domains") ?? string.Empty;
     }
 
     private void LoadProtection()
@@ -709,6 +710,8 @@ public sealed partial class SettingsWindow : Window
                  : FilterMode.Off;
         _settings.Set("dns_filter_mode", ContentFilter.ToSetting(mode));
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));
+        // normalize to a clean newline-joined list so the stored value round-trips predictably
+        _settings.Set("blocked_domains", string.Join('\n', HostsBlocklist.Parse(BlockedDomains.Text)));
     }
 
     private void SaveProtection()

@@ -101,6 +101,18 @@ begin
     'schtasks /delete /tn "CurfewOverlay" /f 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Milliseconds 500' + #13#10 +
     '' + #13#10 +
+    '# 3. strip our hosts-file blocklist section so blocked domains do not persist after removal' + #13#10 +
+    '$hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"' + #13#10 +
+    'if (Test-Path $hostsFile) {' + #13#10 +
+    '    $keep = @(); $inBlock = $false' + #13#10 +
+    '    foreach ($line in Get-Content $hostsFile) {' + #13#10 +
+    '        if ($line.Trim() -eq ''# BEGIN Curfew blocklist - do not edit'') { $inBlock = $true; continue }' + #13#10 +
+    '        if ($inBlock) { if ($line.Trim() -eq ''# END Curfew blocklist'') { $inBlock = $false }; continue }' + #13#10 +
+    '        $keep += $line' + #13#10 +
+    '    }' + #13#10 +
+    '    Set-Content -Path $hostsFile -Value $keep -Encoding ASCII' + #13#10 +
+    '}' + #13#10 +
+    '' + #13#10 +
     'foreach ($p in @($dir, (Join-Path $env:ProgramData "{#DataFolder}"))) {' + #13#10 +
     '    if (Test-Path $p) {' + #13#10 +
     '        $acl = Get-Acl $p' + #13#10 +

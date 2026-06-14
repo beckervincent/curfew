@@ -46,6 +46,7 @@ public class SettingsPartitionTests
     [InlineData("dns_filter_mode", false)]
     [InlineData("block_doh_bypass", false)]
     [InlineData("time_guard_enabled", false)]
+    [InlineData("blocked_domains", false)]
     [InlineData("lock_active", false)]     // state, not per-user config
     public void IsPerUser_only_for_per_child_policy(string key, bool expected) =>
         Assert.Equal(expected, SettingsPartition.IsPerUser(key));

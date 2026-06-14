@@ -226,6 +226,7 @@ public sealed class CurfewWorker : BackgroundService
             {
                 using var settings = OpenSettings();
                 ContentFilterApplier.Apply(settings);
+                HostsFileApplier.Apply(settings);
             }
             ServiceLog.Write("content filter applied");
         }
