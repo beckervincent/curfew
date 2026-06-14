@@ -16,9 +16,11 @@ public class SettingsPartitionTests
     [InlineData("lock_deadline_unix", SettingsStoreKind.State)]
     [InlineData("lock_sid", SettingsStoreKind.State)]
     [InlineData("lock_code", SettingsStoreKind.State)]
+    [InlineData("lock_setup_limit", SettingsStoreKind.State)]
     [InlineData("tray_command", SettingsStoreKind.State)]
     [InlineData("unlock_last_counter", SettingsStoreKind.State)]
     [InlineData("passcode", SettingsStoreKind.Config)]
+    [InlineData("provisioned_users", SettingsStoreKind.Config)]
     [InlineData("schedule", SettingsStoreKind.Config)]
     [InlineData("limit_enabled", SettingsStoreKind.Config)]
     // Policy, NOT runtime handshake: a broad "lock_" prefix once routed this into
@@ -32,6 +34,7 @@ public class SettingsPartitionTests
     [InlineData("schedule", true)]
     [InlineData("unlock_secret", true)]
     [InlineData("passcode", false)]        // device-wide
+    [InlineData("provisioned_users", false)] // device-wide set-up list
     [InlineData("app_allowlist", false)]
     [InlineData("auto_update_enabled", false)]
     [InlineData("lock_active", false)]     // state, not per-user config
@@ -45,6 +48,34 @@ public class SettingsPartitionTests
         Assert.Equal($"u:{sid}:limit_enabled", SettingsPartition.Scope("limit_enabled", sid));
         Assert.Equal("passcode", SettingsPartition.Scope("passcode", sid));       // global
         Assert.Equal("limit_enabled", SettingsPartition.Scope("limit_enabled", "")); // no sid
+    }
+}
+
+public class UserProvisioningTests
+{
+    [Fact]
+    public void Add_is_idempotent_and_membership_is_case_insensitive()
+    {
+        var list = UserProvisioning.Add(null, "S-1-5-21-1");
+        list = UserProvisioning.Add(list, "S-1-5-21-2");
+        list = UserProvisioning.Add(list, "S-1-5-21-1"); // duplicate
+
+        Assert.Equal(2, UserProvisioning.Parse(list).Count);
+        Assert.True(UserProvisioning.IsProvisioned(list, "s-1-5-21-2"));
+        Assert.False(UserProvisioning.IsProvisioned(list, "S-1-5-21-9"));
+        Assert.False(UserProvisioning.IsProvisioned(list, null));
+    }
+
+    [Fact]
+    public void Add_rejects_null_or_empty_sid()
+    {
+        var list = UserProvisioning.Add(null, "S-1-5-21-1");
+        Assert.Equal("S-1-5-21-1", list);
+
+        // Adding null or empty should not modify the list
+        Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, null!));
+        Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, ""));
+        Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, "   "));
     }
 }
 

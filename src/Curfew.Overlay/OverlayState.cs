@@ -51,6 +51,13 @@ internal static class OverlayState
     /// <summary>The current session user's SID; scopes per-user config + counters.</summary>
     public static string CurrentSid = string.Empty;
 
+    /// <summary>
+    /// Whether this user already had recorded usage at startup. Grandfathers users who
+    /// were on the device before the new-user setup gate existed, so they are never
+    /// shown the setup lock. Set once at init from <see cref="SettingsStore.HasUsageHistory"/>.
+    /// </summary>
+    public static bool UserHasHistory;
+
     /// <summary>Seconds of daily budget remaining; counts down once per second.</summary>
     public static int Remaining;
 
@@ -180,8 +187,20 @@ internal static class OverlayState
     public static bool ScheduleBlocked =>
         ScheduleEnabled && !ScheduleAllows() && !ScheduleOverride && !IgnoreScheduleUntilRestart;
 
+    /// <summary>
+    /// True when this Windows user has not been set up yet. In force once the device
+    /// has a parent passcode (so a genuine first run still reaches the setup wizard);
+    /// a user whose SID is not in <c>provisioned_users</c> is blocked at the new-user
+    /// setup lock until the parent enters the PIN and sets their daily limit.
+    /// </summary>
+    public static bool NewUserBlocked =>
+        !string.IsNullOrEmpty(CurrentSid)
+        && !string.IsNullOrEmpty(Settings.Get("passcode"))
+        && !UserHasHistory
+        && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
+
     /// <summary>True when any enforcement reason currently requires the lock screen.</summary>
-    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked;
+    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked || NewUserBlocked;
 
     /// <summary>
     /// Persists today's remaining budget so a restart (e.g. watchdog respawn)

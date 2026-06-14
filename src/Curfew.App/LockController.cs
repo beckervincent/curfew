@@ -210,8 +210,12 @@ internal sealed class LockController
         try
         {
             _settings.Set("lock_action_at", now.ToString());
-            if (action == "redeem" && code is not null) _settings.Set("lock_code", code);
-            _settings.Set("lock_action", action);
+            // redeem carries the unlock code; provision carries the parent PIN (so the
+            // service can re-verify) plus the chosen per-user daily limit.
+            if (code is not null && action is "redeem" or "provision") _settings.Set("lock_code", code);
+            if (action == "provision" && _primary is not null)
+                _settings.Set("lock_setup_limit", _primary.SetupLimitMinutes.ToString());
+            _settings.Set("lock_action", action);   // written last: the overlay polls this, then reads the rest
         }
         catch
         {

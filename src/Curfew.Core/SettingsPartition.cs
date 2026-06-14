@@ -38,7 +38,7 @@ public static class SettingsPartition
         // write access to them), the tray command, and the offline-code replay
         // counter.
         "lock_active", "lock_reason", "lock_deadline_unix", "lock_action",
-        "lock_action_at", "lock_sid", "lock_code",
+        "lock_action_at", "lock_sid", "lock_code", "lock_setup_limit",
         "tray_", "unlock_last_counter",
     };
 
@@ -50,7 +50,7 @@ public static class SettingsPartition
     /// </summary>
     private static readonly HashSet<string> GlobalConfigKeys = new(StringComparer.Ordinal)
     {
-        "passcode", "app_allowlist",
+        "passcode", "provisioned_users", "app_allowlist",
         "schema_version", "auto_update_enabled", "update_channel",
         "failed_attempts", "failed_attempt_at",
     };

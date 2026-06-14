@@ -74,6 +74,9 @@ namespace Curfew.Overlay
             // Scope all per-user config + counters to this session's user.
             OverlayState.CurrentSid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty;
             OverlayState.Settings.UserSid = OverlayState.CurrentSid;
+            // Grandfather users already using the device, so only genuinely new users
+            // (no usage history and not yet set up) hit the new-user setup lock.
+            OverlayState.UserHasHistory = OverlayState.Settings.HasUsageHistory(OverlayState.CurrentSid);
 
             int? saved = int.TryParse(OverlayState.Settings.Get(RemainingKey(today)), out var s) ? s : null;
             var weekday = TimeMath.MondayBasedWeekday(today);
