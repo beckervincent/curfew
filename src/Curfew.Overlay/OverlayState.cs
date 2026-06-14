@@ -193,4 +193,112 @@ internal static class OverlayState
 
     private static string UsageKey(DateOnly date) =>
         $"{SettingsStore.UsagePrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+    // ---- Child-initiated breaks (pause) ------------------------------------
+    // A child can take a short break that freezes the budget, rate-limited by the
+    // parent's pause policy (PauseRules in Core): a daily pause budget, a per-break
+    // cap, a cooldown between breaks, and a minimum active time before the first one.
+    // No passcode — the policy is what prevents abuse. Budget used today and the last
+    // break's end are persisted to state.db so the limits survive an overlay restart
+    // (PausedUntilUnix itself stays in-memory, so a restart simply ends the break).
+
+    private static int _pauseUsedSeconds;
+    private static DateOnly _pauseDate;
+    private static long _lastPauseEndUnix;
+    private static bool _wasPaused;
+
+    /// <summary>Load today's consumed pause budget and the last break's end so the limits persist across a restart.</summary>
+    public static void LoadPause()
+    {
+        _pauseDate = DateOnly.FromDateTime(DateTime.Now);
+        _pauseUsedSeconds = int.TryParse(Settings.Get(PauseUsedKey(_pauseDate)), out var used) ? used : 0;
+        _lastPauseEndUnix = long.TryParse(Settings.Get(PauseLastEndKey()), out var end) ? end : 0;
+    }
+
+    /// <summary>
+    /// Attempt to start a child-initiated break. Consults the parent's pause policy
+    /// (enabled, time left, daily budget, cooldown, minimum active time). On success
+    /// freezes the budget for the granted duration and returns <see cref="PauseBlock.None"/>
+    /// with <paramref name="grantedSeconds"/> set; otherwise returns the blocking reason
+    /// and changes nothing.
+    /// </summary>
+    public static PauseBlock TryStartBreak(out int grantedSeconds)
+    {
+        grantedSeconds = 0;
+        RollPauseDay();
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var dailyBudget = Settings.GetInt("pause_daily_budget", 45) * 60;
+        var state = new PauseState(
+            Enabled: Settings.GetBool("pause_enabled", true),
+            RemainingSeconds: Remaining,
+            PauseUsedSeconds: _pauseUsedSeconds,
+            DailyBudgetSeconds: dailyBudget,
+            LastPauseEndUnix: _lastPauseEndUnix,
+            NowUnix: now,
+            CooldownSeconds: Settings.GetInt("pause_cooldown", 15) * 60,
+            SessionActiveSeconds: _usedSeconds,
+            MinActiveSeconds: Settings.GetInt("pause_min_active_time", 10) * 60);
+
+        var verdict = PauseRules.CanPause(state);
+        if (verdict != PauseBlock.None) return verdict;
+
+        grantedSeconds = PauseRules.MaxPauseDuration(
+            Settings.GetInt("pause_max_duration", 20) * 60, dailyBudget, _pauseUsedSeconds);
+        if (grantedSeconds <= 0) return PauseBlock.BudgetExhausted;
+
+        PausedUntilUnix = now + grantedSeconds;
+        _wasPaused = true;
+        return PauseBlock.None;
+    }
+
+    /// <summary>Seconds remaining before another break is allowed, for the cooldown message; 0 if none.</summary>
+    public static int CooldownRemainingSeconds()
+    {
+        if (_lastPauseEndUnix <= 0) return 0;
+        var cooldown = Settings.GetInt("pause_cooldown", 15) * 60;
+        var elapsed = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastPauseEndUnix;
+        return (int)Math.Max(0, cooldown - elapsed);
+    }
+
+    /// <summary>Per-tick pause accounting: charge a second against the daily budget while a break is in
+    /// effect, and stamp the break's end the instant it lapses (starts the cooldown). Call once per tick.</summary>
+    public static void TickPause()
+    {
+        RollPauseDay();
+
+        if (IsPaused)
+        {
+            _wasPaused = true;
+            _pauseUsedSeconds++;
+            if (_pauseUsedSeconds % 15 == 0) PersistPauseUsed();
+            return;
+        }
+
+        if (_wasPaused)
+        {
+            // break just lapsed: record its end so the cooldown begins, and flush the budget
+            _wasPaused = false;
+            _lastPauseEndUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            Settings.Set(PauseLastEndKey(), _lastPauseEndUnix.ToString(CultureInfo.InvariantCulture));
+            PersistPauseUsed();
+        }
+    }
+
+    private static void RollPauseDay()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today == _pauseDate) return;
+        PersistPauseUsed();
+        _pauseDate = today;
+        _pauseUsedSeconds = 0;
+    }
+
+    private static void PersistPauseUsed() =>
+        Settings.Set(PauseUsedKey(_pauseDate), _pauseUsedSeconds.ToString(CultureInfo.InvariantCulture));
+
+    private static string PauseUsedKey(DateOnly date) =>
+        $"pause_used_{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+    private static string PauseLastEndKey() => $"pause_last_end_{CurrentSid}";
 }

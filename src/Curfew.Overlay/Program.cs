@@ -76,6 +76,7 @@ namespace Curfew.Overlay
                 TimeKeeper.InitialRemaining(saved, OverlayState.Settings.GetDailyLimit(weekday));
             OverlayState.LoadEnforcement();
             OverlayState.LoadUsage();
+            OverlayState.LoadPause();
 
             var hInstance = GetModuleHandleW(null);
             OverlayLog.Write($"settings opened, remaining={OverlayState.Remaining}, hInstance={hInstance}");
@@ -228,6 +229,10 @@ namespace Curfew.Overlay
                 OverlayState.LoadEnforcement();
             }
 
+            // charge an in-progress child break against the daily pause budget and stamp its end when it
+            // lapses (cooldown). a break freezes the budget regardless of idle, so this runs first
+            OverlayState.TickPause();
+
             // idle (no keyboard/mouse past the configured timeout) is not active screen use: it must
             // neither consume the budget nor count toward usage history. the child stepping away should
             // not drain their time. honours the idle_enabled / idle_timeout_minutes settings
@@ -273,6 +278,7 @@ namespace Curfew.Overlay
             {
                 case "extend15": ApplyExtend(15); break;
                 case "extend45": ApplyExtend(45); break;
+                case "break": StartBreak(); break;
                 case "pause":
                     OverlayState.PausedUntilUnix = now + PauseDurationSeconds;
                     OverlayLog.Write("tray: paused");
@@ -301,6 +307,32 @@ namespace Curfew.Overlay
             OverlayState.ScheduleOverride = true;
             OverlayState.Persist();
             OverlayLog.Write($"tray: extended +{minutes} min");
+        }
+
+        /// <summary>Apply a child-initiated break governed by the parent's pause policy, then tell the child
+        /// (balloon) whether it started and for how long, or why it was refused.</summary>
+        private static void StartBreak()
+        {
+            var verdict = OverlayState.TryStartBreak(out var grantedSeconds);
+            if (verdict == PauseBlock.None)
+            {
+                OverlayLog.Write($"tray: break started ({grantedSeconds}s)");
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.break.granted", grantedSeconds / 60));
+                return;
+            }
+
+            OverlayLog.Write($"tray: break denied ({verdict})");
+            var message = verdict switch
+            {
+                PauseBlock.Disabled => Loc.T("tray.break.denied.disabled"),
+                PauseBlock.BudgetExhausted => Loc.T("tray.break.denied.budget"),
+                PauseBlock.Cooldown => Loc.T("tray.break.denied.cooldown",
+                    Math.Max(1, (OverlayState.CooldownRemainingSeconds() + 59) / 60)),
+                PauseBlock.MinActiveTimeNotMet => Loc.T("tray.break.denied.active"),
+                PauseBlock.TimeTooLow => Loc.T("tray.break.denied.timelow"),
+                _ => Loc.T("tray.break.denied.budget"),
+            };
+            TrayIcon.ShowBalloon(Loc.T("tray.idle"), message);
         }
 
         /// <summary>refresh tray tooltip, raise balloon at each warning threshold</summary>
