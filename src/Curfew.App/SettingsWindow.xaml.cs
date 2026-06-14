@@ -82,7 +82,7 @@ public sealed partial class SettingsWindow : Window
         _cards = new FrameworkElement[]
         {
             UsageExpander, ActivityExpander, DailyLimitsExpander, ScheduleExpander, WarningsExpander,
-            LockExpander, FilterExpander, ProtectionExpander, UnlockExpander, PasscodeExpander,
+            LockExpander, PauseExpander, FilterExpander, ProtectionExpander, UnlockExpander, PasscodeExpander,
         };
         CardSource.Children.Clear();
 
@@ -128,6 +128,7 @@ public sealed partial class SettingsWindow : Window
         LoadDailyLimits();
         LoadWarnings();
         LoadLockScreen();
+        LoadPause();
         LoadContentFilter();
         LoadProtection();
         LoadUnlock();
@@ -210,6 +211,7 @@ public sealed partial class SettingsWindow : Window
         LoadDailyLimits();
         LoadWarnings();
         LoadLockScreen();
+        LoadPause();
         LoadContentFilter();
     }
 
@@ -450,6 +452,16 @@ public sealed partial class SettingsWindow : Window
         IdleTimeout.Value = _settings.GetInt("idle_timeout_minutes", 5);
     }
 
+    private void LoadPause()
+    {
+        // all stored and edited in minutes
+        PauseEnabled.IsOn = _settings.GetBool("pause_enabled", true);
+        PauseDailyBudget.Value = _settings.GetInt("pause_daily_budget", 45);
+        PauseMaxDuration.Value = _settings.GetInt("pause_max_duration", 20);
+        PauseCooldown.Value = _settings.GetInt("pause_cooldown", 15);
+        PauseMinActive.Value = _settings.GetInt("pause_min_active_time", 10);
+    }
+
     private void LoadContentFilter()
     {
         switch (ContentFilter.Parse(_settings.Get("dns_filter_mode")))
@@ -627,6 +639,7 @@ public sealed partial class SettingsWindow : Window
         SaveDailyLimits();
         SaveWarnings();
         SaveLockScreen();
+        SavePause();
         SaveContentFilter();
         SaveProtection();
         _settings.Set("unlock_bonus_minutes", Clamp(UnlockBonus, 1, 600, 30).ToString());
@@ -678,6 +691,15 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("lock_screen_timeout", (Clamp(LockTimeout, 1, 720, 10) * 60).ToString());
         _settings.Set("idle_enabled", ToFlag(IdleEnabled.IsOn));
         _settings.Set("idle_timeout_minutes", Clamp(IdleTimeout, 1, 600, 5).ToString());
+    }
+
+    private void SavePause()
+    {
+        _settings.Set("pause_enabled", ToFlag(PauseEnabled.IsOn));
+        _settings.Set("pause_daily_budget", Clamp(PauseDailyBudget, 0, 600, 45).ToString());
+        _settings.Set("pause_max_duration", Clamp(PauseMaxDuration, 1, 240, 20).ToString());
+        _settings.Set("pause_cooldown", Clamp(PauseCooldown, 0, 240, 15).ToString());
+        _settings.Set("pause_min_active_time", Clamp(PauseMinActive, 0, 240, 10).ToString());
     }
 
     private void SaveContentFilter()

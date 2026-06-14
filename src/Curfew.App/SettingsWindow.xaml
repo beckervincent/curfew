@@ -247,8 +247,39 @@
                     </StackPanel>
                 </Expander>
 
+                <!-- Breaks (child-initiated pause) -->
+                <Expander x:Name="PauseExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="4">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.pause.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.pause.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Padding="0,4,0,4" Spacing="16">
+                        <ToggleSwitch x:Name="PauseEnabled" Header="{local:Loc Key=settings.pause.toggle}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                        <NumberBox x:Name="PauseDailyBudget" Header="{local:Loc Key=settings.pause.budget}"
+                                   Minimum="0" Maximum="600" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Total break minutes the child may take per day" />
+                        <NumberBox x:Name="PauseMaxDuration" Header="{local:Loc Key=settings.pause.max}"
+                                   Minimum="1" Maximum="240" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Longest single break" />
+                        <NumberBox x:Name="PauseCooldown" Header="{local:Loc Key=settings.pause.cooldown}"
+                                   Minimum="0" Maximum="240" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Minimum wait between breaks" />
+                        <NumberBox x:Name="PauseMinActive" Header="{local:Loc Key=settings.pause.minactive}"
+                                   Minimum="0" Maximum="240" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Active time required before the first break" />
+                    </StackPanel>
+                </Expander>
+
                 <!-- Content filtering -->
-                <Expander x:Name="FilterExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="4">
+                <Expander x:Name="FilterExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="5">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=setup.filter.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -269,7 +300,7 @@
                 </Expander>
 
                 <!-- Protection and updates -->
-                <Expander x:Name="ProtectionExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="5">
+                <Expander x:Name="ProtectionExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="6">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=settings.protection.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -309,7 +340,7 @@
                 </Expander>
 
                 <!-- Offline unlock codes -->
-                <Expander x:Name="UnlockExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="6">
+                <Expander x:Name="UnlockExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="7">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=settings.unlock.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -342,7 +373,7 @@
                 </Expander>
 
                 <!-- Passcode -->
-                <Expander x:Name="PasscodeExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="7">
+                <Expander x:Name="PasscodeExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="8">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=settings.passcode.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
