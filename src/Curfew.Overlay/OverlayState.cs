@@ -140,6 +140,17 @@ internal static class OverlayState
     /// <summary>any enforcement reason requires lock screen now</summary>
     public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked || NewUserBlocked;
 
+    /// <summary>genuinely new user the gate must still hold: no usage history at startup, not yet in
+    /// provisioned_users. unlike <see cref="NewUserBlocked"/> does NOT depend on passcode, so stays true
+    /// even on a boot where the gate failed to engage (config.db unreadable -> passcode empty -> no lock).
+    /// while true the overlay must NOT persist a used_time row: <see cref="SettingsStore.HasUsageHistory"/>
+    /// reads any such row as pre-gate history and permanently grandfathers the user out of setup.
+    /// suppressing it keeps each boot able to re-raise setup until the parent provisions the user</summary>
+    public static bool PendingNewUser =>
+        !string.IsNullOrEmpty(CurrentSid)
+        && !UserHasHistory
+        && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
+
     /// <summary>persist today's remaining budget so restart (watchdog respawn) resumes correct value, not fresh allowance</summary>
     public static void Persist() =>
         Settings.Set(RemainingKey(DateOnly.FromDateTime(DateTime.Now)), Remaining.ToString(CultureInfo.InvariantCulture));

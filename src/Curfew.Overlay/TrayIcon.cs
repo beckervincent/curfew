@@ -41,20 +41,51 @@ internal static class TrayIcon
 
     private static IntPtr _icon;
     private static bool _added;
+    private static IntPtr _hwnd;
+    private static IntPtr _hInstance;
 
     /// <summary>add tray icon for <paramref name="hwnd"/></summary>
     public static void Add(IntPtr hwnd, IntPtr hInstance)
     {
+        // Remember the handles so the icon can be re-added on a "TaskbarCreated"
+        // broadcast (see Readd): the overlay is launched by a logon scheduled task and
+        // commonly wins the race against Explorer, so the very first NIM_ADD lands
+        // before the notification area exists and is silently dropped.
+        _hwnd = hwnd;
+        _hInstance = hInstance;
         _icon = LoadAppIcon(hInstance);
+        AddCore();
+    }
 
-        var data = NewData(hwnd);
+    /// <summary>
+    /// Re-adds the icon after the shell (re)creates the notification area. Explorer
+    /// broadcasts "TaskbarCreated" when it starts and on every restart; without
+    /// re-adding, an overlay that started before Explorer — or kept running across an
+    /// Explorer crash — would have no visible tray icon for the rest of the session.
+    /// </summary>
+    public static void Readd()
+    {
+        if (_hwnd == IntPtr.Zero) return; // Add() not called yet
+        if (_icon == IntPtr.Zero) _icon = LoadAppIcon(_hInstance);
+        AddCore();
+    }
+
+    /// <summary>Issues the NIM_ADD with the current handles/icon; shared by Add and Readd.</summary>
+    private static void AddCore()
+    {
+        var data = NewData(_hwnd);
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WM_TRAYICON;
         data.hIcon = _icon;
         data.szTip = Loc.T("tray.idle");
 
-        _added = Shell_NotifyIconW(NIM_ADD, ref data);
-        OverlayLog.Write($"tray icon add={_added}");
+        // Only ever latch _added on success. A redundant re-add (the icon already
+        // exists, e.g. Explorer did not actually drop it) returns false; we must not
+        // let that clear a flag an earlier successful add set, or UpdateTooltip /
+        // ShowBalloon would stop working until the next add.
+        var ok = Shell_NotifyIconW(NIM_ADD, ref data);
+        if (ok) _added = true;
+        OverlayLog.Write($"tray icon add ok={ok} added={_added}");
     }
 
     /// <summary>update hover tooltip text</summary>

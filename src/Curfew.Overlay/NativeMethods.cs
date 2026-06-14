@@ -242,6 +242,16 @@ internal static class Native
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr GetModuleHandleW(string? name);
 
+    /// <summary>
+    /// Registers (or resolves) a system-wide message string to a unique id. Used for
+    /// "TaskbarCreated", which the shell broadcasts to every top-level window when the
+    /// notification area is (re)created — at first logon before Explorer is ready and
+    /// again whenever Explorer restarts. Handling it lets the tray icon be re-added so
+    /// it survives that race instead of being silently dropped.
+    /// </summary>
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint RegisterWindowMessageW(string lpString);
+
     // ════════════════════════════════════════════════════════════════════════
     //  gdi32 — drawing primitives
     //

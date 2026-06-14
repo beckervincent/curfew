@@ -92,8 +92,23 @@ public partial class App : Application
     /// <summary>build + show full-screen WinUI lock surface</summary>
     private void ShowLock()
     {
-        var controller = new LockController(OpenSettings());
+        var settings = OpenSettings();
+        // scope to THIS session's user, exactly as the overlay does. per-SID config
+        // (unlock_secret, blocking_message, ...) must resolve to the same user the
+        // overlay reads, or the lock reads the unscoped/global value: an offline
+        // unlock code verifies against a per-user secret in the overlay's redeem path
+        // but the lock's own pre-check read the global one and rejected every code,
+        // so a valid ticket never reached the overlay to be granted
+        settings.UserSid = CurrentUserSid();
+        var controller = new LockController(settings);
         _window = controller.Start();
+    }
+
+    /// <summary>SID of the Windows session this app runs in, or null on failure (no per-user scoping).</summary>
+    private static string? CurrentUserSid()
+    {
+        try { return System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value; }
+        catch { return null; }
     }
 
     /// <summary>extract validated tray command from command line, or null if none</summary>

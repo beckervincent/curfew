@@ -52,6 +52,10 @@ namespace Curfew.Overlay
         // keep delegate alive for window life; a local could be collected while Win32 holds the function pointer
         private static readonly WndProc Proc = WindowProc;
 
+        // The shell broadcasts this registered message when the notification area is
+        // (re)created. Resolved once at startup; 0 only if registration failed.
+        private static uint _taskbarCreatedMsg;
+
         public static void Run()
         {
             // harden enforcement process (child's session) vs DLL injection/hijack before any other DLL loads
@@ -108,6 +112,12 @@ namespace Curfew.Overlay
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             SetTimer(hwnd, new IntPtr(1), 1000, IntPtr.Zero);
 
+            // Register the shell's "TaskbarCreated" broadcast so the tray icon can be
+            // re-added once Explorer's notification area exists (it often does not yet
+            // when the logon task starts the overlay) and after any Explorer restart.
+            _taskbarCreatedMsg = RegisterWindowMessageW("TaskbarCreated");
+            OverlayLog.Write($"TaskbarCreated msg={_taskbarCreatedMsg}");
+
             TrayIcon.Add(hwnd, hInstance);
 
             // pre-create lock window; show now if already blocked. else clear lock_active so respawn-while-unblocked can't leave Task Manager lockdown stuck on
@@ -127,6 +137,14 @@ namespace Curfew.Overlay
 
         private static IntPtr WindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
+            // Re-add the tray icon when the shell (re)creates the notification area.
+            // Not a switch case because the message id is resolved at runtime.
+            if (msg == _taskbarCreatedMsg && _taskbarCreatedMsg != 0)
+            {
+                TrayIcon.Readd();
+                return IntPtr.Zero;
+            }
+
             switch (msg)
             {
                 case WM_ERASEBKGND:
@@ -194,8 +212,12 @@ namespace Curfew.Overlay
                 OverlayState.LoadEnforcement();
             }
 
-            // count this second of active (unlocked) screen time for usage history
-            OverlayState.RecordActiveSecond();
+            // count this second of active (unlocked) screen time for usage history -- but NEVER for a user
+            // who still owes setup. a recorded row is read on next boot as pre-gate history and permanently
+            // grandfathers the user out of setup (see OverlayState.PendingNewUser). healthy boot locks them
+            // here anyway; this guard closes the window where the gate failed to engage (config.db unreadable)
+            // so the lock re-raises next boot instead of being silently disabled
+            if (!OverlayState.PendingNewUser) OverlayState.RecordActiveSecond();
 
             // budget ticks down only when active control, no pause, foreground not allow-listed (homework/IDE exempt)
             if (OverlayState.LimitEnabled && !OverlayState.IsPaused && !ForegroundExempt())
