@@ -1,6 +1,6 @@
 # Curfew
 
-Parental screen time manager for Windows. Set daily limits — when time is up, the screen locks until you enter your passcode.
+Parental screen time manager for Windows. Set daily limits - when time is up, the screen locks until you enter your passcode.
 
 ![Settings screen](images/eng_settings.png)
 
@@ -18,18 +18,9 @@ Parental screen time manager for Windows. Set daily limits — when time is up, 
 ## Install
 
 1. Download the latest installer from [Releases](https://github.com/beckervincent/curfew/releases).
-2. Run it as Administrator and follow the wizard.
-3. The default passcode is `0000` — change it right away (tray icon → Settings…).
+2. Setup wizard will appear.
 
-Requires Windows 10/11 (64-bit).
-
-## Build
-
-```powershell
-.\build.ps1   # release build + lint
-```
-
-Every push is checked by CI. Pushing a `v*` tag (or running `./release.sh`) builds the installer and publishes a GitHub release automatically. The background worker is installed as a native Windows service (via `sc.exe` / `New-Service`), so there is no third-party service wrapper to bundle.
+Requires Windows 11 (64-bit).
 
 ## Thanks
 
