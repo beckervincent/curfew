@@ -32,12 +32,12 @@ $appBin = Join-Path $AppDir 'app'
 $sqliteDll = Join-Path $appBin 'e_sqlite3.dll'
 
 # Nothing installed/configured to protect: allow. A child cannot reach this state
-# by deleting config.db — it is deny-ACL'd against Users for delete/write.
+# by deleting config.db - it is deny-ACL'd against Users for delete/write.
 if (-not (Test-Path -LiteralPath $configDb)) { exit 0 }
 if (-not (Test-Path -LiteralPath $sqliteDll)) { Fail-Closed 'sqlite missing' }
 
 # Resolve e_sqlite3 (and its dependencies) by name from the install's app dir,
-# which is ACL'd ReadAndExecute for Users — a child cannot plant a DLL there.
+# which is ACL'd ReadAndExecute for Users - a child cannot plant a DLL there.
 # Pointing the process current directory at that trusted dir lets the loader find
 # it without copying to (and loading from) a user-writable location.
 [Environment]::CurrentDirectory = $appBin
@@ -65,6 +65,10 @@ Add-Type -TypeDefinition $interop
 # Read the stored passcode with a READONLY open (flags = SQLITE_OPEN_READONLY = 1)
 # so the running service's open handle never causes a write-lock conflict.
 $stored = $null
+# $queryOk distinguishes "the query ran and there is genuinely no passcode" from
+# "the read failed". A failed read must fail closed (a passcode may well be set);
+# only a successful query that returns no row / an empty value means "no passcode".
+$queryOk = $false
 $db = [IntPtr]::Zero
 if ([CurfewUninstallSqlite]::sqlite3_open_v2($configDb, [ref] $db, 1, [IntPtr]::Zero) -ne 0) {
     Fail-Closed 'could not open config.db'
@@ -73,9 +77,14 @@ try {
     $stmt = [IntPtr]::Zero
     if ([CurfewUninstallSqlite]::sqlite3_prepare_v2($db, "SELECT value FROM settings WHERE key = 'passcode'", -1, [ref] $stmt, [IntPtr]::Zero) -eq 0) {
         try {
-            if ([CurfewUninstallSqlite]::sqlite3_step($stmt) -eq 100) {
+            $step = [CurfewUninstallSqlite]::sqlite3_step($stmt)
+            if ($step -eq 100) {            # SQLITE_ROW: a passcode row exists
                 $stored = [Runtime.InteropServices.Marshal]::PtrToStringAnsi([CurfewUninstallSqlite]::sqlite3_column_text($stmt, 0))
+                $queryOk = $true
+            } elseif ($step -eq 101) {      # SQLITE_DONE: no passcode row at all
+                $queryOk = $true
             }
+            # Any other step result is an error -> $queryOk stays false -> fail closed.
         } finally {
             [void][CurfewUninstallSqlite]::sqlite3_finalize($stmt)
         }
@@ -84,7 +93,10 @@ try {
     [void][CurfewUninstallSqlite]::sqlite3_close($db)
 }
 
-# No passcode set -> nothing to protect, allow uninstall.
+# A failed read while a passcode might be set must not open the gate.
+if (-not $queryOk) { Fail-Closed 'could not read passcode' }
+
+# Query succeeded and there is genuinely no passcode -> nothing to protect, allow.
 if ([string]::IsNullOrEmpty($stored)) { exit 0 }
 
 # A passcode IS set but this is a silent uninstall: there is no way to prompt, and
@@ -111,7 +123,7 @@ function Test-Passcode {
     } catch { return $false }
     if ($expected.Length -eq 0) { return $false }
 
-    # Rfc2898DeriveBytes with HashAlgorithmName.SHA256 is PBKDF2-HMAC-SHA256 — the
+    # Rfc2898DeriveBytes with HashAlgorithmName.SHA256 is PBKDF2-HMAC-SHA256 - the
     # same derivation the app's PasscodeHash uses.
     $kdf = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
         [System.Text.Encoding]::UTF8.GetBytes($Entered), $salt, $iterations,
