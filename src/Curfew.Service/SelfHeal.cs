@@ -7,10 +7,16 @@ internal static class SelfHeal
     {
         try
         {
-            // present AND already Parallel — nothing to do. old installs registered IgnoreNew, leaving every session after first without overlay: first overlay never exits message loop, suppressing later logon triggers and on-demand runs. re-register such (and missing) so each interactive session covered
+            // present AND already Parallel AND carries the session-connect triggers -- nothing to do.
+            // old installs registered IgnoreNew, leaving every session after first without overlay: first
+            // overlay never exits message loop, suppressing later logon triggers and on-demand runs. installs
+            // before the session-connect triggers had no relaunch on switching back to an already-logged-on
+            // session. re-register any such (and missing) so each interactive session stays covered
             if (PowerShellRunner.Run(
                     $"$t = Get-ScheduledTask -TaskName '{SessionManager.TaskName}' -ErrorAction SilentlyContinue; " +
-                    "if ($t -and \"$($t.Settings.MultipleInstances)\" -eq 'Parallel') { exit 0 }; exit 1") == 0)
+                    "if ($t -and \"$($t.Settings.MultipleInstances)\" -eq 'Parallel' -and " +
+                    "@($t.Triggers | ? { $_.CimClass.CimClassName -eq 'MSFT_TaskSessionStateChangeTrigger' }).Count -ge 1) " +
+                    "{ exit 0 }; exit 1") == 0)
                 return;
 
             var servicePath = Environment.ProcessPath; // ...\service\Curfew.Service.exe
@@ -21,10 +27,18 @@ internal static class SelfHeal
             var overlay = Path.Combine(installRoot, "overlay", "Curfew.Overlay.exe");
             if (!File.Exists(overlay)) return;
 
-            // mirror installer registration (at-logon, limited Users principal, auto-restart). path from own process path, so trusted; single-quote for spaces (Program Files)
+            // mirror installer registration (at-logon + console/remote connect, limited Users principal,
+            // auto-restart). at-logon covers each user's sign-in (incl. fast-user-switch); connect triggers
+            // relaunch on switching back to / reconnecting an already-logged-on session, which fires no logon
+            // event. empty UserId = any user; the per-session mutex blocks duplicates. path from own process
+            // path, so trusted; single-quote for spaces (Program Files)
             var script =
                 $"$act = New-ScheduledTaskAction -Execute '{overlay}'\n" +
-                "$trg = New-ScheduledTaskTrigger -AtLogOn\n" +
+                "$logon = New-ScheduledTaskTrigger -AtLogOn\n" +
+                "$cls = Get-CimClass -ClassName MSFT_TaskSessionStateChangeTrigger -Namespace Root/Microsoft/Windows/TaskScheduler\n" +
+                "$conn = New-CimInstance -CimClass $cls -ClientOnly; $conn.Enabled = $true; $conn.StateChange = 1\n" +
+                "$rconn = New-CimInstance -CimClass $cls -ClientOnly; $rconn.Enabled = $true; $rconn.StateChange = 3\n" +
+                "$trg = @($logon, $conn, $rconn)\n" +
                 "$prn = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited\n" +
                 "$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries " +
                 "-MultipleInstances Parallel -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)\n" +

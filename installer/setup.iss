@@ -303,7 +303,15 @@ begin
     '# Scheduler. at-logon trigger, interactive Users principal, auto-restart' + #13#10 +
     '$overlay = Join-Path $dir "overlay\Curfew.Overlay.exe"' + #13#10 +
     '$act = New-ScheduledTaskAction -Execute $overlay' + #13#10 +
-    '$trg = New-ScheduledTaskTrigger -AtLogOn' + #13#10 +
+    '# triggers: at-logon covers each user''s logon (incl. fast-user-switch sign-in).' + #13#10 +
+    '# console/remote CONNECT also relaunch on switching back to / reconnecting an' + #13#10 +
+    '# already-logged-on session, which fires no logon event. empty UserId = any user;' + #13#10 +
+    '# the overlay''s per-session mutex blocks duplicates when one is already running' + #13#10 +
+    '$logon = New-ScheduledTaskTrigger -AtLogOn' + #13#10 +
+    '$cls = Get-CimClass -ClassName MSFT_TaskSessionStateChangeTrigger -Namespace Root/Microsoft/Windows/TaskScheduler' + #13#10 +
+    '$conn = New-CimInstance -CimClass $cls -ClientOnly; $conn.Enabled = $true; $conn.StateChange = 1' + #13#10 +
+    '$rconn = New-CimInstance -CimClass $cls -ClientOnly; $rconn.Enabled = $true; $rconn.StateChange = 3' + #13#10 +
+    '$trg = @($logon, $conn, $rconn)' + #13#10 +
     '$prn = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited' + #13#10 +
     '# MultipleInstances Parallel: overlay runs one instance per interactive' + #13#10 +
     '# session, each never exits its message loop. IgnoreNew would let' + #13#10 +
