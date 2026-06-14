@@ -252,6 +252,20 @@ internal static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern uint RegisterWindowMessageW(string lpString);
 
+    /// <summary>Last input (keyboard/mouse) tick, for idle detection. dwTime is a GetTickCount
+    /// value (ms since boot, 32-bit, wraps ~49 days) — subtract it from Environment.TickCount
+    /// with unsigned arithmetic so the wrap cancels out.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LASTINPUTINFO
+    {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
     // ════════════════════════════════════════════════════════════════════════
     //  gdi32 — drawing primitives
     //

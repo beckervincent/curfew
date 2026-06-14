@@ -193,6 +193,22 @@ namespace Curfew.Overlay
             OverlayState.AllowedApps.Count > 0
             && AppAllowlist.AllowsTrusted(OverlayState.AllowedApps, ForegroundApp.ProcessImagePath(), TrustedAppRoots);
 
+        /// <summary>session idle past the configured timeout (no keyboard/mouse), so this second is not
+        /// active use. off when idle_enabled is false or idle_timeout_minutes is non-positive. dwTime is a
+        /// GetTickCount value; unsigned subtraction from Environment.TickCount cancels the 32-bit wrap.</summary>
+        private static bool Idle()
+        {
+            if (!OverlayState.Settings.GetBool("idle_enabled", true)) return false;
+            var timeoutSeconds = OverlayState.Settings.GetInt("idle_timeout_minutes", 5) * 60;
+            if (timeoutSeconds <= 0) return false;
+
+            var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+            if (!GetLastInputInfo(ref info)) return false;
+
+            var idleMs = unchecked((uint)Environment.TickCount - info.dwTime);
+            return idleMs >= (uint)timeoutSeconds * 1000u;
+        }
+
         private static void Tick(IntPtr hwnd)
         {
             // apply parent-approved tray action. Curfew.App writes command only after passcode verified, so overlay needs no passcode UI
@@ -212,15 +228,20 @@ namespace Curfew.Overlay
                 OverlayState.LoadEnforcement();
             }
 
-            // count this second of active (unlocked) screen time for usage history -- but NEVER for a user
-            // who still owes setup. a recorded row is read on next boot as pre-gate history and permanently
-            // grandfathers the user out of setup (see OverlayState.PendingNewUser). healthy boot locks them
-            // here anyway; this guard closes the window where the gate failed to engage (config.db unreadable)
-            // so the lock re-raises next boot instead of being silently disabled
-            if (!OverlayState.PendingNewUser) OverlayState.RecordActiveSecond();
+            // idle (no keyboard/mouse past the configured timeout) is not active screen use: it must
+            // neither consume the budget nor count toward usage history. the child stepping away should
+            // not drain their time. honours the idle_enabled / idle_timeout_minutes settings
+            var idle = Idle();
 
-            // budget ticks down only when active control, no pause, foreground not allow-listed (homework/IDE exempt)
-            if (OverlayState.LimitEnabled && !OverlayState.IsPaused && !ForegroundExempt())
+            // count this second of active (unlocked, non-idle) screen time for usage history -- but NEVER
+            // for a user who still owes setup. a recorded row is read on next boot as pre-gate history and
+            // permanently grandfathers the user out of setup (see OverlayState.PendingNewUser). healthy boot
+            // locks them here anyway; this guard closes the window where the gate failed to engage
+            // (config.db unreadable) so the lock re-raises next boot instead of being silently disabled
+            if (!OverlayState.PendingNewUser && !idle) OverlayState.RecordActiveSecond();
+
+            // budget ticks down only when active control, not idle, no pause, foreground not allow-listed (homework/IDE exempt)
+            if (OverlayState.LimitEnabled && !idle && !OverlayState.IsPaused && !ForegroundExempt())
             {
                 OverlayState.Remaining = TimeKeeper.Tick(OverlayState.Remaining);
                 if (TimeKeeper.ShouldPersist(OverlayState.Remaining)) OverlayState.Persist();
