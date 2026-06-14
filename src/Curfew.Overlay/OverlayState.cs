@@ -194,7 +194,8 @@ internal static class OverlayState
     /// setup lock until the parent enters the PIN and sets their daily limit.
     /// </summary>
     public static bool NewUserBlocked =>
-        !string.IsNullOrEmpty(Settings.Get("passcode"))
+        !string.IsNullOrEmpty(CurrentSid)
+        && !string.IsNullOrEmpty(Settings.Get("passcode"))
         && !UserHasHistory
         && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
 

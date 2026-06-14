@@ -65,6 +65,18 @@ public class UserProvisioningTests
         Assert.False(UserProvisioning.IsProvisioned(list, "S-1-5-21-9"));
         Assert.False(UserProvisioning.IsProvisioned(list, null));
     }
+
+    [Fact]
+    public void Add_rejects_null_or_empty_sid()
+    {
+        var list = UserProvisioning.Add(null, "S-1-5-21-1");
+        Assert.Equal("S-1-5-21-1", list);
+
+        // Adding null or empty should not modify the list
+        Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, null!));
+        Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, ""));
+        Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, "   "));
+    }
 }
 
 public class LockoutPolicyTests

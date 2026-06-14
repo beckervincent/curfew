@@ -68,7 +68,7 @@
                                SmallChange="0.5"
                                LargeChange="1"
                                SpinButtonPlacementMode="Inline"
-                               AutomationProperties.Name="Daily limit hours" />
+                               AutomationProperties.Name="{local:Loc Key=lock.setup.caption}" />
                 </StackPanel>
 
                 <!-- Passcode entry -->

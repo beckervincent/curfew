@@ -694,7 +694,8 @@ public sealed class SettingsStore : IDisposable
     /// <c>used_time_&lt;sid&gt;_&lt;date&gt;</c> row). Used to grandfather users who were
     /// already using the device before the new-user setup gate existed, so an upgrade
     /// doesn't lock everyone out — only genuinely new users (no history, not set up)
-    /// are gated. A read failure reports false (treat as new).
+    /// are gated. Also checks for legacy unscoped <c>used_time_&lt;date&gt;</c> keys
+    /// (format: used_time_[0-9][0-9][0-9][0-9]-*). A read failure reports false (treat as new).
     /// </summary>
     public bool HasUsageHistory(string? sid)
     {
@@ -702,9 +703,12 @@ public sealed class SettingsStore : IDisposable
         try
         {
             using var cmd = _state.CreateCommand();
-            // GLOB (not LIKE) so the underscores in the key/SID are literal, '*' the wildcard.
-            cmd.CommandText = "SELECT 1 FROM settings WHERE key GLOB $g LIMIT 1";
-            cmd.Parameters.AddWithValue("$g", $"{UsagePrefix}{sid}_*");
+            // Check for both scoped (used_time_<sid>_*) and legacy unscoped (used_time_<yyyy>-*)
+            // keys. GLOB (not LIKE) so underscores in the key/SID are literal, '*' the wildcard.
+            // Legacy pattern starts with 4 digits (year) to avoid matching scoped keys.
+            cmd.CommandText = "SELECT 1 FROM settings WHERE key GLOB $scoped OR key GLOB $legacy LIMIT 1";
+            cmd.Parameters.AddWithValue("$scoped", $"{UsagePrefix}{sid}_*");
+            cmd.Parameters.AddWithValue("$legacy", $"{UsagePrefix}[0-9][0-9][0-9][0-9]-*");
             return cmd.ExecuteScalar() is not null;
         }
         catch (SqliteException)
