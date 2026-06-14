@@ -189,6 +189,29 @@ namespace Curfew.Overlay
             Environment.GetFolderPath(Environment.SpecialFolder.Windows),
         }.Where(p => !string.IsNullOrEmpty(p)).ToArray();
 
+        /// <summary>last blocked-app name we ballooned about, so the notification fires once per app rather than every tick</summary>
+        private static string? _lastBlockedAppName;
+
+        /// <summary>Terminate the foreground process when it is on the parent's app blocklist, and notify the
+        /// child once. Never touches Curfew's own windows. No-op when the blocklist is empty.</summary>
+        private static void EnforceBlockedApps()
+        {
+            if (OverlayState.BlockedApps.Count == 0) { _lastBlockedAppName = null; return; }
+
+            var (pid, name) = ForegroundApp.Foreground();
+            if (pid == 0 || string.IsNullOrEmpty(name)) { _lastBlockedAppName = null; return; }
+            if (name.StartsWith("Curfew", StringComparison.OrdinalIgnoreCase)) return; // never kill our own UI
+            if (!AppAllowlist.Allows(OverlayState.BlockedApps, name)) { _lastBlockedAppName = null; return; }
+
+            ForegroundApp.Terminate(pid);
+            if (!string.Equals(_lastBlockedAppName, name, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastBlockedAppName = name;
+                OverlayLog.Write($"blocked app terminated: {name}");
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.appblocked", name));
+            }
+        }
+
         /// <summary>foreground app allow-listed -> this second exempt from budget</summary>
         private static bool ForegroundExempt() =>
             OverlayState.AllowedApps.Count > 0
@@ -244,6 +267,9 @@ namespace Curfew.Overlay
             // locks them here anyway; this guard closes the window where the gate failed to engage
             // (config.db unreadable) so the lock re-raises next boot instead of being silently disabled
             if (!OverlayState.PendingNewUser && !idle) OverlayState.RecordActiveSecond();
+
+            // terminate any parent-blocked app that is in the foreground
+            EnforceBlockedApps();
 
             // budget ticks down only when active control, not idle, no pause, foreground not allow-listed (homework/IDE exempt)
             if (OverlayState.LimitEnabled && !idle && !OverlayState.IsPaused && !ForegroundExempt())

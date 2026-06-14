@@ -65,6 +65,9 @@ internal static class OverlayState
     /// <summary>process names whose foreground time doesn't consume budget (cat-3 app allow-list). loaded in <see cref="LoadEnforcement"/></summary>
     public static IReadOnlySet<string> AllowedApps = new HashSet<string>();
 
+    /// <summary>process names the parent blocks outright; the overlay terminates them when foreground. loaded in <see cref="LoadEnforcement"/></summary>
+    public static IReadOnlySet<string> BlockedApps = new HashSet<string>();
+
     /// <summary>parent unlocked during blocked schedule window; cleared once allowed window reached so next blocked window re-locks</summary>
     public static bool ScheduleOverride;
 
@@ -90,6 +93,7 @@ internal static class OverlayState
         ScheduleEnabled = Settings.GetBool(KeyScheduleEnabled, false);
         Schedule = Schedule.Parse(Settings.Get(KeySchedule));
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
+        BlockedApps = AppAllowlist.Parse(Settings.Get("blocked_apps"));
         WeeklyLimitEnabled = Settings.GetBool("weekly_limit_enabled", false);
         WeeklyLimitMinutes = Settings.GetInt("weekly_limit_minutes", 0);
         WeeklyUsedMinutes = Settings.UsedThisWeekMinutes(DateOnly.FromDateTime(DateTime.Now));

@@ -33,6 +33,32 @@ internal static class ForegroundApp
         }
     }
 
+    /// <summary>foreground process id + image name (no <c>.exe</c>), or (0, null) when none/unavailable. lets the
+    /// app-blocklist check the name and then terminate that exact process.</summary>
+    public static (int Pid, string? Name) Foreground()
+    {
+        try
+        {
+            var hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero) return (0, null);
+            GetWindowThreadProcessId(hwnd, out var pid);
+            if (pid == 0) return (0, null);
+            using var process = Process.GetProcessById((int)pid);
+            return ((int)pid, process.ProcessName);
+        }
+        catch
+        {
+            return (0, null);
+        }
+    }
+
+    /// <summary>Terminate the process with <paramref name="pid"/>. Best effort — already-exited or access-denied is ignored.</summary>
+    public static void Terminate(int pid)
+    {
+        try { using var p = Process.GetProcessById(pid); p.Kill(); }
+        catch { /* gone or no rights */ }
+    }
+
     /// <summary>foreground window full exe path, or null (exited / access denied -> caller treats unknown as not-allow-listed)</summary>
     public static string? ProcessImagePath()
     {
