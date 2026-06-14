@@ -16,50 +16,45 @@ using Windows.UI;
 
 namespace Curfew.App;
 
-/// <summary>
-/// Settings editor (Fluent + Mica). Daily limits are edited in hours but stored
-/// in minutes; the time budget and the weekly schedule are independently
-/// toggleable. Saving validates the passcode change first and aborts the whole
-/// save if it fails, so the dialog stays open for correction.
-/// </summary>
+/// <summary>settings editor (Fluent + Mica). daily limits edited in hours, stored in minutes; budget and schedule toggle independently. save validates passcode change first, aborts whole save on fail</summary>
 public sealed partial class SettingsWindow : Window
 {
     private const int WindowWidth = 680;
     private const int WindowHeight = 880;
 
-    /// <summary>Daily limit used when a row is blank or a stored value is missing.</summary>
+    /// <summary>daily limit when row blank or stored value missing</summary>
     private const int DefaultDailyMinutes = 120;
 
-    /// <summary>Number of editable weekdays (Monday … Sunday).</summary>
+    /// <summary>editable weekdays (Mon..Sun)</summary>
     private const int DayCount = 7;
 
-    /// <summary>Minimum passcode length; any characters (PIN or password) are allowed.</summary>
+    /// <summary>min passcode length; any chars (PIN or password)</summary>
     private const int PasscodeLength = PasscodeHash.MinLength;
 
-    /// <summary>Window width at or above which cards reflow into two columns.</summary>
+    /// <summary>width at/above which cards reflow into 2 columns</summary>
     private const double TwoColumnWidth = 1040;
 
-    /// <summary>Window width at or above which cards reflow into three columns.</summary>
+    /// <summary>width at/above which cards reflow into 3 columns</summary>
     private const double ThreeColumnWidth = 1480;
 
-    /// <summary>Upper bound on the update download (installer is ~95 MB); guards against a hostile asset.</summary>
+    /// <summary>cap on update download (installer ~95MB); guards hostile asset</summary>
     private const long MaxInstallerBytes = 150_000_000;
 
     private readonly SettingsStore _settings;
 
-    /// <summary>The seven per-day hour spinners, created in <see cref="LoadDailyLimits"/>.</summary>
+    /// <summary>seven per-day hour spinners, built in <see cref="LoadDailyLimits"/></summary>
     private readonly NumberBox[] _dailyLimits = new NumberBox[DayCount];
 
-    /// <summary>Section cards in display order, distributed across columns by <see cref="Relayout"/>.</summary>
+    /// <summary>section cards in display order, spread across columns by <see cref="Relayout"/></summary>
     private FrameworkElement[] _cards = System.Array.Empty<FrameworkElement>();
 
-    /// <summary>Column count applied by the last <see cref="Relayout"/>, to skip redundant work.</summary>
+    /// <summary>column count from last <see cref="Relayout"/>, to skip redundant work</summary>
     private int _columns;
 
-    /// <summary>The newer release found by the last successful check, enabling "Update now".</summary>
+    /// <summary>newer release from last check, enables "Update now"</summary>
     private ReleaseInfo? _pendingUpdate;
 
-    /// <summary>The running build's version, stamped at publish time (e.g. "1.5.0").</summary>
+    /// <summary>running build version, stamped at publish (e.g. "1.5.0")</summary>
     private static string CurrentVersion =>
         typeof(SettingsWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
@@ -67,7 +62,7 @@ public sealed partial class SettingsWindow : Window
     {
         InitializeComponent();
         _settings = settings;
-        // Config writes go through the SYSTEM service (config.db is read-only here).
+        // config writes go through SYSTEM service (config.db read-only here)
         ConfigBridge.Attach(_settings);
 
         AppWindow.Resize(new Windows.Graphics.SizeInt32(WindowWidth, WindowHeight));
@@ -76,16 +71,12 @@ public sealed partial class SettingsWindow : Window
         InitCards();
         Load();
 
-        // Default to a maximised window so the cards reflow into the full 3 columns;
-        // the user can restore it down to collapse back to 2 or 1 column.
+        // start maximised so cards reflow to full 3 columns; restore down collapses to 2 or 1
         if (AppWindow.Presenter is OverlappedPresenter presenter)
             presenter.Maximize();
     }
 
-    /// <summary>
-    /// Detaches the declaratively-defined section cards from their authoring host
-    /// and starts watching the window size so they can reflow across 1–3 columns.
-    /// </summary>
+    /// <summary>detach section cards from authoring host, watch window size to reflow across 1-3 columns</summary>
     private void InitCards()
     {
         _cards = new FrameworkElement[]
@@ -99,11 +90,7 @@ public sealed partial class SettingsWindow : Window
         Relayout(WindowWidth);
     }
 
-    /// <summary>
-    /// Re-parents the cards into one, two or three columns depending on the window
-    /// width, and widens the centred content area to match. Cards keep their
-    /// natural display order, filling columns round-robin.
-    /// </summary>
+    /// <summary>re-parent cards into 1/2/3 columns by width, widen centred area to match; cards keep order, fill round-robin</summary>
     private void Relayout(double width)
     {
         var columns = width >= ThreeColumnWidth ? 3 : width >= TwoColumnWidth ? 2 : 1;
@@ -126,7 +113,7 @@ public sealed partial class SettingsWindow : Window
         ContentRoot.MaxWidth = columns == 3 ? 1700 : columns == 2 ? 1160 : 680;
     }
 
-    /// <summary>Populates every control from the persisted settings.</summary>
+    /// <summary>fill every control from persisted settings</summary>
     private void Load()
     {
         LimitEnabled.IsOn = _settings.GetBool("limit_enabled", true);
@@ -145,10 +132,10 @@ public sealed partial class SettingsWindow : Window
         UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
     }
 
-    /// <summary>Guards the user-picker handler while it is populated programmatically.</summary>
+    /// <summary>guards user-picker handler during programmatic populate</summary>
     private bool _loadingUser;
 
-    /// <summary>Fills the picker with "All users" plus each Windows user that has recorded usage.</summary>
+    /// <summary>fill picker with "All users" plus each Windows user with recorded usage</summary>
     private void PopulateUserPicker()
     {
         _loadingUser = true;
@@ -160,7 +147,7 @@ public sealed partial class SettingsWindow : Window
         _loadingUser = false;
     }
 
-    /// <summary>Resolves a SID to a display name, falling back to the raw SID.</summary>
+    /// <summary>resolve SID to display name, fall back to raw SID</summary>
     private static string ResolveUserName(string sid)
     {
         try
@@ -176,7 +163,7 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>Re-scopes the per-user controls to the selected user.</summary>
+    /// <summary>re-scope per-user controls to selected user</summary>
     private void OnUserChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loadingUser) return;
@@ -184,8 +171,7 @@ public sealed partial class SettingsWindow : Window
         var sid = (UserPicker.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty;
         _settings.UserSid = string.IsNullOrEmpty(sid) ? null : sid;
 
-        // Reload only the per-user controls; device-wide ones (passcode, device code,
-        // allow-list, updates) are unaffected.
+        // reload only per-user controls; device-wide (passcode, device code, allow-list, updates) unaffected
         LimitEnabled.IsOn = _settings.GetBool("limit_enabled", true);
         ScheduleEnabled.IsOn = _settings.GetBool("schedule_enabled", false);
         Schedule.Load(Curfew.Core.Schedule.Parse(_settings.Get("schedule")));
@@ -195,7 +181,7 @@ public sealed partial class SettingsWindow : Window
         LoadContentFilter();
     }
 
-    /// <summary>Draws a 7-day bar chart of active screen time from usage history.</summary>
+    /// <summary>draw 7-day bar chart of active screen time from usage history</summary>
     private void LoadUsageHistory()
     {
         var history = _settings.GetUsageHistory(7);
@@ -267,7 +253,7 @@ public sealed partial class SettingsWindow : Window
             : Loc.T("settings.history.hours", minutes / 60, minutes % 60);
     }
 
-    /// <summary>Fills the activity list from the most recent event-log entries.</summary>
+    /// <summary>fill activity list from most recent event-log entries</summary>
     private void LoadActivity()
     {
         var events = EventLog.ReadRecent(CurfewPaths.EventLogFile, 25);
@@ -317,9 +303,7 @@ public sealed partial class SettingsWindow : Window
         var secret = _settings.Get("unlock_secret");
         if (string.IsNullOrEmpty(secret))
         {
-            // Seeding the secret routes through the SYSTEM service. If that write
-            // never lands, the device has no secret, so don't show a freshly
-            // generated one the parent would enrol but the lock screen would reject.
+            // seed routes through SYSTEM service. if write never lands, device has no secret — don't show a generated one the parent would enrol but lock screen rejects
             ConfigBridge.ResetWriteStatus();
             secret = UnlockCode.GenerateSecret();
             _settings.Set("unlock_secret", secret);
@@ -341,11 +325,10 @@ public sealed partial class SettingsWindow : Window
         RenderQr(uri);
     }
 
-    /// <summary>Renders the enrolment URI as a QR bitmap. Best-effort: failures leave the image blank.</summary>
+    /// <summary>render enrolment URI as QR bitmap. best-effort: failure leaves image blank</summary>
     private async void RenderQr(string uri)
     {
-        // Clear first so a failed rerender (e.g. after regenerating the secret)
-        // leaves the image blank instead of showing the previous secret's QR.
+        // clear first so a failed rerender (e.g. after regen) blanks instead of showing previous secret's QR
         UnlockQr.Source = null;
         try
         {
@@ -362,15 +345,11 @@ public sealed partial class SettingsWindow : Window
         }
         catch
         {
-            // A QR rendering failure is cosmetic — the secret/URI are still shown under Configure.
+            // QR render fail is cosmetic — secret/URI still shown under Configure
         }
     }
 
-    /// <summary>
-    /// Reveals or hides the advanced unlock-code details (bonus, secret, regenerate).
-    /// The button itself flips to an accent "Done" state while open and back again,
-    /// so a second press visibly undoes the first.
-    /// </summary>
+    /// <summary>toggle advanced unlock-code details (bonus, secret, regenerate). button flips to accent "Done" while open so second press visibly undoes first</summary>
     private void OnToggleUnlockAdvanced(object sender, RoutedEventArgs e)
     {
         var show = UnlockAdvanced.Visibility != Visibility.Visible;
@@ -380,15 +359,12 @@ public sealed partial class SettingsWindow : Window
             show ? "AccentButtonStyle" : "DefaultButtonStyle"];
     }
 
-    /// <summary>Issues a fresh secret and resets the replay counter so old codes stop working.</summary>
+    /// <summary>issue fresh secret, reset replay counter so old codes stop working</summary>
     private void OnRegenerateUnlock(object sender, RoutedEventArgs e)
     {
         ClearError();
 
-        // The secret write goes through the SYSTEM service. If it fails the stored
-        // secret has NOT rotated, so don't show the new one (the parent would enrol
-        // a secret the device never accepted) and don't zero the replay counter
-        // against a secret that didn't actually change.
+        // write goes through SYSTEM service. on fail the stored secret has NOT rotated — don't show the new one (parent would enrol a secret device never accepted) and don't zero replay counter against an unchanged secret
         ConfigBridge.ResetWriteStatus();
         var secret = UnlockCode.GenerateSecret();
         _settings.Set("unlock_secret", secret);
@@ -402,10 +378,10 @@ public sealed partial class SettingsWindow : Window
         ShowUnlockSecret(secret);
     }
 
-    /// <summary>Builds the seven per-day hour spinners and appends them to the panel.</summary>
+    /// <summary>build seven per-day hour spinners, append to panel</summary>
     private void LoadDailyLimits()
     {
-        DailyLimitsPanel.Children.Clear();   // re-runnable when the picked user changes
+        DailyLimitsPanel.Children.Clear();   // re-runnable when picked user changes
         for (var i = 0; i < DayCount; i++)
         {
             var minutes = _settings.GetInt(SettingsStore.WeekdayKeys[i], DefaultDailyMinutes);
@@ -436,7 +412,7 @@ public sealed partial class SettingsWindow : Window
 
     private void LoadLockScreen()
     {
-        // Stored in seconds, edited in minutes.
+        // stored in seconds, edited in minutes
         LockTimeout.Value = _settings.GetInt("lock_screen_timeout", 600) / 60;
         IdleEnabled.IsOn = _settings.GetBool("idle_enabled", true);
         IdleTimeout.Value = _settings.GetInt("idle_timeout_minutes", 5);
@@ -457,19 +433,15 @@ public sealed partial class SettingsWindow : Window
     {
         TimeGuard.IsOn = _settings.GetBool("time_guard_enabled", true);
         AutoUpdate.IsOn = _settings.GetBool("auto_update_enabled", true);
-        // Default to the stable channel; pre-releases are opt-in.
+        // default stable channel; pre-releases opt-in
         UpdateChannel.SelectedIndex = _settings.Get("update_channel") == "prerelease" ? 1 : 0;
     }
 
-    /// <summary>The chosen update channel's tag ("stable"/"prerelease").</summary>
+    /// <summary>chosen update channel tag ("stable"/"prerelease")</summary>
     private string SelectedChannel() =>
         (UpdateChannel.SelectedItem as ComboBoxItem)?.Tag as string ?? "stable";
 
-    /// <summary>
-    /// Queries GitHub for a newer release and reports the result inline. On success
-    /// it remembers the release so <see cref="OnUpdateNow"/> can install it.
-    /// (Automatic checks still run in the service on boot and every six hours.)
-    /// </summary>
+    /// <summary>query GitHub for newer release, report inline. on success remembers release so <see cref="OnUpdateNow"/> can install. (service still auto-checks on boot + every 6h)</summary>
     private async void OnCheckForUpdate(object sender, RoutedEventArgs e)
     {
         CheckUpdateButton.IsEnabled = false;
@@ -500,10 +472,7 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>
-    /// Downloads the pending release's installer and launches it elevated (silent),
-    /// then closes Settings. The installer stops and restarts the Curfew service.
-    /// </summary>
+    /// <summary>download pending installer, launch elevated (silent), close Settings. installer stops + restarts Curfew service</summary>
     private async void OnUpdateNow(object sender, RoutedEventArgs e)
     {
         if (_pendingUpdate is null) return;
@@ -522,7 +491,7 @@ public sealed partial class SettingsWindow : Window
                 return;
             }
 
-            // UseShellExecute + runas raises the UAC prompt the installer needs.
+            // UseShellExecute + runas raises the UAC prompt installer needs
             Process.Start(new ProcessStartInfo
             {
                 FileName = installer,
@@ -534,38 +503,24 @@ public sealed partial class SettingsWindow : Window
         }
         catch
         {
-            // Download error or the user dismissed the UAC prompt.
+            // download error or user dismissed UAC prompt
             UpdateStatus.Text = Loc.T("settings.update.failed");
             CheckUpdateButton.IsEnabled = true;
             UpdateNowButton.IsEnabled = true;
         }
     }
 
-    /// <summary>
-    /// Streams the installer to the temp folder, rejecting anything from an
-    /// untrusted host, too large, too small, or not a Windows executable. Returns
-    /// the path, or null on failure (any partial download is deleted).
-    /// </summary>
-    /// <remarks>
-    /// The asset is fetched over HTTPS from GitHub, which authenticates the source.
-    /// The installer is not Authenticode-signed and no hash is published, so signer
-    /// or hash-pin verification is not yet possible; <see cref="IsTrustedInstallerUrl"/>
-    /// plus the size and PE-header checks are the available defences.
-    /// </remarks>
+    /// <summary>stream installer to temp, reject untrusted host / too big / too small / not a Windows exe. returns path, null on fail (partial deleted)</summary>
+    /// <remarks>asset fetched over HTTPS from GitHub (authenticates source). not Authenticode-signed, no published hash, so <see cref="IsTrustedInstallerUrl"/> + size + PE-header checks are the available defences</remarks>
     private static async Task<string?> DownloadInstallerAsync(string url)
     {
-        // The initial URL must be THIS repo's pinned HTTPS release path, not merely
-        // some github.com address: otherwise any other account's release asset named
-        // curfew-setup*.exe would be accepted and then launched elevated. The
-        // post-redirect URL is re-checked host-only below (it lands on the asset CDN).
+        // initial URL must be THIS repo's pinned HTTPS release path, not just any github.com address — else another account's asset named curfew-setup*.exe gets launched elevated. post-redirect URL re-checked host-only below (lands on asset CDN)
         if (!ReleaseInfo.IsInstallerUrl(url)) return null;
 
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
 
-        // Stage under an app-specific dir with an unguessable name so another
-        // same-user process cannot pre-create or swap the file between the download
-        // and the elevated launch (TOCTOU). CreateNew fails if the name ever clashes.
+        // stage under app-specific dir with unguessable name so a same-user process can't pre-create or swap the file between download and elevated launch (TOCTOU). CreateNew fails on name clash
         var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Curfew");
         Directory.CreateDirectory(tempDir);
         var path = System.IO.Path.Combine(tempDir, $"curfew-update-{Guid.NewGuid():N}.exe");
@@ -574,21 +529,20 @@ public sealed partial class SettingsWindow : Window
             using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
 
-            // HttpClient follows redirects (github.com -> *.githubusercontent.com),
-            // so re-validate the URL actually fetched, not just the input.
+            // HttpClient follows redirects (github.com -> *.githubusercontent.com) — re-validate the URL actually fetched, not just input
             if (response.RequestMessage?.RequestUri is { } finalUri && !IsTrustedInstallerUrl(finalUri.ToString()))
                 return null;
 
             if (response.Content.Headers.ContentLength is long advertised && advertised > MaxInstallerBytes)
                 return null;
 
-            // Stream straight to disk (capped) rather than buffering ~95 MB in memory.
+            // stream straight to disk (capped), don't buffer ~95MB in memory
             await using (var source = await response.Content.ReadAsStreamAsync())
             await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 var chunk = new byte[81_920];
 
-                // Validate the "MZ" PE signature on the first chunk before writing more.
+                // validate "MZ" PE signature on first chunk before writing more
                 var first = await source.ReadAsync(chunk);
                 if (first < 2 || chunk[0] != 0x4D || chunk[1] != 0x5A)
                     throw new InvalidDataException("not a Windows executable");
@@ -608,9 +562,7 @@ public sealed partial class SettingsWindow : Window
                     throw new InvalidDataException("download too small to be the installer");
             }
 
-            // Refuse to hand an installer to the elevated launch unless it is
-            // Authenticode-signed by Curfew's own key. URL/host pinning guards where
-            // it came from; this guards what it actually is.
+            // refuse elevated launch unless Authenticode-signed by Curfew's own key. URL/host pinning guards where it came from; this guards what it is
             if (!Curfew.Core.Security.InstallerSignature.Verify(path))
                 throw new InvalidDataException("installer is not signed by Curfew's key");
 
@@ -618,16 +570,13 @@ public sealed partial class SettingsWindow : Window
         }
         catch
         {
-            // Network/HTTP error, oversize, or a failed validation: drop the partial file.
+            // network/HTTP error, oversize, or failed validation: drop partial file
             try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ }
             return null;
         }
     }
 
-    /// <summary>
-    /// Whether the installer URL is an HTTPS GitHub address, so the elevated launch
-    /// can only ever run something fetched from the release host.
-    /// </summary>
+    /// <summary>whether installer URL is an HTTPS GitHub address, so elevated launch only runs something from the release host</summary>
     private static bool IsTrustedInstallerUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri)
         && uri.Scheme == Uri.UriSchemeHttps
@@ -635,10 +584,7 @@ public sealed partial class SettingsWindow : Window
             || uri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)
             || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>
-    /// Save handler wired to the Save button. Validates the optional passcode
-    /// change first; if it fails the dialog stays open and nothing is persisted.
-    /// </summary>
+    /// <summary>Save handler. validate optional passcode change first; on fail dialog stays open, nothing persisted</summary>
     private void OnSave(object sender, RoutedEventArgs e)
     {
         ClearError();
@@ -653,8 +599,7 @@ public sealed partial class SettingsWindow : Window
         SaveProtection();
         _settings.Set("unlock_bonus_minutes", Clamp(UnlockBonus, 1, 600, 30).ToString());
 
-        // If any config write could not reach the service, keep the dialog open and
-        // tell the parent rather than silently losing the change.
+        // any config write that didn't reach the service: keep dialog open + tell parent, don't silently lose the change
         if (!ConfigBridge.LastWriteOk)
         {
             ShowError(Loc.T("settings.err.savefailed"));
@@ -682,8 +627,7 @@ public sealed partial class SettingsWindow : Window
             _settings.Set(SettingsStore.WeekdayKeys[i], minutes.ToString());
         }
 
-        // Apps whose foreground time is exempt from the budget. Stored as the raw
-        // text; the overlay parses it (AppAllowlist.Parse) when enforcing.
+        // apps whose foreground time is exempt from budget. stored raw; overlay parses (AppAllowlist.Parse) when enforcing
         _settings.Set("app_allowlist", AppAllowlistBox.Text ?? string.Empty);
     }
 
@@ -698,7 +642,7 @@ public sealed partial class SettingsWindow : Window
 
     private void SaveLockScreen()
     {
-        // Edited in minutes, stored in seconds.
+        // edited in minutes, stored in seconds
         _settings.Set("lock_screen_timeout", (Clamp(LockTimeout, 1, 720, 10) * 60).ToString());
         _settings.Set("idle_enabled", ToFlag(IdleEnabled.IsOn));
         _settings.Set("idle_timeout_minutes", Clamp(IdleTimeout, 1, 600, 5).ToString());
@@ -720,12 +664,8 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("update_channel", SelectedChannel());
     }
 
-    /// <summary>
-    /// Validates and persists a passcode change. A change is only attempted when
-    /// at least one of the New/Confirm boxes is non-empty; an all-blank trio means
-    /// "keep the current passcode" and succeeds without touching settings.
-    /// </summary>
-    /// <returns><c>true</c> when nothing needs changing or the change is valid and saved.</returns>
+    /// <summary>validate + persist passcode change. only attempted when New/Confirm non-empty; all-blank = keep current, succeeds without touching settings</summary>
+    /// <returns><c>true</c> when nothing to change, or change valid and saved</returns>
     private bool TrySavePasscode()
     {
         var newPin = NewPin.Password;
@@ -752,34 +692,33 @@ public sealed partial class SettingsWindow : Window
         return true;
     }
 
-    /// <summary>Cancel handler wired to the Cancel button; discards all edits.</summary>
+    /// <summary>Cancel handler; discards all edits</summary>
     private void OnCancel(object sender, RoutedEventArgs e) => Close();
 
-    /// <summary>Reads a <see cref="NumberBox"/> as a clamped integer, substituting
-    /// <paramref name="fallback"/> when the box is empty (its value is NaN).</summary>
+    /// <summary>read <see cref="NumberBox"/> as clamped int, using <paramref name="fallback"/> when empty (NaN)</summary>
     private static int Clamp(NumberBox box, int min, int max, int fallback)
     {
         var value = double.IsNaN(box.Value) ? fallback : (int)box.Value;
         return Math.Clamp(value, min, max);
     }
 
-    /// <summary>Converts whole minutes to hours, rounded to the spinner's precision.</summary>
+    /// <summary>whole minutes to hours, rounded to spinner precision</summary>
     private static double MinutesToHours(int minutes) => Math.Round(minutes / 60.0, 2);
 
-    /// <summary>Serializes a toggle state to the "1"/"0" persisted flag.</summary>
+    /// <summary>toggle state to "1"/"0" persisted flag</summary>
     private static string ToFlag(bool on) => on ? "1" : "0";
 
-    /// <summary>Null-safe trimmed text for a <see cref="TextBox"/>.</summary>
+    /// <summary>null-safe trimmed text for a <see cref="TextBox"/></summary>
     private static string TrimmedText(TextBox box) => (box.Text ?? "").Trim();
 
-    /// <summary>Shows a validation error beneath the form.</summary>
+    /// <summary>show validation error beneath form</summary>
     private void ShowError(string message)
     {
         StatusText.Text = message;
         StatusText.Visibility = Visibility.Visible;
     }
 
-    /// <summary>Hides any previously shown validation error.</summary>
+    /// <summary>hide any shown validation error</summary>
     private void ClearError()
     {
         StatusText.Text = "";

@@ -8,7 +8,7 @@ on:
 permissions:
   contents: write
 
-# Run JavaScript-based actions on Node.js 24 (Node.js 20 is deprecated).
+# JS actions on Node.js 24 (Node.js 20 deprecated)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -17,10 +17,7 @@ jobs:
     name: Build installer and publish release
     runs-on: windows-latest
 
-    # Self-signed Authenticode cert lives in repo secrets. It gives no SmartScreen
-    # reputation (it is not chained to a trusted CA, so Windows still warns), but it
-    # stamps a stable publisher identity and makes post-build tampering detectable.
-    # Exposed as env so the signing steps can be skipped cleanly when absent.
+    # self-signed Authenticode cert in repo secrets. no SmartScreen reputation (not chained to trusted CA, Windows still warns), but stamps stable publisher identity + makes tampering detectable. as env so signing steps skip cleanly when absent
     env:
       SIGN_PFX_BASE64: ${{ secrets.CURFEW_SIGN_PFX_BASE64 }}
       SIGN_PFX_PASSWORD: ${{ secrets.CURFEW_SIGN_PFX_PASSWORD }}
@@ -46,8 +43,7 @@ jobs:
         id: ver
         shell: pwsh
         env:
-          # Pass the ref through the environment, never interpolated into the script
-          # body, so a crafted branch/tag name cannot inject PowerShell.
+          # ref via env, never interpolated into script body, so crafted branch/tag name cant inject PowerShell
           REF_NAME: ${{ github.ref_name }}
         run: |
           $tag = $env:REF_NAME
@@ -92,8 +88,7 @@ jobs:
             $res = Set-AuthenticodeSignature -FilePath $f.FullName -Certificate $cert `
               -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
             Write-Host "$($f.Name): $($res.Status) $($res.StatusMessage)"
-            # A self-signed cert reports NotTrusted (no CA chain), which is expected.
-            # Only a missing signer means signing actually failed.
+            # self-signed cert reports NotTrusted (no CA chain), expected. only missing signer means signing failed
             if ($null -eq $res.SignerCertificate) { throw "No signature applied to $($f.Name)" }
           }
 
@@ -133,18 +128,12 @@ jobs:
           "@
           $notes | Out-File -FilePath "RELEASE_NOTES.md" -Encoding utf8
 
-          # Publish a SHA-256 checksum alongside the installer so a download can be
-          # verified out-of-band (a step toward provenance for the unsigned-by-CA exe).
+          # SHA-256 checksum alongside installer so download verified out-of-band (provenance for the unsigned-by-CA exe)
           $sha = (Get-FileHash -Algorithm SHA256 -Path $installer).Hash.ToLower()
           "$sha  $installer" | Out-File -FilePath "$installer.sha256" -Encoding ascii
           Write-Host "SHA-256: $sha"
 
-          # Ship as a pre-release: the v1.6.x line is still being validated on the
-          # test fleet, so it must NOT become the "Latest" release that stable users
-          # auto-update to (they stay pinned to the current stable). The updater's
-          # prerelease channel still picks it up. Promote to stable later by editing
-          # the release to --latest once a build is proven in the field.
-          # No --clobber: never silently overwrite an already-published artifact. A
-          # re-run on an existing tag fails loudly instead of replacing the release.
+          # ship as pre-release: v1.6.x still validating on test fleet, must NOT be "Latest" that stable users auto-update to (they stay pinned to stable). updater prerelease channel still picks it up. promote to stable later by editing release to --latest once proven in field
+          # no --clobber: never silently overwrite published artifact. re-run on existing tag fails loudly instead of replacing
           gh release create $tag --title "Curfew v$version" --notes-file "RELEASE_NOTES.md" --prerelease $installer "$installer.sha256"
           if ($LASTEXITCODE -ne 0) { throw "Release creation failed (does the tag already have a release?)" }

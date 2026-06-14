@@ -1,5 +1,5 @@
 ; Curfew - Inno Setup installer (.NET / WinUI build)
-; Requires: /DMyAppVersion=x.y.z passed on the ISCC command line
+; needs /DMyAppVersion=x.y.z on ISCC command line
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
@@ -33,9 +33,7 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 WizardStyle=modern
-; Do NOT use RestartManager to close our files: it cannot stop the SYSTEM
-; service and aborts a silent install. The service is stopped explicitly in
-; PrepareToInstall instead.
+; no RestartManager to close our files: cant stop SYSTEM service + aborts silent install. service stopped explicitly in PrepareToInstall
 CloseApplications=no
 RestartApplications=no
 MinVersion=10.0
@@ -47,8 +45,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "service\*"; DestDir: "{app}\service"; Flags: recursesubdirs ignoreversion
 Source: "app\*";     DestDir: "{app}\app";     Flags: recursesubdirs ignoreversion
 Source: "overlay\*"; DestDir: "{app}\overlay"; Flags: recursesubdirs ignoreversion
-; Uninstall guard: verifies the parent passcode before an uninstall may proceed.
-; Lands in {app}, which is ACL'd ReadAndExecute for Users, so a child cannot edit it.
+; uninstall guard: verify parent passcode before uninstall proceeds
+; lands in {app}, ACL'd ReadAndExecute for Users, so child cant edit it
 Source: "verify-uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -80,8 +78,7 @@ begin
   Result := ResultCode;
 end;
 
-{ Stop and remove the service, kill leftover processes, reset ACLs so files
-  can be replaced or deleted. }
+{ stop+remove service, kill leftover processes, reset ACLs so files can be replaced/deleted }
 procedure RunCleanupScript(const AppDir: String);
 var
   ScriptPath, Script: String;
@@ -92,13 +89,13 @@ begin
     '$svc  = "{#ServiceName}"' + #13#10 +
     '$dir  = "' + AppDir  + '"' + #13#10 +
     '' + #13#10 +
-    '# 1. Stop and delete the native Windows service.' + #13#10 +
+    '# 1. stop+delete native Windows service' + #13#10 +
     'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Seconds 2' + #13#10 +
     'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Milliseconds 500' + #13#10 +
     '' + #13#10 +
-    '# 2. Kill the app/overlay/service processes and the overlay task so files unlock.' + #13#10 +
+    '# 2. kill app/overlay/service processes + overlay task so files unlock' + #13#10 +
     'Get-Process -Name "Curfew.App","Curfew.Overlay","Curfew.Service" -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
     'taskkill /f /im "{#ServiceExeName}" 2>$null | Out-Null' + #13#10 +
     'schtasks /delete /tn "CurfewOverlay" /f 2>$null | Out-Null' + #13#10 +
@@ -119,7 +116,7 @@ begin
   end;
 end;
 
-{ Consumes the leading numeric component of a dotted version string. }
+{ eat leading numeric component of dotted version string }
 function NextVersionNumber(var S: String): Integer;
 var
   P: Integer;
@@ -139,8 +136,7 @@ begin
   Result := StrToIntDef(T, 0);
 end;
 
-{ True when Remote (e.g. "v1.7.0") is a strictly newer MAJOR.MINOR.PATCH than
-  Local. Unparsable components compare as zero, so garbage never reports newer. }
+{ True when Remote (e.g. "v1.7.0") strictly newer MAJOR.MINOR.PATCH than Local. unparsable components = zero, so garbage never newer }
 function IsNewerVersion(Remote, Local: String): Boolean;
 var
   I, RN, LN: Integer;
@@ -161,8 +157,7 @@ begin
   end;
 end;
 
-{ Tag of the newest stable release on GitHub, or '' when the lookup fails for
-  any reason (offline, rate-limited, API change). Callers must fail open. }
+{ tag of newest stable release on GitHub, or '' when lookup fails (offline, rate-limited, API change). callers must fail open }
 function GetLatestReleaseTag(): String;
 var
   Http: Variant;
@@ -180,7 +175,7 @@ begin
     if Http.Status <> 200 then Exit;
     Body := Http.ResponseText;
 
-    { Crude but sufficient JSON scan: the value after "tag_name" is the tag. }
+    { crude JSON scan: value after "tag_name" is the tag }
     P := Pos('"tag_name"', Body);
     if P = 0 then Exit;
     Body := Copy(Body, P + Length('"tag_name"'), Length(Body));
@@ -195,10 +190,7 @@ begin
   end;
 end;
 
-{ Checks whether this installer is still the newest stable release and, when it
-  is outdated, offers to open the download page instead of installing. Returns
-  False to abort setup. Fail-open: an unreachable or unparsable API never
-  blocks the install. }
+{ check if installer still newest stable; if outdated, offer download page instead of installing. False aborts setup. fail-open: unreachable/unparsable API never blocks install }
 function ConfirmWhenOutdated(): Boolean;
 var
   Latest: String;
@@ -220,10 +212,7 @@ begin
   end;
 end;
 
-{ Verify this installer is current (interactive installs only; the service's
-  silent auto-update always feeds the newest installer and must never block),
-  then stop a previous install's service and processes before any file work,
-  so its binaries are not locked during copy. Runs first, before the wizard. }
+{ verify installer current (interactive only; service silent auto-update always feeds newest + must never block), then stop prior install service+processes before file work so binaries not locked during copy. runs first, before wizard }
 function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;
@@ -274,8 +263,8 @@ begin
     '$exe   = "' + ServiceExe + '"' + #13#10 +
     '$dir   = "' + AppDir     + '"' + #13#10 +
     '' + #13#10 +
-    '# Remove any prior registration, then create the .NET app as a native' + #13#10 +
-    '# LocalSystem auto-start Windows service (it uses AddWindowsService()).' + #13#10 +
+    '# remove prior registration, then create .NET app as native' + #13#10 +
+    '# LocalSystem auto-start Windows service (uses AddWindowsService())' + #13#10 +
     'sc.exe stop   $svc 2>$null | Out-Null' + #13#10 +
     'Start-Sleep -Seconds 1' + #13#10 +
     'sc.exe delete $svc 2>$null | Out-Null' + #13#10 +
@@ -283,10 +272,10 @@ begin
     '' + #13#10 +
     'New-Service -Name $svc -BinaryPathName ("`"" + $exe + "`"") -DisplayName "Curfew" -Description "Curfew - Manages daily computer time limits" -StartupType Automatic | Out-Null' + #13#10 +
     '' + #13#10 +
-    '# Restart automatically on crash (5s, 5s, then every 60s); reset count daily.' + #13#10 +
+    '# auto-restart on crash (5s, 5s, then every 60s); reset count daily' + #13#10 +
     'sc.exe failure $svc reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null' + #13#10 +
     '' + #13#10 +
-    '# Lock down install dir (read-only for users); DB dir writable for the app' + #13#10 +
+    '# lock down install dir (read-only for users); DB dir writable for app' + #13#10 +
     'function AclRule($sidStr,$rights,$inherit,$prop,$type){' + #13#10 +
     '    $sid=New-Object System.Security.Principal.SecurityIdentifier($sidStr)' + #13#10 +
     '    New-Object System.Security.AccessControl.FileSystemAccessRule($sid,$rights,$inherit,$prop,$type)' + #13#10 +
@@ -309,18 +298,18 @@ begin
     '' + #13#10 +
     'Start-Service $svc' + #13#10 +
     '' + #13#10 +
-    '# Overlay launches via a logon scheduled task: a .NET app fails to start' + #13#10 +
-    '# under the service CreateProcessAsUser, but starts cleanly from Task' + #13#10 +
-    '# Scheduler. At-logon trigger, interactive Users principal, auto-restart.' + #13#10 +
+    '# overlay launches via logon scheduled task: .NET app fails to start' + #13#10 +
+    '# under service CreateProcessAsUser, but starts cleanly from Task' + #13#10 +
+    '# Scheduler. at-logon trigger, interactive Users principal, auto-restart' + #13#10 +
     '$overlay = Join-Path $dir "overlay\Curfew.Overlay.exe"' + #13#10 +
     '$act = New-ScheduledTaskAction -Execute $overlay' + #13#10 +
     '$trg = New-ScheduledTaskTrigger -AtLogOn' + #13#10 +
     '$prn = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited' + #13#10 +
-    '# MultipleInstances Parallel: the overlay runs one instance per interactive' + #13#10 +
-    '# session, and each instance never exits its message loop. IgnoreNew would let' + #13#10 +
-    '# the first session''s instance suppress every later logon trigger, leaving a' + #13#10 +
+    '# MultipleInstances Parallel: overlay runs one instance per interactive' + #13#10 +
+    '# session, each never exits its message loop. IgnoreNew would let' + #13#10 +
+    '# first session''s instance suppress every later logon trigger, leaving a' + #13#10 +
     '# second concurrent user (fast-user-switch / lingering disconnected session)' + #13#10 +
-    '# with no overlay. The overlay''s per-session mutex still blocks duplicates.' + #13#10 +
+    '# with no overlay. overlay''s per-session mutex still blocks duplicates' + #13#10 +
     '$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances Parallel -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)' + #13#10 +
     '$set.ExecutionTimeLimit = "PT0S"' + #13#10 +
     'Register-ScheduledTask -TaskName "CurfewOverlay" -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null' + #13#10 +
@@ -329,11 +318,11 @@ begin
     'schtasks /delete /tn "CurfewAutoUpdate" /f 2>$null | Out-Null' + #13#10 +
     'Remove-Item -Recurse -Force (Join-Path $dbDir "update") -EA SilentlyContinue' + #13#10 +
     '' + #13#10 +
-    '# Stage the auto-updater''s download dir with a protected ACL: the data dir' + #13#10 +
-    '# grants Users=Modify (so the app can write state.db), and that ACE inherits' + #13#10 +
-    '# down. Left inherited, a child could overwrite the staged, signature-checked' + #13#10 +
-    '# curfew-update.exe in the TOCTOU gap before the SYSTEM install task fires.' + #13#10 +
-    '# Break inheritance here so only SYSTEM+Admins can write the update folder.' + #13#10 +
+    '# stage auto-updater''s download dir with protected ACL: data dir' + #13#10 +
+    '# grants Users=Modify (so app can write state.db), and that ACE inherits' + #13#10 +
+    '# down. left inherited, child could overwrite staged, signature-checked' + #13#10 +
+    '# curfew-update.exe in TOCTOU gap before SYSTEM install task fires.' + #13#10 +
+    '# break inheritance here so only SYSTEM+Admins can write update folder' + #13#10 +
     '$up = Join-Path $dbDir "update"' + #13#10 +
     'New-Item -ItemType Directory -Path $up -Force | Out-Null' + #13#10 +
     '$upAcl = Get-Acl $up' + #13#10 +
@@ -356,7 +345,7 @@ begin
   DeleteFile(ScriptPath);
 end;
 
-{ True if the named switch was passed on the installer command line. }
+{ True if named switch passed on installer command line }
 function HasParam(const Name: String): Boolean;
 var
   I: Integer;
@@ -370,9 +359,7 @@ begin
     end;
 end;
 
-{ Launch the first-run wizard in the interactive user session via a one-shot
-  scheduled task. This works even for a silent install kicked off over SSH/SYSTEM
-  (session 0), where ShellExec would open the GUI on an invisible desktop. }
+{ launch first-run wizard in interactive user session via one-shot scheduled task. works even for silent install over SSH/SYSTEM (session 0), where ShellExec would open GUI on invisible desktop }
 procedure LaunchSetupInUserSession(const AppDir: String);
 var
   ScriptPath, Script: String;
@@ -406,8 +393,7 @@ begin
     ssDone:
       if not IsUpdate then
       begin
-        { /RUNSETUP forces the wizard even for a silent/remote install; otherwise
-          only show it for an interactive install. }
+        { /RUNSETUP forces wizard even for silent/remote install; otherwise only show for interactive install }
         if HasParam('/RUNSETUP') then
           LaunchSetupInUserSession(ExpandConstant('{app}'))
         else if not WizardSilent then
@@ -417,11 +403,7 @@ begin
   end;
 end;
 
-{ Run the shipped uninstall guard: it reads the stored parent passcode from
-  config.db and, when one is set, requires it to be entered before the uninstall
-  may proceed. Returns True to allow the uninstall, False to block it. Fails closed
-  (blocks) if PowerShell cannot be launched, since a passcode may be set; allows
-  only when the guard is genuinely absent (an older install without it). }
+{ run shipped uninstall guard: reads stored parent passcode from config.db; when set, requires it entered before uninstall proceeds. True allows, False blocks. fails closed (blocks) if PowerShell cant launch since passcode may be set; allows only when guard genuinely absent (older install without it) }
 function VerifyUninstallPasscode(): Boolean;
 var
   ScriptPath: String;
@@ -441,7 +423,7 @@ begin
        ' -AppDir "' + ExpandConstant('{app}') + '" -Interactive ' + IntToStr(Interactive),
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
-    Result := False; { could not launch the check -> fail closed }
+    Result := False; { couldnt launch check -> fail closed }
     Exit;
   end;
 

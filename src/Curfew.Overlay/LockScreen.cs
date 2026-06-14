@@ -6,42 +6,28 @@ using static Curfew.Overlay.LockNative;
 
 namespace Curfew.Overlay;
 
-/// <summary>
-/// The hard enforcement floor behind the lock: a full-screen black topmost cover
-/// and a low-level keyboard hook that swallow the escape shortcuts, plus the
-/// logoff countdown. The visible, interactive lock is the WinUI surface
-/// (<c>Curfew.App --lock</c>), which this launches on top and relaunches if it
-/// dies; this process only enforces and applies the actions the surface records
-/// (extend / unlock / ignore-schedule / redeem / logoff). Plain Win32 so it starts
-/// reliably from the logon scheduled task.
-/// </summary>
+/// <summary>hard floor behind lock: black topmost cover + keyboard hook + logoff countdown. visible lock is WinUI surface (<c>Curfew.App --lock</c>) launched/relaunched on top; this only enforces + applies its actions (extend/unlock/ignore-schedule/redeem/logoff). plain Win32 for reliable logon-task start</summary>
 internal static class LockScreen
 {
     private const string ClassName = "CurfewLockClass";
 
-    /// <summary>Solid black cover painted behind the WinUI lock surface.</summary>
+    /// <summary>solid black cover behind WinUI lock surface</summary>
     private const uint ColorOverlayBg = 0x00000000;
 
     private const int TimerReassert = 2;
     private const int TimerCountdown = 3;
 
-    // Keep delegates alive for the lifetime of the process so the GC never
-    // collects the thunks that Win32 holds raw pointers to.
+    // keep delegates alive for process life so GC won't collect thunks Win32 holds raw pointers to
     private static readonly WndProc Proc = LockProc;
     private static readonly HookProc Hook = KeyboardHookProc;
 
     private static IntPtr _hwnd;
     private static IntPtr _hook;
 
-    /// <summary>Seconds until the session is logged off; counts down once a second while locked.</summary>
+    /// <summary>seconds until logoff; counts down once a second while locked</summary>
     private static int _shutdownCountdown = -1;
 
-    // New-user setup runs a blocking ConfigClient.Provision pipe call (verify PIN,
-    // write the user's per-user limit, mark them set up) that must NOT run on the
-    // message-pump thread — it would freeze the keyboard hook and let escape shortcuts
-    // leak through. It runs on a background task; the outcome is applied on the next
-    // tick. _provisionTask is the in-flight call (null when idle); the overlay is
-    // single-threaded so it needs no locking.
+    // new-user setup = blocking ConfigClient.Provision pipe call; must NOT run on pump thread (would freeze hook, leak escape shortcuts). runs on background task, outcome applied next tick. _provisionTask = in-flight call (null=idle); single-threaded so no locking
     private static Task<bool>? _provisionTask;
 
     public static void Register(IntPtr hInstance)
@@ -51,8 +37,7 @@ internal static class LockScreen
             lpfnWndProc = Proc,
             hInstance = hInstance,
             lpszClassName = ClassName,
-            // No class background brush: WM_PAINT fills the cover and WM_ERASEBKGND is
-            // swallowed, which eliminates the flash GDI would draw before each repaint.
+            // no class bg brush: WM_PAINT fills cover, WM_ERASEBKGND swallowed -> no pre-repaint flash
             hbrBackground = IntPtr.Zero,
         };
         RegisterClassW(ref wc);
@@ -74,16 +59,13 @@ internal static class LockScreen
 
         _shutdownCountdown = OverlayState.Settings.GetInt("lock_screen_timeout", 600);
 
-        // Publish the lock state the WinUI surface reads, then launch it on top. This
-        // process stays a plain black cover underneath as the hard enforcement floor:
-        // if the surface is slow to appear or has to be relaunched, the screen is still
-        // black-locked with the keyboard hook active, so nothing leaks through.
+        // publish lock state for WinUI surface, launch on top. this stays black cover underneath as hard floor: slow/relaunched surface still black-locked + hook active, nothing leaks
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         OverlayState.Settings.Set("lock_reason",
             OverlayState.NewUserBlocked ? "newuser"
             : OverlayState.BudgetBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
-        OverlayState.Settings.Set("lock_action", string.Empty); // clear any stale action
+        OverlayState.Settings.Set("lock_action", string.Empty); // clear stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
         OverlayState.Settings.Set("lock_active", "1");
         LockAppHost.Launch();
@@ -107,7 +89,7 @@ internal static class LockScreen
     {
         OverlayState.Locked = false;
 
-        // Tell the WinUI surface to exit and stop relaunching it.
+        // tell WinUI surface to exit, stop relaunching
         OverlayState.Settings.Set("lock_active", "0");
         LockAppHost.Kill();
 
@@ -122,40 +104,28 @@ internal static class LockScreen
         if (OverlayState.MiniHwnd != IntPtr.Zero) ShowWindow(OverlayState.MiniHwnd, SW_SHOWNOACTIVATE);
     }
 
-    /// <summary>The current session user's SID, for the service's Task Manager lockdown.</summary>
+    /// <summary>current session user SID, for service Task Manager lockdown</summary>
     private static string CurrentUserSid()
     {
         try { return System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty; }
         catch { return string.Empty; }
     }
 
-    /// <summary>
-    /// Per-second work while the lock is up: apply any action the WinUI surface
-    /// recorded, then keep that surface alive — relaunch it if it died, so the
-    /// interactive WinUI card is always the lock the user sees. The black cover and
-    /// keyboard hook hold enforcement underneath regardless. Called from the overlay tick.
-    /// </summary>
+    /// <summary>per-second work while locked: apply WinUI surface action, keep surface alive (relaunch if died). black cover + hook enforce underneath. called from overlay tick</summary>
     public static void WhileLockedTick()
     {
-        // Apply any background new-user setup that finished since the last tick before
-        // it can tear the lock down.
+        // apply background new-user setup finished since last tick, before it tears lock down
         ApplyProvisionResult();
 
         ConsumeLockAction();
 
         if (!OverlayState.Locked) return;
 
-        // The WinUI surface IS the lock UI. If it ever dies, relaunch it; the cover
-        // keeps the session black-locked in the gap so nothing leaks through.
+        // WinUI surface IS the lock UI; if dies relaunch. cover black-locks the gap, nothing leaks
         if (!LockAppHost.IsRunning) LockAppHost.Launch();
     }
 
-    /// <summary>
-    /// Applies a one-shot action the WinUI lock recorded after verifying the
-    /// passcode/code. Cleared immediately (runs once) and ignored if stale. A child
-    /// forging this key would need write access to the settings DB — the same exposure
-    /// as the tray command, closed by the DB-ACL work.
-    /// </summary>
+    /// <summary>apply one-shot action WinUI lock recorded after verifying passcode/code. cleared immediately (runs once), ignored if stale. forging it needs settings DB write -- same exposure as tray command, closed by DB-ACL work</summary>
     private static void ConsumeLockAction()
     {
         var action = OverlayState.Settings.Get("lock_action");
@@ -191,10 +161,7 @@ internal static class LockScreen
                 }
                 break;
             case "provision":
-                // New-user setup: the WinUI surface verified the parent PIN and chose
-                // the user's daily limit (minutes). Hand both to the service on a
-                // background thread (it re-verifies, writes the per-user limit and
-                // marks the user set up); the outcome lands in ApplyProvisionResult.
+                // new-user setup: surface verified parent PIN + chose daily limit (min). hand both to service on bg thread (re-verifies, writes per-user limit, marks set up); outcome lands in ApplyProvisionResult
                 var provCode = OverlayState.Settings.Get("lock_code") ?? string.Empty;
                 OverlayState.Settings.Set("lock_code", string.Empty);
                 int.TryParse(OverlayState.Settings.Get("lock_setup_limit"), out var provLimit);
@@ -207,11 +174,7 @@ internal static class LockScreen
         }
     }
 
-    /// <summary>
-    /// Runs the new-user setup pipe call off the message-pump thread, then resets or
-    /// records the lockout counter on the same background thread. One at a time: a
-    /// second request while one is in flight is ignored.
-    /// </summary>
+    /// <summary>run new-user setup pipe call off pump thread, reset/record lockout counter on same bg thread. one at a time; second request while in-flight ignored</summary>
     private static void StartProvision(string code, int limitMinutes)
     {
         if (_provisionTask is { IsCompleted: false }) return;
@@ -231,12 +194,7 @@ internal static class LockScreen
         });
     }
 
-    /// <summary>
-    /// Applies a completed new-user setup on the pump thread: on success re-reads
-    /// enforcement (so the budget seeds from the new per-user limit immediately) and
-    /// tears the lock down. On failure the lock stays up and the WinUI surface is
-    /// relaunched (by <see cref="WhileLockedTick"/>) so the parent can retry.
-    /// </summary>
+    /// <summary>apply completed new-user setup on pump thread: success -> re-read enforcement (budget seeds new per-user limit) + tear lock down. failure -> lock stays, surface relaunched by <see cref="WhileLockedTick"/> for retry</summary>
     private static void ApplyProvisionResult()
     {
         if (_provisionTask is not { IsCompleted: true } task) return;
@@ -260,11 +218,7 @@ internal static class LockScreen
         if (!OverlayState.ShouldBlock) Hide();
     }
 
-    /// <summary>
-    /// Redeems a valid offline unlock code (TOTP): grants the configured bonus minutes,
-    /// lifts a schedule block and records the code's time step so it cannot be replayed.
-    /// Returns false when no secret is configured or the code is wrong/reused.
-    /// </summary>
+    /// <summary>redeem valid offline unlock code (TOTP): grant bonus minutes, lift schedule block, record time step so no replay. false if no secret or code wrong/reused</summary>
     private static bool TryRedeemCode(string entered)
     {
         var secret = OverlayState.Settings.Get("unlock_secret");
@@ -275,9 +229,7 @@ internal static class LockScreen
             ? last
             : long.MinValue;
 
-        // window=10 (±5 min) keeps a code the parent reads aloud valid long enough for
-        // the child to enter it, even as the authenticator app rotates it. Replay is
-        // still blocked because minCounter advances past each redeemed step.
+        // window=10 (+/-5 min) keeps parent-read code valid long enough to enter despite rotation. replay blocked: minCounter advances past each redeemed step
         if (!UnlockCode.Verify(secret, entered, now, 10, minCounter, out var matched))
             return false;
 
@@ -295,7 +247,7 @@ internal static class LockScreen
         switch (msg)
         {
             case WM_ERASEBKGND:
-                // Suppress default background erase; WM_PAINT fills the whole cover.
+                // suppress default erase; WM_PAINT fills whole cover
                 return new IntPtr(1);
 
             case WM_PAINT:
@@ -306,7 +258,7 @@ internal static class LockScreen
                 HandleTimer(hwnd, (int)(long)wParam);
                 return IntPtr.Zero;
 
-            case WM_CLOSE: // never close — the lock owns the session until unlocked
+            case WM_CLOSE: // never close -- lock owns session until unlocked
                 return IntPtr.Zero;
 
             default:
@@ -318,20 +270,16 @@ internal static class LockScreen
     {
         if (id == TimerReassert)
         {
-            // Stay clamped to the top of the Z-order — but NOT while the WinUI surface
-            // is up: re-topmosting would slam the cover over it. When the surface is
-            // absent the cover IS the visible lock, so keep it on top.
+            // clamp to top of Z-order, but NOT while WinUI surface up (would slam cover over it). surface absent -> cover IS visible lock, keep on top
             if (!LockAppHost.IsRunning)
                 SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-            // Keep the shell taskbar down: it re-asserts itself topmost on shell events
-            // and would otherwise float above the lock and be clickable.
+            // keep shell taskbar down: re-asserts topmost on shell events, would float above lock + be clickable
             SetTaskbarHidden(true);
         }
         else if (id == TimerCountdown)
         {
-            // The WinUI surface shows the countdown (it reads lock_deadline_unix); this
-            // process owns enforcement, so it drives the actual logoff when it reaches zero.
+            // surface shows countdown (reads lock_deadline_unix); this owns enforcement, drives actual logoff at zero
             if (_shutdownCountdown > 0) _shutdownCountdown--;
             else if (_shutdownCountdown == 0) LockNative.Logoff();
         }
@@ -353,15 +301,7 @@ internal static class LockScreen
         DeleteObject(brush);
     }
 
-    /// <summary>
-    /// Hides or restores the shell taskbar (<c>Shell_TrayWnd</c>) while the lock is up.
-    /// The full-screen cover and the WinUI surface are both topmost, but the taskbar is
-    /// topmost too and re-asserts itself above them on shell events — leaving it
-    /// visible and clickable (a mouse route to the Start menu / other apps that the
-    /// keyboard hook can't block). Taking it out of the picture entirely is the
-    /// deterministic fix; it is restored when the lock is dismissed. Re-applied on each
-    /// reassert tick in case the shell re-shows it.
-    /// </summary>
+    /// <summary>hide/restore shell taskbar (<c>Shell_TrayWnd</c>) while locked. taskbar is topmost too + re-asserts above cover/surface on shell events -> clickable mouse route to Start that hook can't block. taking it out is the deterministic fix; restored on dismiss, re-applied each reassert tick</summary>
     private static void SetTaskbarHidden(bool hidden)
     {
         var tray = FindWindowW("Shell_TrayWnd", null);

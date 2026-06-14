@@ -4,23 +4,13 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Behavioural tests for <see cref="SettingsStore"/>: the SQLite-backed
-/// key/value store shared by the App, Overlay and Service. The store is
-/// deliberately forgiving (it self-heals from corruption and never overwrites a
-/// parent's saved customisations), so these tests pin down both the happy path
-/// and the defensive edge cases that keep the parental controls running.
-/// </summary>
+/// <summary>Tests for <see cref="SettingsStore"/>: SQLite-backed key/value store shared by App, Overlay, Service. Forgiving (self-heals corruption, never overwrites parent's customisations); pin happy path + defensive edge cases.</summary>
 public sealed class SettingsStoreTests : IDisposable
 {
-    /// <summary>A fixed "today" used throughout so daily-row purging is deterministic.</summary>
+    /// <summary>fixed "today" so daily-row purging deterministic.</summary>
     private static readonly DateOnly Today = new(2026, 6, 10);
 
-    /// <summary>
-    /// A unique temp-file path per test instance. xUnit constructs a fresh test
-    /// instance for every test, so each test gets an isolated database that
-    /// <see cref="Dispose"/> cleans up afterwards.
-    /// </summary>
+    /// <summary>unique temp-file path per test instance; xUnit makes fresh instance per test, so each gets isolated database that <see cref="Dispose"/> cleans up.</summary>
     private readonly string _dbPath =
         Path.Combine(Path.GetTempPath(), $"curfew-test-{Guid.NewGuid():N}.db");
 
@@ -42,8 +32,7 @@ public sealed class SettingsStoreTests : IDisposable
     {
         using var store = OpenStore();
 
-        // The seeded defaults must cover all seven weekday keys; an unseeded key
-        // would silently fall back to the generic default and mask a regression.
+        // seeded defaults must cover all seven weekday keys; unseeded key falls back to generic default and masks regression
         foreach (var key in SettingsStore.WeekdayKeys)
             Assert.NotNull(store.Get(key));
     }
@@ -127,8 +116,7 @@ public sealed class SettingsStoreTests : IDisposable
     [Fact]
     public void Reopen_does_not_overwrite_customised_values_with_defaults()
     {
-        // A parent's customisation must survive every subsequent open; only
-        // absent keys are (re)seeded.
+        // parent's customisation survives every later open; only absent keys (re)seeded
         using (var store = OpenStore())
             store.Set("limit_friday", "5");
 
@@ -158,7 +146,7 @@ public sealed class SettingsStoreTests : IDisposable
         store.Set("flag", "1");
         Assert.True(store.GetBool("flag", false));
 
-        // Anything other than "1" is false, even truthy-looking text.
+        // anything but "1" is false, even truthy-looking text
         foreach (var falsy in new[] { "0", "true", "yes", "" })
         {
             store.Set("flag", falsy);
@@ -216,7 +204,7 @@ public sealed class SettingsStoreTests : IDisposable
         var day1 = new DateOnly(2026, 6, 9);
         using (var store = OpenStore(day1))
         {
-            // One "today" row and one stale row for each daily-scoped prefix.
+            // one "today" row + one stale row per daily-scoped prefix
             foreach (var prefix in new[]
                      { "remaining_time_", "pause_used_", "pause_log_", "session_active_" })
             {
@@ -243,7 +231,7 @@ public sealed class SettingsStoreTests : IDisposable
             store.Set("remaining_time_2025-01-01", "stale");
         }
 
-        // Reopen on a later day; only the dated row should be purged.
+        // reopen on later day; only dated row purged
         using var reopened = OpenStore(new DateOnly(2026, 6, 10));
         Assert.Equal("1234", reopened.Get("passcode"));
         Assert.Null(reopened.Get("remaining_time_2025-01-01"));
@@ -295,22 +283,19 @@ public sealed class SettingsStoreTests : IDisposable
     [Fact]
     public void Open_recovers_from_a_corrupt_database_file()
     {
-        // Simulate a tampered/truncated file: random bytes that are not a valid
-        // SQLite header. Open() must delete and recreate it rather than throw.
+        // tampered/truncated file: random bytes, no valid SQLite header; Open() must delete+recreate, not throw
         File.WriteAllBytes(_dbPath, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x42 });
 
         using var store = OpenStore();
 
-        // Recreated from defaults, so seeded values are present again.
+        // recreated from defaults, seeded values present again
         Assert.Equal("120", store.Get("limit_monday"));
     }
 
     [Fact]
     public void Recreating_a_corrupt_store_emits_a_parent_visible_event()
     {
-        // A corruption-recreate wipes the store's rows; for the child-writable
-        // state store that resets the day's counters to a fresh budget, so the
-        // recreation must leave a trace the parent can see. A clean open must NOT.
+        // corruption-recreate wipes rows; for child-writable state store resets day's counters to fresh budget, so recreation must leave trace parent can see; clean open must NOT
         var logPath = Path.Combine(Path.GetTempPath(), $"curfew-evt-{Guid.NewGuid():N}.log");
         try
         {
@@ -322,7 +307,7 @@ public sealed class SettingsStoreTests : IDisposable
             Assert.Single(recreated);
             Assert.Equal(Path.GetFileName(_dbPath), recreated[0].Detail);
 
-            // Reopening a now-healthy store emits nothing further.
+            // reopen now-healthy store emits nothing further
             var freshLog = Path.Combine(Path.GetTempPath(), $"curfew-evt-{Guid.NewGuid():N}.log");
             using (SettingsStore.Open(_dbPath, Today, eventLogPath: freshLog)) { }
             Assert.DoesNotContain(EventLog.ReadRecent(freshLog, 10), e => e.Kind == CurfewEventKind.StoreRecreated);
@@ -340,20 +325,19 @@ public sealed class SettingsStoreTests : IDisposable
         using var store = OpenStore();
         var captured = new List<(string Key, string Value)>();
 
-        // An accepting writer (the App's pipe-to-service bridge) handles config
-        // writes: the value must NOT also land in the local config row.
+        // accepting writer (App's pipe-to-service bridge) handles config writes: value must NOT also land in local config row
         store.ConfigWriter = (k, v) => { captured.Add((k, v)); return true; };
         store.Set("limit_monday", "99");
         Assert.Contains(("limit_monday", "99"), captured);
-        Assert.Equal("120", store.Get("limit_monday")); // unchanged locally — routed away
+        Assert.Equal("120", store.Get("limit_monday")); // unchanged locally, routed away
 
-        // A state key bypasses the writer entirely and is written directly.
+        // state key bypasses writer, written directly
         captured.Clear();
         store.Set("remaining_time_2026-06-10", "42");
         Assert.Empty(captured);
         Assert.Equal("42", store.Get("remaining_time_2026-06-10"));
 
-        // A declining writer falls through to a direct local config write.
+        // declining writer falls through to direct local config write
         store.ConfigWriter = (_, _) => false;
         store.Set("limit_monday", "77");
         Assert.Equal("77", store.Get("limit_monday"));
@@ -362,22 +346,14 @@ public sealed class SettingsStoreTests : IDisposable
     [Fact]
     public void Open_does_not_recreate_the_store_on_a_transient_lock()
     {
-        // The security-critical mirror of the corruption test above: OpenResilient
-        // must delete+reseed ONLY on SQLITE_CORRUPT/SQLITE_NOTADB. A transient
-        // BUSY/LOCKED (another process mid-write) must PROPAGATE untouched — wiping
-        // a healthy config.db over a momentary lock would destroy the parent's
-        // passcode and every policy. A regression that widened IsCorruption (or
-        // caught the wrong exception) would silently turn a lock into a full reseed.
+        // security-critical mirror of corruption test: OpenResilient delete+reseed ONLY on SQLITE_CORRUPT/SQLITE_NOTADB; transient BUSY/LOCKED (another process mid-write) must PROPAGATE untouched — wiping healthy config.db over momentary lock destroys parent's passcode + every policy; widened IsCorruption (or wrong exception caught) silently turns lock into full reseed
         using (var seed = OpenStore())
         {
-            seed.Set("passcode", "1234");      // the value a bad recreate would wipe
-            seed.Set("limit_monday", "7");     // a customised policy, ditto
+            seed.Set("passcode", "1234");      // value a bad recreate would wipe
+            seed.Set("limit_monday", "7");     // customised policy, ditto
         }
 
-        // Hold an exclusive write lock on the file from another connection so the
-        // seeding transaction inside Open() hits SQLITE_BUSY (code 5) rather than a
-        // corruption verdict. BEGIN IMMEDIATE takes the write lock up front and we
-        // never commit, so the lock outlives the Open() attempt below.
+        // hold exclusive write lock from another connection so seeding txn inside Open() hits SQLITE_BUSY (code 5) not corruption verdict; BEGIN IMMEDIATE takes write lock up front + never commit, so lock outlives Open() below
         using var holder = new SqliteConnection(
             new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString());
         holder.Open();
@@ -387,14 +363,12 @@ public sealed class SettingsStoreTests : IDisposable
             begin.ExecuteNonQuery();
         }
 
-        // A non-corruption SqliteException must surface, not a silently recreated
-        // store. (DefaultTimeout makes Open() wait a few seconds for the lock first.)
+        // non-corruption SqliteException must surface, not silently recreated store (DefaultTimeout makes Open() wait a few seconds for lock first)
         var ex = Assert.Throws<SqliteException>(() => OpenStore());
         Assert.NotEqual(11, ex.SqliteErrorCode); // not SQLITE_CORRUPT
         Assert.NotEqual(26, ex.SqliteErrorCode); // not SQLITE_NOTADB
 
-        // Release the lock and confirm the file was preserved verbatim: the passcode
-        // and the customised limit are still there, proving no delete+reseed ran.
+        // release lock + confirm file preserved verbatim: passcode + customised limit still there, proving no delete+reseed ran
         using (var rollback = holder.CreateCommand())
         {
             rollback.CommandText = "ROLLBACK";
@@ -414,7 +388,7 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.False(store.HasUsageHistory(sid));
 
-        // Add a scoped usage key (used_time_<sid>_<date>)
+        // add scoped usage key (used_time_<sid>_<date>)
         store.Set($"used_time_{sid}_2026-06-10", "3600");
 
         Assert.True(store.HasUsageHistory(sid));
@@ -426,9 +400,7 @@ public sealed class SettingsStoreTests : IDisposable
         using var store = OpenStore();
         const string sid = "S-1-5-21-1234567890-1234567890-1234567890-1001";
 
-        // A legacy unscoped used_time_<date> row carries no SID, so it must NOT
-        // grandfather this user — otherwise a genuinely new user on any device that
-        // still has a legacy aggregate row would skip the new-user setup gate.
+        // legacy unscoped used_time_<date> row carries no SID, must NOT grandfather this user — else genuinely new user on device with legacy aggregate row skips new-user setup gate
         store.Set("used_time_2026-06-09", "1800");
 
         Assert.False(store.HasUsageHistory(sid));
@@ -450,7 +422,7 @@ public sealed class SettingsStoreTests : IDisposable
         using var store = OpenStore();
         const string sid = "S-1-5-21-1234567890-1234567890-1234567890-1001";
 
-        // Store has other keys but no usage history
+        // other keys but no usage history
         store.Set("passcode", "1234");
         store.Set("limit_monday", "120");
 
@@ -464,17 +436,17 @@ public sealed class SettingsStoreTests : IDisposable
         const string sid1 = "S-1-5-21-1111111111-1111111111-1111111111-1001";
         const string sid2 = "S-1-5-21-2222222222-2222222222-2222222222-1002";
 
-        // Add scoped usage for sid1 only (no legacy keys)
+        // scoped usage for sid1 only (no legacy keys)
         store.Set($"used_time_{sid1}_2026-06-10", "3600");
 
         Assert.True(store.HasUsageHistory(sid1));
-        // sid2 should NOT be grandfathered - no legacy keys and no scoped keys for sid2
+        // sid2 NOT grandfathered - no legacy keys, no scoped keys for sid2
         Assert.False(store.HasUsageHistory(sid2));
     }
 
     public void Dispose()
     {
-        // Best-effort cleanup of the database and its WAL/SHM side files.
+        // best-effort cleanup of database + WAL/SHM side files
         foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
         {
             try { File.Delete(_dbPath + suffix); }

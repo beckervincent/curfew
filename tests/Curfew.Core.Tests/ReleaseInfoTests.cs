@@ -3,15 +3,10 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Tests for <see cref="ReleaseInfo.FromGitHubJson"/>, the untrusted boundary that
-/// turns a GitHub "latest release" HTTP response into an installer tag plus URL.
-/// The method must never throw and must reject anything that is not a usable
-/// release, so the bulk of these tests cover malformed and adversarial input.
-/// </summary>
+/// <summary>Tests for <see cref="ReleaseInfo.FromGitHubJson"/>, untrusted boundary turning GitHub "latest release" HTTP response into installer tag + URL. Must never throw, must reject non-usable release; most tests cover malformed + adversarial input.</summary>
 public class ReleaseInfoTests
 {
-    // A representative, well-formed GitHub release payload reused across tests.
+    // well-formed GitHub release payload reused across tests
     private const string ValidJson = """
     {
       "tag_name": "v1.2.3",
@@ -91,10 +86,10 @@ public class ReleaseInfoTests
     }
 
     [Theory]
-    // Right extension, but missing the "curfew-setup" marker.
+    // right extension, missing "curfew-setup" marker
     [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-portable.exe")]
     [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/setup.exe")]
-    // Right marker, but wrong extension (e.g. a checksum or signature alongside it).
+    // right marker, wrong extension (e.g. checksum or signature alongside)
     [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe.sha256")]
     [InlineData("https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.zip")]
     public void FromGitHubJson_returns_null_when_no_asset_is_an_installer(string url)
@@ -119,15 +114,15 @@ public class ReleaseInfoTests
     }
 
     [Theory]
-    // Plain HTTP — must never be accepted, even with the right name.
+    // plain HTTP — never accept, even with right name
     [InlineData("http://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
-    // A different GitHub account's release asset of the same name.
+    // different GitHub account's release asset, same name
     [InlineData("https://github.com/attacker/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
-    // Right host, wrong repo.
+    // right host, wrong repo
     [InlineData("https://github.com/beckervincent/evil/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
-    // Look-alike host.
+    // look-alike host
     [InlineData("https://github.com.attacker.net/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.0.0.exe")]
-    // Arbitrary third-party host.
+    // arbitrary third-party host
     [InlineData("https://evil.example/curfew-setup-v1.0.0.exe")]
     public void FromGitHubJson_rejects_untrusted_installer_hosts(string url)
     {
@@ -177,7 +172,7 @@ public class ReleaseInfoTests
     }
 
     [Theory]
-    // A JSON value whose root is not an object cannot be a release payload.
+    // root not an object can't be release payload
     [InlineData("[]")]
     [InlineData("[ { \"tag_name\": \"v1.0.0\" } ]")]
     [InlineData("\"v1.0.0\"")]
@@ -200,7 +195,7 @@ public class ReleaseInfoTests
     }
 
     [Theory]
-    // tag_name present but not a JSON string.
+    // tag_name present but not JSON string
     [InlineData("{ \"tag_name\": 123, \"assets\": [] }")]
     [InlineData("{ \"tag_name\": null, \"assets\": [] }")]
     [InlineData("{ \"tag_name\": true, \"assets\": [] }")]
@@ -228,7 +223,7 @@ public class ReleaseInfoTests
     }
 
     [Theory]
-    // assets present but not a JSON array.
+    // assets present but not JSON array
     [InlineData("{ \"tag_name\": \"v1.0.0\", \"assets\": {} }")]
     [InlineData("{ \"tag_name\": \"v1.0.0\", \"assets\": \"none\" }")]
     [InlineData("{ \"tag_name\": \"v1.0.0\", \"assets\": null }")]
@@ -240,8 +235,7 @@ public class ReleaseInfoTests
     [Fact]
     public void FromGitHubJson_tolerates_assets_with_missing_or_non_string_urls()
     {
-        // Non-object entries and entries with absent or wrongly-typed download URLs
-        // must be skipped without throwing, while the lone valid installer wins.
+        // non-object entries + absent/wrong-typed download URLs skipped without throwing; lone valid installer wins
         const string json = """
         {
           "tag_name": "v1.0.0",
@@ -265,8 +259,7 @@ public class ReleaseInfoTests
     [Fact]
     public void FromGitHubJson_ignores_unknown_extra_properties()
     {
-        // The GitHub payload carries many fields the parser does not read; their
-        // presence must not affect the result.
+        // GitHub payload carries many fields parser doesn't read; presence must not affect result
         const string json = """
         {
           "url": "https://api.github.com/repos/x/y/releases/1",

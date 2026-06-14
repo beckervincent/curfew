@@ -1,15 +1,9 @@
 namespace Curfew.Core;
 
-/// <summary>
-/// Parse/format helpers for the set of set-up Windows users (the SIDs the parent
-/// has set up on this device via the new-user setup lock). Stored as a
-/// semicolon-separated list in the device-wide config key <c>provisioned_users</c>.
-/// A user not in this set is blocked on login until the parent sets their limit.
-/// Pure and unit-tested.
-/// </summary>
+/// <summary>Parse/format helpers for set-up Windows users (SIDs parent set up via the new-user setup lock). Stored semicolon-separated in device-wide config key <c>provisioned_users</c>. A user not in the set is blocked on login until parent sets their limit. Pure, unit-tested.</summary>
 public static class UserProvisioning
 {
-    /// <summary>The set-up SIDs from the stored list (order preserved, no blanks).</summary>
+    /// <summary>Set-up SIDs from the stored list (order preserved, no blanks).</summary>
     public static IReadOnlyList<string> Parse(string? stored)
     {
         if (string.IsNullOrWhiteSpace(stored)) return Array.Empty<string>();
@@ -23,7 +17,7 @@ public static class UserProvisioning
     public static bool IsProvisioned(string? stored, string? sid) =>
         !string.IsNullOrEmpty(sid) && Parse(stored).Contains(sid, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Returns the list with <paramref name="sid"/> added (idempotent).</summary>
+    /// <summary>List with <paramref name="sid"/> added (idempotent).</summary>
     public static string Add(string? stored, string sid)
     {
         if (string.IsNullOrWhiteSpace(sid)) return stored ?? string.Empty;

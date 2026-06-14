@@ -3,12 +3,7 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Tests for <see cref="SemVer"/>, the three-part version type the updater uses to
-/// decide whether a GitHub release is newer than the running build. The cases below
-/// pin down the documented parsing rules and the most-significant-first ordering so a
-/// regression here cannot silently change update behaviour.
-/// </summary>
+/// <summary>tests for <see cref="SemVer"/> three-part version type the updater uses to tell if a GitHub release is newer; pins parsing rules and most-significant-first ordering</summary>
 public class VersionCompareTests
 {
     // ---- Parsing: accepted forms -------------------------------------------------
@@ -16,12 +11,12 @@ public class VersionCompareTests
     [Theory]
     [InlineData("1.2.3", 1, 2, 3)]
     [InlineData("v2.0.0", 2, 0, 0)]
-    [InlineData("V2.0.0", 2, 0, 0)]              // an uppercase 'V' prefix is also stripped
-    [InlineData("0.0.0", 0, 0, 0)]              // all-zero is a valid version
+    [InlineData("V2.0.0", 2, 0, 0)]              // uppercase 'V' prefix also stripped
+    [InlineData("0.0.0", 0, 0, 0)]              // all-zero is valid
     [InlineData("10.20.30", 10, 20, 30)]        // multi-digit components
-    [InlineData("  1.2.3  ", 1, 2, 3)]          // surrounding whitespace is trimmed
-    [InlineData("  v1.2.3  ", 1, 2, 3)]         // trim happens before the prefix is removed
-    [InlineData("1.2.3.4", 1, 2, 3)]            // trailing component(s) beyond patch are ignored
+    [InlineData("  1.2.3  ", 1, 2, 3)]          // surrounding whitespace trimmed
+    [InlineData("  v1.2.3  ", 1, 2, 3)]         // trim before prefix removal
+    [InlineData("1.2.3.4", 1, 2, 3)]            // components beyond patch ignored
     [InlineData("1.2.3.4.5", 1, 2, 3)]
     public void Parse_accepts_valid(string text, int major, int minor, int patch)
     {
@@ -32,7 +27,7 @@ public class VersionCompareTests
     [Fact]
     public void Parse_accepts_large_components()
     {
-        // Components are parsed as Int32; the maximum must round-trip without overflow.
+        // components parsed as Int32; max round-trips, no overflow
         var v = SemVer.Parse($"{int.MaxValue}.{int.MaxValue}.{int.MaxValue}");
         Assert.Equal(new SemVer(int.MaxValue, int.MaxValue, int.MaxValue), v);
     }
@@ -40,30 +35,30 @@ public class VersionCompareTests
     // ---- Parsing: rejected forms -------------------------------------------------
 
     [Theory]
-    [InlineData(null)]                  // null input
-    [InlineData("")]                    // empty input
-    [InlineData("   ")]                 // whitespace-only input
+    [InlineData(null)]                  // null
+    [InlineData("")]                    // empty
+    [InlineData("   ")]                 // whitespace only
     [InlineData("1.2")]                 // too few components
     [InlineData("1")]
     [InlineData("v1.2")]
     [InlineData("x.y.z")]               // non-numeric components
-    [InlineData("1.2.x")]              // only the patch component is non-numeric
+    [InlineData("1.2.x")]              // only patch non-numeric
     [InlineData("1.x.3")]
     [InlineData("a.2.3")]
-    [InlineData("-1.2.3")]              // a leading sign is rejected (NumberStyles.None)
+    [InlineData("-1.2.3")]              // leading sign rejected (NumberStyles.None)
     [InlineData("1.-2.3")]
     [InlineData("+1.2.3")]
-    [InlineData("1.2.3-rc.1")]          // pre-release suffix is not interpreted, so patch fails
+    [InlineData("1.2.3-rc.1")]          // pre-release suffix not interpreted, patch fails
     [InlineData("1.2.3+build.5")]      // build-metadata suffix likewise
-    [InlineData("1 .2.3")]             // embedded whitespace inside a component is rejected
+    [InlineData("1 .2.3")]             // whitespace inside component rejected
     [InlineData("1.2. 3")]
     [InlineData("1.2.3 4")]
-    [InlineData("1,2,3")]              // comma is not a component separator
+    [InlineData("1,2,3")]              // comma not a separator
     [InlineData("1.2.3,4")]
-    [InlineData("0x10.2.3")]           // hexadecimal notation is rejected
+    [InlineData("0x10.2.3")]           // hex rejected
     [InlineData("1..3")]               // empty middle component
     [InlineData(".2.3")]               // empty leading component
-    [InlineData("vv1.2.3")]            // only a single 'v'/'V' prefix is stripped
+    [InlineData("vv1.2.3")]            // only single 'v'/'V' prefix stripped
     [InlineData("ver1.2.3")]
     public void Parse_rejects_invalid(string? text)
     {
@@ -73,15 +68,14 @@ public class VersionCompareTests
     [Fact]
     public void Parse_rejects_thousands_separator()
     {
-        // The component parser uses NumberStyles.None, so grouping separators never
-        // sneak a large number through regardless of the running thread's culture.
+        // NumberStyles.None: grouping separators never sneak a big number through, any culture
         Assert.Null(SemVer.Parse("1,000.2.3"));
     }
 
     [Fact]
     public void Parse_rejects_overflowing_component()
     {
-        // One past Int32.MaxValue overflows and must be rejected rather than wrapping.
+        // one past Int32.MaxValue overflows; reject, not wrap
         Assert.Null(SemVer.Parse("2147483648.0.0"));
     }
 
@@ -126,8 +120,7 @@ public class VersionCompareTests
     [Fact]
     public void Major_dominates_minor_and_patch()
     {
-        // A larger major version wins even when minor/patch are smaller, which is what
-        // keeps "2.0.0" newer than "1.9.9".
+        // bigger major wins even with smaller minor/patch; keeps "2.0.0" newer than "1.9.9"
         Assert.True(new SemVer(2, 0, 0) > new SemVer(1, 9, 9));
         Assert.True(new SemVer(1, 9, 9) < new SemVer(2, 0, 0));
     }
@@ -152,7 +145,7 @@ public class VersionCompareTests
     }
 
     [Theory]
-    [InlineData(1, 0, 0, 2, 0, 0)]      // strictly increasing across each component
+    [InlineData(1, 0, 0, 2, 0, 0)]      // strictly increasing per component
     [InlineData(1, 0, 0, 1, 1, 0)]
     [InlineData(1, 1, 0, 1, 1, 1)]
     public void Strictly_ordered_pairs_satisfy_all_operators(
@@ -174,7 +167,7 @@ public class VersionCompareTests
     [Fact]
     public void CompareTo_returns_sign_only()
     {
-        // Callers (and the operators) rely on the sign, not the magnitude, of the result.
+        // callers and operators rely on sign, not magnitude
         Assert.True(new SemVer(2, 0, 0).CompareTo(new SemVer(1, 0, 0)) > 0);
         Assert.True(new SemVer(1, 0, 0).CompareTo(new SemVer(2, 0, 0)) < 0);
         Assert.Equal(0, new SemVer(1, 2, 3).CompareTo(new SemVer(1, 2, 3)));
@@ -216,7 +209,7 @@ public class VersionCompareTests
     [Fact]
     public void ToString_drops_v_prefix_and_extra_components()
     {
-        // The canonical string never carries the parsed 'v' prefix or ignored components.
+        // canonical string never carries 'v' prefix or ignored components
         Assert.Equal("1.2.3", SemVer.Parse("v1.2.3.4")!.Value.ToString());
     }
 

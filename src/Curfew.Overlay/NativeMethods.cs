@@ -2,30 +2,10 @@ using System.Runtime.InteropServices;
 
 namespace Curfew.Overlay;
 
-/// <summary>
-/// Win32 / GDI P/Invoke surface for the overlay and lock windows.
-/// <para>
-/// The overlay process is deliberately plain Win32 (no WinUI) so it starts
-/// reliably when spawned by the service in any session, including the locked /
-/// RDP / disconnected cases where the modern UI stack may not be available.
-/// </para>
-/// <para>
-/// Everything here is grouped by area: window styles, messages, the structs the
-/// message loop needs, then user32 (windowing/painting) and gdi32 (drawing)
-/// imports. The gdi32 section intentionally exposes a complete little drawing
-/// toolkit — solid brushes, pens, stock objects, <c>RoundRect</c> and an
-/// offscreen (double-buffer) DC — so the visible lock screen and mini overlay
-/// can be drawn cleanly, with rounded panels and no flicker.
-/// </para>
-/// <para>
-/// Cleanup contract for callers: every <see cref="CreateSolidBrush"/>,
-/// <see cref="CreatePen"/>, <see cref="CreateFontW"/> and
-/// <see cref="CreateCompatibleBitmap"/> must be released with
-/// <see cref="DeleteObject"/>; every <see cref="CreateCompatibleDC"/> with
-/// <see cref="DeleteDC"/>; and the value returned by <see cref="SelectObject"/>
-/// must be selected back before the DC is freed. Objects from
-/// <see cref="GetStockObject"/> are owned by the system and must NOT be deleted.
-/// </para>
+/// <summary>Win32 / GDI P/Invoke surface for overlay + lock windows.
+/// <para>plain Win32 (no WinUI) so it starts reliably in any session (locked / RDP / disconnected where modern UI stack may be absent)</para>
+/// <para>grouped by area: window styles, messages, structs, then user32 (windowing/painting) + gdi32 (drawing). gdi32 = full little drawing toolkit (brushes, pens, stock objects, <c>RoundRect</c>, offscreen double-buffer DC) for clean rounded flicker-free lock + mini overlay</para>
+/// <para>cleanup contract: release every <see cref="CreateSolidBrush"/>, <see cref="CreatePen"/>, <see cref="CreateFontW"/>, <see cref="CreateCompatibleBitmap"/> with <see cref="DeleteObject"/>; every <see cref="CreateCompatibleDC"/> with <see cref="DeleteDC"/>; select back the value from <see cref="SelectObject"/> before freeing DC. <see cref="GetStockObject"/> objects are system-owned -- do NOT delete</para>
 /// </summary>
 internal static class Native
 {
@@ -55,7 +35,7 @@ internal static class Native
     public const uint SWP_NOACTIVATE = 0x0010;
     public const uint SWP_SHOWWINDOW = 0x0040;
 
-    /// <summary>hWndInsertAfter value that pins a window above all topmost peers.</summary>
+    /// <summary>hWndInsertAfter pinning window above all topmost peers</summary>
     public static readonly IntPtr HWND_TOPMOST = new(-1);
 
     // ── Window messages (WM_*) ──────────────────────────────────────────────
@@ -67,8 +47,7 @@ internal static class Native
     public const uint WM_CLOSE = 0x0010;
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_SETFONT = 0x0030;
-    // Owner-draw + control-colour messages used to give the lock's child controls
-    // (buttons, passcode field) the same dark, rounded look as the WinUI app.
+    // owner-draw + control-colour msgs: give lock child controls (buttons, passcode field) same dark rounded look as WinUI app
     public const uint WM_DRAWITEM = 0x002B;
     public const uint WM_CTLCOLOREDIT = 0x0133;
 
@@ -94,7 +73,7 @@ internal static class Native
     public const uint DEFAULT_CHARSET = 1;
     public const uint CLIP_DEFAULT_PRECIS = 0;
 
-    /// <summary>ClearType — best for opaque text on the panel; preferred default.</summary>
+    /// <summary>ClearType -- best for opaque panel text; preferred default</summary>
     public const uint CLEARTYPE_QUALITY = 5;
 
     public const uint DEFAULT_PITCH = 0;
@@ -136,11 +115,7 @@ internal static class Native
         public readonly int Height => bottom - top;
     }
 
-    /// <summary>
-    /// WM_DRAWITEM payload for an owner-drawn control. Sequential layout lets the
-    /// marshaller insert the correct padding before the pointer-sized fields on
-    /// 64-bit, so this matches the native struct without explicit offsets.
-    /// </summary>
+    /// <summary>WM_DRAWITEM payload for owner-drawn control; Sequential layout pads pointer-sized fields on 64-bit, matches native struct without explicit offsets</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct DRAWITEMSTRUCT
     {
@@ -181,11 +156,7 @@ internal static class Native
         public string lpszClassName;
     }
 
-    /// <summary>
-    /// Window procedure delegate. Keep a managed reference alive (e.g. a static
-    /// field) for the whole window lifetime; if it is collected the native code
-    /// will call back into freed memory and crash the process.
-    /// </summary>
+    /// <summary>window procedure delegate; keep managed reference alive (static field) for whole window life, else native calls back into freed memory + crashes</summary>
     public delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     // ════════════════════════════════════════════════════════════════════════
@@ -264,7 +235,7 @@ internal static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int DrawTextW(IntPtr hdc, string text, int count, ref RECT rect, int format);
 
-    /// <summary>Mapped index brush owned by the system; never DeleteObject it.</summary>
+    /// <summary>system-owned mapped index brush; never DeleteObject it</summary>
     [DllImport("user32.dll")]
     public static extern IntPtr GetSysColorBrush(int index);
 
@@ -274,9 +245,7 @@ internal static class Native
     // ════════════════════════════════════════════════════════════════════════
     //  gdi32 — drawing primitives
     //
-    //  Colours passed to these are COLORREF (0x00BBGGRR — note blue is the high
-    //  byte, the reverse of HTML #RRGGBB). The overlay's colour constants are
-    //  already written in this BGR order.
+    //  colours = COLORREF (0x00BBGGRR; blue high byte, reverse of HTML #RRGGBB). overlay constants already in BGR order
     // ════════════════════════════════════════════════════════════════════════
 
     [DllImport("gdi32.dll")]
@@ -285,7 +254,7 @@ internal static class Native
     [DllImport("gdi32.dll")]
     public static extern IntPtr CreatePen(int style, int width, uint color);
 
-    /// <summary>Returns a shared stock object (brush/pen/font). Do not delete it.</summary>
+    /// <summary>shared stock object (brush/pen/font); do not delete</summary>
     [DllImport("gdi32.dll")]
     public static extern IntPtr GetStockObject(int index);
 
@@ -305,11 +274,7 @@ internal static class Native
     [DllImport("gdi32.dll")]
     public static extern int SetBkMode(IntPtr hdc, int mode);
 
-    /// <summary>
-    /// Filled, outlined rounded rectangle using the DC's currently-selected
-    /// brush (fill) and pen (border). Select a brush and pen first; pass the
-    /// corner diameters as <paramref name="ellipseW"/>/<paramref name="ellipseH"/>.
-    /// </summary>
+    /// <summary>filled outlined rounded rect using DC's selected brush (fill) + pen (border); select both first, corner diameters in <paramref name="ellipseW"/>/<paramref name="ellipseH"/></summary>
     [DllImport("gdi32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool RoundRect(
@@ -317,10 +282,7 @@ internal static class Native
 
     // ── Offscreen / double-buffered drawing ─────────────────────────────────
     //
-    // To eliminate flicker: create a memory DC compatible with the window DC,
-    // back it with a compatible bitmap, render the whole frame there, then BitBlt
-    // it to the window in one shot. Restore the original bitmap and free the DC
-    // and bitmap when done.
+    // no flicker: memory DC compatible w/ window DC, back w/ compatible bitmap, render whole frame, BitBlt to window in one shot. restore original bitmap + free DC + bitmap when done
 
     [DllImport("gdi32.dll")]
     public static extern IntPtr CreateCompatibleDC(IntPtr hdc);

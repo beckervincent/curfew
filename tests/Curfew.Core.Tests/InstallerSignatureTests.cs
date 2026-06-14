@@ -17,8 +17,7 @@ public class InstallerSignatureTests
     [Fact]
     public void Pinned_public_key_is_a_sha256_hex_string()
     {
-        // 64 uppercase hex chars — guards against an accidentally truncated or
-        // wrongly-cased pin (the runtime compares against uppercase ToHexString).
+        // 64 uppercase hex chars — guard against truncated or wrong-cased pin (runtime compares uppercase ToHexString)
         Assert.Matches(new Regex("^[0-9A-F]{64}$"), InstallerSignature.PinnedPublicKeySha256);
     }
 }

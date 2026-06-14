@@ -3,77 +3,42 @@ using Curfew.Core;
 
 namespace Curfew.Service;
 
-/// <summary>
-/// Curfew service loop. Keeps the overlay alive in every session (spawn +
-/// watchdog), enforces the content filter, runs Time Manipulation Guarding and
-/// checks for updates.
-/// </summary>
+/// <summary>Curfew service loop. Keep overlay alive every session (spawn + watchdog), enforce content filter, run Time Manipulation Guarding, check updates.</summary>
 /// <remarks>
-/// <para>
-/// The design splits work into two cadences that must not interfere:
-/// </para>
+/// <para>Two cadences that must not interfere:</para>
 /// <list type="bullet">
-///   <item>
-///     The fast loop (<see cref="PollInterval"/>) only ticks the
-///     <see cref="SessionManager"/>. Keeping the overlay running is the safety-
-///     critical job, so it runs on the dedicated loop thread and is never
-///     allowed to block on the slower, network-bound tasks.
-///   </item>
-///   <item>
-///     The slow tasks (NTP time guard + update check, every
-///     <see cref="SlowInterval"/>) and the content filter are dispatched onto
-///     the thread pool. They each shell out to PowerShell / NTP and can stall
-///     for seconds, so they must never sit on the loop thread.
-///   </item>
+///   <item>Fast loop (<see cref="PollInterval"/>) only ticks <see cref="SessionManager"/>. Safety-critical; runs on loop thread, never blocks on slow network tasks.</item>
+///   <item>Slow tasks (NTP time guard + update check, every <see cref="SlowInterval"/>) and content filter dispatched to thread pool — shell out to PowerShell/NTP, can stall seconds, never sit on loop thread.</item>
 /// </list>
-/// <para>
-/// Every dispatched task contains its own try/catch (see the helper methods):
-/// a failure in the content filter, time guard or updater must degrade
-/// gracefully and can never take the overlay watchdog down with it.
-/// </para>
+/// <para>Every dispatched task has own try/catch: content filter, time guard or updater failure degrades gracefully, never takes overlay watchdog down.</para>
 /// </remarks>
 public sealed class CurfewWorker : BackgroundService
 {
-    /// <summary>Cadence of the overlay watchdog (the safety-critical work).</summary>
+    /// <summary>Cadence of overlay watchdog (safety-critical work).</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
-    /// <summary>Cadence of the network-bound housekeeping (time guard + update check).</summary>
+    /// <summary>Cadence of network-bound housekeeping (time guard + update check).</summary>
     private static readonly TimeSpan SlowInterval = TimeSpan.FromHours(6);
 
-    /// <summary>
-    /// Upper bound on how long shutdown waits for an in-flight slow cycle (which
-    /// may be mid update-download) to finish before the service stops anyway.
-    /// </summary>
+    /// <summary>Max time shutdown waits for in-flight slow cycle (maybe mid update-download) before service stops anyway.</summary>
     private static readonly TimeSpan ShutdownDrainTimeout = TimeSpan.FromSeconds(10);
 
     private readonly ILogger<CurfewWorker> _logger;
     private readonly SessionManager _sessions = new();
 
-    /// <summary>Settings store used to read the lock state for the Task Manager lockdown.</summary>
+    /// <summary>Settings store to read lock state for Task Manager lockdown.</summary>
     private SettingsStore? _policyStore;
 
-    /// <summary>The SID Task Manager is currently disabled for, or null if none.</summary>
+    /// <summary>SID Task Manager currently disabled for, or null if none.</summary>
     private string? _policyAppliedSid;
 
-    /// <summary>
-    /// Serialises content-filter applies. The filter is applied from the startup
-    /// task and again on every <see cref="NetworkChange.NetworkAddressChanged"/>
-    /// event, and those events can arrive in bursts; the lock keeps two
-    /// PowerShell applies from running over the top of each other.
-    /// </summary>
+    /// <summary>Serialise content-filter applies. Applied from startup task and on every <see cref="NetworkChange.NetworkAddressChanged"/> (bursty); lock keeps two PowerShell applies from overlapping.</summary>
     private readonly object _filterGate = new();
 
-    /// <summary>
-    /// Guards against overlapping slow cycles. Although <see cref="SlowInterval"/>
-    /// is long, a hung NTP query or download could in theory outlast it; the flag
-    /// ensures at most one time-guard/update cycle is in flight at a time.
-    /// </summary>
+    /// <summary>Guard against overlapping slow cycles. <see cref="SlowInterval"/> long, but hung NTP query or download could outlast it; flag ensures at most one cycle in flight.</summary>
     private volatile bool _slowCycleRunning;
 
-    /// <summary>
-    /// The most recent slow-cycle task, retained only so shutdown can wait for it
-    /// (it may be mid update-download). Fire-and-forget otherwise.
-    /// </summary>
+    /// <summary>Most recent slow-cycle task, kept only so shutdown can wait for it (maybe mid update-download). Fire-and-forget otherwise.</summary>
     private Task _slowCycle = Task.CompletedTask;
 
     public CurfewWorker(ILogger<CurfewWorker> logger) => _logger = logger;
@@ -83,28 +48,22 @@ public sealed class CurfewWorker : BackgroundService
         _logger.LogInformation("Curfew service started");
         ServiceLog.Write("service started");
 
-        // Apply the content filter once at startup and subscribe to network
-        // changes — both off the loop thread so a slow PowerShell call can never
-        // delay the first overlay spawn. The handler is removed in the finally.
+        // apply content filter once at startup, subscribe to network changes — both off loop thread so slow PowerShell no delay first overlay spawn. handler removed in finally
         var startupFilter = Task.Run(() =>
         {
-            // Re-register the overlay logon task if a child removed it.
+            // re-register overlay logon task if child removed it
             SelfHeal.EnsureOverlayTask();
             ApplyContentFilter();
             NetworkChange.NetworkAddressChanged += OnNetworkChanged;
         }, CancellationToken.None);
 
-        // Host the config-write pipe as SYSTEM so the app can change write-protected
-        // config.db through us. Its own settings store (separate connection) keeps it
-        // off the loop thread's connection.
+        // host config-write pipe as SYSTEM so app can change write-protected config.db through us. own settings store (separate connection) keeps off loop thread's connection
         var pipeStore = CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
-        // config.db now exists (created by the open above) — lock it down so users
-        // can read it but not write or delete it.
+        // config.db now exists (open above made it) — lock down: users read, not write/delete
         ConfigFileGuard.Protect(CurfewPaths.ConfigFile);
         var pipeServer = Task.Run(() => new ConfigPipeServer(pipeStore).RunAsync(stoppingToken), CancellationToken.None);
 
-        // MinValue forces the first slow cycle to run immediately on startup
-        // rather than waiting a full SlowInterval for the clock check.
+        // MinValue forces first slow cycle to run immediately, not wait full SlowInterval for clock check
         var lastSlow = DateTimeOffset.MinValue;
         try
         {
@@ -124,16 +83,16 @@ public sealed class CurfewWorker : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            // Normal shutdown.
+            // normal shutdown
         }
         finally
         {
             NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
             await DrainOnShutdownAsync(startupFilter).ConfigureAwait(false);
-            // Let the config pipe drain, then release its store.
+            // let config pipe drain, then release its store
             try { await Task.WhenAny(pipeServer, Task.Delay(ShutdownDrainTimeout)).ConfigureAwait(false); } catch { /* shutting down */ }
             pipeStore.Dispose();
-            // Never leave Task Manager disabled when the service stops.
+            // never leave Task Manager disabled when service stops
             if (_policyAppliedSid is not null) TaskManagerPolicy.Clear(_policyAppliedSid);
             _policyStore?.Dispose();
             _logger.LogInformation("Curfew service stopped");
@@ -141,11 +100,7 @@ public sealed class CurfewWorker : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Dispatches the time guard and update check onto the thread pool, tracking
-    /// the task so shutdown can drain it. Guarded by <see cref="_slowCycleRunning"/>
-    /// so cycles never overlap.
-    /// </summary>
+    /// <summary>Dispatch time guard and update check to thread pool, track task so shutdown can drain it. Guarded by <see cref="_slowCycleRunning"/> so cycles never overlap.</summary>
     private void StartSlowCycle(CancellationToken ct)
     {
         _slowCycleRunning = true;
@@ -163,11 +118,7 @@ public sealed class CurfewWorker : BackgroundService
         }, CancellationToken.None);
     }
 
-    /// <summary>
-    /// Waits, with a bounded timeout, for the startup filter and any in-flight
-    /// slow cycle to settle so the service does not abandon an update mid-write.
-    /// Never throws — shutdown must always complete.
-    /// </summary>
+    /// <summary>Wait, bounded timeout, for startup filter and in-flight slow cycle to settle so service no abandon update mid-write. Never throws — shutdown must complete.</summary>
     private async Task DrainOnShutdownAsync(Task startupFilter)
     {
         try
@@ -177,8 +128,7 @@ public sealed class CurfewWorker : BackgroundService
         }
         catch (Exception ex)
         {
-            // The underlying tasks already swallow their own errors; this only
-            // guards against an unexpected fault while awaiting them.
+            // underlying tasks swallow own errors; this only guards unexpected fault while awaiting
             _logger.LogWarning(ex, "Error while draining background work on shutdown");
         }
     }
@@ -196,11 +146,7 @@ public sealed class CurfewWorker : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Keeps the per-user Task Manager lockdown in sync with the lock state the
-    /// overlay publishes (<c>lock_active</c> / <c>lock_sid</c>). Fully guarded so a
-    /// registry or DB hiccup can never disturb the overlay watchdog.
-    /// </summary>
+    /// <summary>Keep per-user Task Manager lockdown in sync with lock state overlay publishes (<c>lock_active</c> / <c>lock_sid</c>). Fully guarded so registry/DB hiccup no disturb overlay watchdog.</summary>
     private void SafeReconcileTaskManagerPolicy()
     {
         try
@@ -224,7 +170,7 @@ public sealed class CurfewWorker : BackgroundService
         {
             if (_policyAppliedSid != sid)
             {
-                // A different session became locked — restore the previous one first.
+                // different session locked — restore previous first
                 if (_policyAppliedSid is not null) TaskManagerPolicy.Clear(_policyAppliedSid);
                 TaskManagerPolicy.Apply(sid);
                 _policyAppliedSid = sid;
@@ -232,9 +178,7 @@ public sealed class CurfewWorker : BackgroundService
             return;
         }
 
-        // Not locked. Clear whatever we applied; as a startup failsafe also clear a
-        // SID left recorded by a previous (possibly crashed) run so Task Manager is
-        // never stranded in the disabled state.
+        // not locked. clear what we applied; startup failsafe also clears SID left by prior (maybe crashed) run so Task Manager never stranded disabled
         var stale = _policyAppliedSid ?? (string.IsNullOrEmpty(sid) ? null : sid);
         if (stale is not null) TaskManagerPolicy.Clear(stale);
         _policyAppliedSid = null;
@@ -242,11 +186,7 @@ public sealed class CurfewWorker : BackgroundService
 
     private void OnNetworkChanged(object? sender, EventArgs e) => ApplyContentFilter();
 
-    /// <summary>
-    /// (Re)applies the configured DNS content filter. Serialised by
-    /// <see cref="_filterGate"/> and fully guarded so a PowerShell failure or a
-    /// burst of network-change events can never destabilise the service.
-    /// </summary>
+    /// <summary>(Re)apply DNS content filter. Serialised by <see cref="_filterGate"/>, fully guarded so PowerShell failure or burst of network-change events never destabilise service.</summary>
     private void ApplyContentFilter()
     {
         try
@@ -265,11 +205,7 @@ public sealed class CurfewWorker : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Runs Time Manipulation Guarding when enabled: corrects the clock from
-    /// trusted NTP time if it has been tampered with. No-op when disabled or
-    /// when NTP is unreachable (handled downstream in <see cref="TimeGuardService"/>).
-    /// </summary>
+    /// <summary>Run Time Manipulation Guarding when enabled: correct clock from trusted NTP if tampered. No-op when disabled or NTP unreachable (handled in <see cref="TimeGuardService"/>).</summary>
     private void EnforceTimeGuard()
     {
         try
@@ -288,10 +224,7 @@ public sealed class CurfewWorker : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Checks for and (if configured) stages an application update. Honours
-    /// <paramref name="ct"/> so a stop request can abort an in-progress download.
-    /// </summary>
+    /// <summary>Check for and (if configured) stage app update. Honours <paramref name="ct"/> so stop request can abort in-progress download.</summary>
     private async Task CheckForUpdatesAsync(CancellationToken ct)
     {
         try
@@ -302,7 +235,7 @@ public sealed class CurfewWorker : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            // Stopping mid-check is expected; nothing to report.
+            // stopping mid-check expected; nothing to report
         }
         catch (Exception ex)
         {
@@ -311,10 +244,7 @@ public sealed class CurfewWorker : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Opens the shared settings store for "today". The store self-heals a
-    /// corrupt database, so callers only have to handle I/O/permission failures.
-    /// </summary>
+    /// <summary>Open shared settings store for "today". Store self-heals corrupt db, so callers only handle I/O/permission failures.</summary>
     private static SettingsStore OpenSettings() =>
         CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
 }

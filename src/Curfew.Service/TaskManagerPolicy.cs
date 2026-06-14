@@ -3,17 +3,9 @@ using System.Text.RegularExpressions;
 
 namespace Curfew.Service;
 
-/// <summary>
-/// Toggles the per-user <c>DisableTaskMgr</c> policy so a child cannot open Task
-/// Manager to kill the lock while a session is locked. Applied by the SYSTEM
-/// service (which can write any loaded user hive) and removed on unlock.
-/// </summary>
+/// <summary>Toggle per-user <c>DisableTaskMgr</c> so locked child cannot open Task Manager to kill lock; SYSTEM applies, removes on unlock.</summary>
 /// <remarks>
-/// The SID is read from the settings DB, which is currently child-writable, so it
-/// is treated as untrusted: it is matched against a strict SID pattern before use,
-/// and passed to <c>reg.exe</c> via <see cref="ProcessStartInfo.ArgumentList"/>
-/// (never a shell string), so a crafted value can neither inject a command nor
-/// redirect the write to another key.
+/// SID from child-writable settings DB = untrusted: strict SID pattern check, passed to <c>reg.exe</c> via <see cref="ProcessStartInfo.ArgumentList"/> (never shell string), so crafted value cannot inject command nor redirect write.
 /// </remarks>
 internal static partial class TaskManagerPolicy
 {
@@ -23,10 +15,10 @@ internal static partial class TaskManagerPolicy
     [GeneratedRegex(@"^S-1-\d+(-\d+)+$")]
     private static partial Regex SidPattern();
 
-    /// <summary>Disables Task Manager for the given user SID.</summary>
+    /// <summary>Disable Task Manager for user SID.</summary>
     public static void Apply(string? sid) => Run(sid, set: true);
 
-    /// <summary>Restores Task Manager for the given user SID.</summary>
+    /// <summary>Restore Task Manager for user SID.</summary>
     public static void Clear(string? sid) => Run(sid, set: false);
 
     private static void Run(string? sid, bool set)

@@ -2,17 +2,12 @@ using System.Text;
 
 namespace Curfew.Core.Security;
 
-/// <summary>
-/// RFC 4648 base32 (the alphabet used by TOTP authenticator apps). Encoding is
-/// used to present a freshly generated secret; decoding parses a secret a parent
-/// has entered. Decoding is lenient: case-insensitive, and spaces and "="
-/// padding are ignored.
-/// </summary>
+/// <summary>RFC 4648 base32 (TOTP authenticator alphabet). encode presents fresh secret; decode parses secret parent entered. decode lenient: case-insensitive, spaces and "=" padding ignored</summary>
 public static class Base32
 {
     private const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-    /// <summary>Encodes bytes as an unpadded base32 string.</summary>
+    /// <summary>encode bytes as unpadded base32 string</summary>
     public static string Encode(byte[] data)
     {
         ArgumentNullException.ThrowIfNull(data);
@@ -35,7 +30,7 @@ public static class Base32
         return sb.ToString();
     }
 
-    /// <summary>Decodes a base32 string. Throws <see cref="FormatException"/> on an invalid character.</summary>
+    /// <summary>decode base32 string. throws <see cref="FormatException"/> on invalid char</summary>
     public static byte[] Decode(string text)
     {
         ArgumentNullException.ThrowIfNull(text);

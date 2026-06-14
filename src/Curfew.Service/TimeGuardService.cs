@@ -5,33 +5,19 @@ using Curfew.Core;
 
 namespace Curfew.Service;
 
-/// <summary>
-/// Time Manipulation Guarding. Queries trusted NTP time and, if the local clock
-/// has been moved beyond tolerance, overwrites it with the trusted time and
-/// forces a Windows Time resync. Runs as SYSTEM, which holds the
-/// <c>SE_SYSTEMTIME_NAME</c> privilege required by <c>SetSystemTime</c>.
-/// </summary>
+/// <summary>Time Manipulation Guarding. Query trusted NTP, if local clock moved beyond tolerance overwrite with trusted time and force Windows Time resync. Runs as SYSTEM holding <c>SE_SYSTEMTIME_NAME</c> needed by <c>SetSystemTime</c>.</summary>
 /// <remarks>
-/// The pure decision logic (tolerance, tamper direction) lives in
-/// <see cref="TimeGuard"/> in the Core layer and is unit-tested there; this type
-/// only performs the privileged side effects — talking to the network and
-/// writing the clock — and is intentionally tolerant of transient failures so a
-/// flaky network or an offline machine is never penalised.
+/// Pure decision logic (tolerance, tamper direction) lives in <see cref="TimeGuard"/> in Core and unit-tested there; this type only does privileged side effects — network + writing clock — and tolerates transient failures so flaky/offline machine never penalised.
 /// </remarks>
 internal static class TimeGuardService
 {
-    /// <summary>The well-known UDP port for NTP/SNTP traffic (RFC 4330).</summary>
+    /// <summary>Well-known UDP port for NTP/SNTP (RFC 4330).</summary>
     private const int NtpPort = 123;
 
-    /// <summary>
-    /// Queries a single NTP server for the current trusted time.
-    /// </summary>
-    /// <param name="host">Hostname or IP address of the NTP server.</param>
-    /// <param name="timeoutMs">Send/receive timeout for the UDP exchange, in milliseconds.</param>
-    /// <returns>
-    /// The server's transmit timestamp, or <c>null</c> on any failure (DNS,
-    /// network, timeout, or a malformed reply). Never throws.
-    /// </returns>
+    /// <summary>Query single NTP server for current trusted time.</summary>
+    /// <param name="host">NTP server hostname or IP.</param>
+    /// <param name="timeoutMs">Send/receive timeout for UDP exchange, ms.</param>
+    /// <returns>Server transmit timestamp, or <c>null</c> on any failure (DNS, network, timeout, malformed reply). Never throws.</returns>
     public static DateTimeOffset? QueryNtp(string host, int timeoutMs = 3000)
     {
         try
@@ -40,46 +26,32 @@ internal static class TimeGuardService
             udp.Client.ReceiveTimeout = timeoutMs;
             udp.Client.SendTimeout = timeoutMs;
 
-            // Connect() resolves the host and pins the remote endpoint, so the
-            // socket will only accept datagrams from this server.
+            // Connect() resolves host, pins remote endpoint; socket accepts datagrams only from this server
             udp.Connect(host, NtpPort);
             udp.Send(Sntp.BuildRequest());
 
-            // The endpoint is filled in with the actual sender; because the
-            // socket is connected, anything other than the queried server is
-            // dropped at the OS layer before it reaches us.
+            // socket connected, so anything but queried server dropped at OS layer before reaching us
             var endpoint = new IPEndPoint(IPAddress.Any, 0);
             var data = udp.Receive(ref endpoint);
 
-            // Sntp.ParseReply enforces the minimum packet size and rejects the
-            // all-zero "unspecified" timestamp; it throws on a malformed reply.
+            // Sntp.ParseReply enforces min packet size, rejects all-zero "unspecified" timestamp; throws on malformed
             return Sntp.ParseReply(data);
         }
         catch (SocketException)
         {
-            // Unreachable host, DNS failure, or a receive timeout — expected on
-            // a blocked or offline network. Let the caller fall through to the
-            // next server.
+            // unreachable host, DNS fail, receive timeout — expected blocked/offline; fall through to next server
             return null;
         }
         catch (Exception ex)
         {
-            // A malformed reply (ArgumentException) or any other unexpected
-            // error. Record it for diagnostics, but never propagate.
+            // malformed reply (ArgumentException) or other unexpected. log, never propagate
             ServiceLog.Write($"time guard: NTP query to '{host}' failed: {ex.Message}");
             return null;
         }
     }
 
-    /// <summary>
-    /// Returns trusted time corroborated across <see cref="Sntp.DefaultServers"/>:
-    /// every server is queried and the result is trusted only when at least
-    /// <see cref="TimeGuard.MinAgreeingSources"/> agree (see
-    /// <see cref="TimeGuard.Corroborate"/>). A single spoofed or hosts-redirected
-    /// server therefore cannot move the clock, and an offline machine — where too
-    /// few sources answer — is simply left alone (fail closed: no correction).
-    /// </summary>
-    /// <returns>The corroborated trusted time, or <c>null</c> when too few servers agree.</returns>
+    /// <summary>Trusted time corroborated across <see cref="Sntp.DefaultServers"/>: query every server, trust only when at least <see cref="TimeGuard.MinAgreeingSources"/> agree (see <see cref="TimeGuard.Corroborate"/>). Single spoofed/redirected server cannot move clock; offline machine (too few answer) left alone (fail closed: no correction).</summary>
+    /// <returns>Corroborated trusted time, or <c>null</c> when too few servers agree.</returns>
     public static DateTimeOffset? TrustedNow()
     {
         var samples = new List<DateTimeOffset>();
@@ -101,11 +73,7 @@ internal static class TimeGuardService
         return trusted;
     }
 
-    /// <summary>
-    /// Checks the local clock against trusted time and corrects it when tampering
-    /// is detected. A no-op when NTP is unreachable, so offline machines are not
-    /// penalised, and when the clock is already within tolerance.
-    /// </summary>
+    /// <summary>Check local clock vs trusted time, correct on tamper. No-op when NTP unreachable (offline not penalised) or clock within tolerance.</summary>
     public static void Enforce()
     {
         var trusted = TrustedNow();
@@ -114,7 +82,7 @@ internal static class TimeGuardService
         var verdict = TimeGuard.Evaluate(DateTimeOffset.Now, trusted.Value);
         if (!TimeGuard.ShouldCorrect(verdict)) return;
 
-        // SetSystemTime takes a UTC SYSTEMTIME regardless of the machine's time zone.
+        // SetSystemTime takes UTC SYSTEMTIME regardless of machine time zone
         var trustedUtc = trusted.Value.ToUniversalTime();
         ServiceLog.Write(
             $"time guard: clock {verdict} (local now {DateTimeOffset.Now:O}); " +
@@ -123,8 +91,7 @@ internal static class TimeGuardService
         if (SetSystemClock(trustedUtc))
         {
             EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ClockTamper, verdict.ToString());
-            // Re-anchor the Windows Time service so it does not drift the clock
-            // back toward the tampered value on its next sync.
+            // re-anchor Windows Time so it does not drift back toward tampered value next sync
             PowerShellRunner.Run("w32tm /resync /force");
         }
         else
@@ -133,25 +100,16 @@ internal static class TimeGuardService
         }
     }
 
-    /// <summary>Config key holding the parent-approved Windows time-zone id.</summary>
+    /// <summary>Config key holding parent-approved Windows time-zone id.</summary>
     private const string ExpectedTimeZoneKey = "expected_timezone";
 
-    /// <summary>
-    /// Pins the machine's time zone. Windows grants ordinary users the
-    /// "Change the time zone" privilege, and moving the zone shifts every
-    /// local-time decision (schedule windows, the daily allowance date) without
-    /// touching the absolute clock that <see cref="Enforce"/> watches — so a child
-    /// can farm allowance or dodge curfew windows with <c>tzutil</c> alone. The
-    /// first run records the current zone as the expected one; afterwards any
-    /// drift is logged as tampering and reverted.
-    /// </summary>
-    /// <param name="settings">A config-writable settings store (the service's).</param>
+    /// <summary>Pin machine time zone. Windows grants ordinary users "Change the time zone"; moving zone shifts every local-time decision (schedule windows, daily allowance date) without touching absolute clock <see cref="Enforce"/> watches — child can farm allowance or dodge curfew with <c>tzutil</c> alone. First run records current zone as expected; later drift logged as tampering and reverted.</summary>
+    /// <param name="settings">Config-writable settings store (the service's).</param>
     public static void EnforceTimeZone(SettingsStore settings)
     {
         try
         {
-            // Re-read the registry: TimeZoneInfo.Local is cached per process and
-            // would never see a change made after the service started.
+            // re-read registry: TimeZoneInfo.Local cached per process, never sees change made after service started
             TimeZoneInfo.ClearCachedData();
             var current = TimeZoneInfo.Local.Id;
 
@@ -167,9 +125,7 @@ internal static class TimeGuardService
             ServiceLog.Write($"time guard: time zone changed to '{current}' (expected '{expected}'); reverting");
             EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ClockTamper, $"timezone {current}");
 
-            // tzutil needs the id quoted (names contain spaces). The id comes from
-            // the registry via TimeZoneInfo, never from user input, but reject
-            // quotes anyway rather than risk argument injection.
+            // tzutil needs id quoted (names have spaces). id from registry via TimeZoneInfo, never user input, but reject quotes anyway vs arg injection
             if (!expected.Contains('"'))
             {
                 PowerShellRunner.Run($"tzutil /s \"{expected}\"");
@@ -182,11 +138,7 @@ internal static class TimeGuardService
         }
     }
 
-    /// <summary>
-    /// Win32 <c>SYSTEMTIME</c> structure. All fields are UTC when passed to
-    /// <see cref="SetSystemTime"/>; <c>wDayOfWeek</c> is ignored by the API and
-    /// left at zero.
-    /// </summary>
+    /// <summary>Win32 <c>SYSTEMTIME</c>. All fields UTC when passed to <see cref="SetSystemTime"/>; <c>wDayOfWeek</c> ignored by API, left zero.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct SYSTEMTIME
     {
@@ -197,15 +149,9 @@ internal static class TimeGuardService
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetSystemTime(ref SYSTEMTIME lpSystemTime);
 
-    /// <summary>
-    /// Writes the system clock from a UTC instant.
-    /// </summary>
-    /// <param name="utc">The trusted time to set, in UTC.</param>
-    /// <returns>
-    /// <c>true</c> when the clock was set; <c>false</c> when the underlying
-    /// <c>SetSystemTime</c> call failed (e.g. the privilege is not held). The
-    /// Win32 error is recorded to the service log on failure.
-    /// </returns>
+    /// <summary>Write system clock from UTC instant.</summary>
+    /// <param name="utc">Trusted time to set, UTC.</param>
+    /// <returns><c>true</c> when clock set; <c>false</c> when <c>SetSystemTime</c> failed (e.g. privilege not held). Win32 error logged on failure.</returns>
     private static bool SetSystemClock(DateTimeOffset utc)
     {
         var st = new SYSTEMTIME

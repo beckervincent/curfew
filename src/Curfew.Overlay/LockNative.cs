@@ -2,28 +2,18 @@ using System.Runtime.InteropServices;
 
 namespace Curfew.Overlay;
 
-/// <summary>
-/// Win32 surface used exclusively by the lock's hard enforcement floor: the
-/// low-level keyboard hook that swallows the escape shortcuts, the topmost/taskbar
-/// window helpers, and the forced session logoff.
-/// </summary>
-/// <remarks>
-/// A thin, dependency-free P/Invoke shim. The general overlay window plumbing
-/// (paint, GDI brushes, window class) lives in <see cref="Native"/>; only the
-/// lock-specific extras live here so the two concerns stay separable. Every value
-/// below mirrors the corresponding Win32 SDK definition exactly — do not change a
-/// literal without checking winuser.h.
-/// </remarks>
+/// <summary>Win32 for lock hard floor: keyboard hook, topmost/taskbar helpers, forced logoff</summary>
+/// <remarks>thin P/Invoke shim; general window plumbing in <see cref="Native"/>; values mirror Win32 SDK exactly -- check winuser.h before changing a literal</remarks>
 internal static class LockNative
 {
     // ---- Low-level keyboard hook ------------------------------------------
 
-    /// <summary>WH_KEYBOARD_LL — low-level keyboard input hook.</summary>
+    /// <summary>WH_KEYBOARD_LL -- low-level keyboard input hook</summary>
     public const int WH_KEYBOARD_LL = 13;
-    /// <summary>HC_ACTION — hook code: wParam/lParam carry a real event.</summary>
+    /// <summary>HC_ACTION -- hook code: wParam/lParam carry real event</summary>
     public const int HC_ACTION = 0;
 
-    // Virtual-key codes for the shortcuts the lock screen must block.
+    // VK codes for shortcuts lock screen blocks
     public const int VK_TAB = 0x09;
     public const int VK_ESCAPE = 0x1B;
     public const int VK_MENU = 0x12;   // Alt
@@ -35,24 +25,17 @@ internal static class LockNative
 
     // ---- Logoff -----------------------------------------------------------
 
-    /// <summary>EWX_LOGOFF — end the calling user's session (not a machine shutdown).</summary>
+    /// <summary>EWX_LOGOFF -- end calling user session, not machine shutdown</summary>
     public const uint EWX_LOGOFF = 0x0000;
-    /// <summary>EWX_FORCE — close apps without waiting; a child must not be able to veto the curfew.</summary>
+    /// <summary>EWX_FORCE -- close apps without waiting; child can't veto curfew</summary>
     public const uint EWX_FORCE = 0x0004;
 
-    /// <summary>
-    /// SHTDN_REASON_MAJOR_APPLICATION | SHTDN_REASON_MINOR_MAINTENANCE |
-    /// SHTDN_REASON_FLAG_PLANNED — a tidy reason code on the logoff so an
-    /// administrator can see Curfew (not a crash) ended the session.
-    /// </summary>
+    /// <summary>SHTDN_REASON_MAJOR_APPLICATION | MINOR_MAINTENANCE | FLAG_PLANNED -- admin sees Curfew (not crash) ended session</summary>
     private const uint LOGOFF_REASON = 0x00040000u | 0x00000001u | 0x80000000u;
 
     // ---- Delegates --------------------------------------------------------
 
-    /// <summary>Signature for the low-level keyboard hook callback. The instance
-    /// passed to <see cref="SetWindowsHookExW"/> must be rooted by the caller for
-    /// the lifetime of the hook so it is not collected while native code holds
-    /// the pointer.</summary>
+    /// <summary>low-level keyboard hook callback sig; instance passed to <see cref="SetWindowsHookExW"/> must stay rooted for hook lifetime so GC won't collect while native holds pointer</summary>
     public delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
 
     // ---- Structures -------------------------------------------------------
@@ -92,15 +75,7 @@ internal static class LockNative
 
     // ---- Helpers ----------------------------------------------------------
 
-    /// <summary>
-    /// Logs the current user off, ending their session. The SYSTEM service runs in
-    /// session 0 and is unaffected, so enforcement keeps running across the logoff.
-    /// Unlike a shutdown, this needs no special privilege — a user may always end
-    /// their own session — so there is no token/privilege dance. <c>EWX_FORCE</c>
-    /// closes apps without waiting, so a child cannot veto the curfew by holding a
-    /// dialog open. Best-effort: any failure is logged, never thrown, because the
-    /// lock screen must never crash.
-    /// </summary>
+    /// <summary>log current user off; SYSTEM service in session 0 unaffected so enforcement survives. no privilege needed (own session). <c>EWX_FORCE</c> closes apps so child can't veto with open dialog. best-effort: failure logged not thrown</summary>
     public static void Logoff()
     {
         if (!ExitWindowsEx(EWX_LOGOFF | EWX_FORCE, LOGOFF_REASON))

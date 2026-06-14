@@ -3,13 +3,7 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Unit tests for <see cref="TimeMath"/>, the pure time/duration helpers shared by
-/// the App, Overlay and Service. Coverage focuses on the boundaries where the
-/// formatting branches change (sub-minute, sub-hour, exact hour, multi-day) and on
-/// the negative "unavailable" placeholders, since those values flow straight into
-/// the user-facing countdowns.
-/// </summary>
+/// <summary>tests for <see cref="TimeMath"/> pure time/duration helpers; covers format-branch boundaries (sub-minute, sub-hour, exact hour, multi-day) and negative "unavailable" placeholders</summary>
 public class TimeMathTests
 {
     [Theory]
@@ -30,8 +24,7 @@ public class TimeMathTests
     [Fact]
     public void MondayBasedWeekday_always_returns_value_in_zero_to_six()
     {
-        // Walk a full week starting on a known Monday and assert the result is a
-        // valid Monday-based index for every day, with Sunday wrapping to 6.
+        // walk a week from known Monday; valid Monday-based index each day, Sunday wraps to 6
         var monday = new DateOnly(2026, 6, 8);
 
         for (var offset = 0; offset < 7; offset++)
@@ -44,23 +37,23 @@ public class TimeMathTests
     }
 
     [Theory]
-    // Negative input renders the "unavailable" placeholder.
+    // negative -> "unavailable" placeholder
     [InlineData(-1, "--")]
     [InlineData(-3600, "--")]
-    // Seconds only: the most significant non-zero unit appears first.
+    // seconds only: top non-zero unit first
     [InlineData(0, "0s")]
     [InlineData(45, "45s")]
     [InlineData(59, "59s")]
-    // Minutes appear once we cross a full minute; trailing seconds are not padded.
+    // minutes once past a full minute; trailing seconds unpadded
     [InlineData(60, "1m 0s")]
     [InlineData(125, "2m 5s")]
     [InlineData(599, "9m 59s")]
-    // Hours appear once we cross a full hour.
+    // hours once past a full hour
     [InlineData(3600, "1h 0m 0s")]
     [InlineData(3599, "59m 59s")]
     [InlineData(3661, "1h 1m 1s")]
     [InlineData(7199, "1h 59m 59s")]
-    // Multi-day durations keep counting hours rather than rolling over to days.
+    // multi-day keeps counting hours, no rollover to days
     [InlineData(86400, "24h 0m 0s")]
     [InlineData(93784, "26h 3m 4s")]
     public void FormatDuration_formats(int seconds, string expected)
@@ -69,10 +62,10 @@ public class TimeMathTests
     }
 
     [Theory]
-    // Negative input renders the "unavailable" placeholder.
+    // negative -> "unavailable" placeholder
     [InlineData(-1, "--:--")]
     [InlineData(-3600, "--:--")]
-    // Under an hour: "m:ss" with the seconds zero-padded and the minutes not.
+    // under hour: "m:ss", seconds zero-padded, minutes not
     [InlineData(0, "0:00")]
     [InlineData(5, "0:05")]
     [InlineData(59, "0:59")]
@@ -80,7 +73,7 @@ public class TimeMathTests
     [InlineData(125, "2:05")]
     [InlineData(600, "10:00")]
     [InlineData(3599, "59:59")]
-    // An hour or more: "h:mm:ss" with both minutes and seconds zero-padded.
+    // hour+: "h:mm:ss", minutes and seconds zero-padded
     [InlineData(3600, "1:00:00")]
     [InlineData(3661, "1:01:01")]
     [InlineData(93784, "26:03:04")]
@@ -92,15 +85,14 @@ public class TimeMathTests
     [Fact]
     public void FormatCompact_zero_pads_minutes_and_seconds_in_the_hours_form()
     {
-        // 1 hour, 2 minutes, 3 seconds: minutes and seconds must be two digits each.
+        // 1h 2m 3s: minutes and seconds two digits each
         Assert.Equal("1:02:03", TimeMath.FormatCompact(3723));
     }
 
     [Fact]
     public void Formatters_handle_int_max_without_overflow()
     {
-        // The largest int corresponds to ~596,523 hours; the helpers must still
-        // produce a well-formed string rather than throwing or wrapping negative.
+        // largest int ~596,523 hours; helpers produce well-formed string, no throw/negative wrap
         Assert.Equal("596523h 14m 7s", TimeMath.FormatDuration(int.MaxValue));
         Assert.Equal("596523:14:07", TimeMath.FormatCompact(int.MaxValue));
     }
@@ -108,9 +100,7 @@ public class TimeMathTests
     [Fact]
     public void Formatting_is_culture_invariant()
     {
-        // Switch to a culture whose number formatting differs (comma decimal
-        // separators, non-ASCII digits would be a risk) and confirm the output is
-        // unchanged, since these strings feed both the UI and serialized state.
+        // switch to culture with different number formatting; output unchanged since strings feed UI and serialized state
         var original = System.Globalization.CultureInfo.CurrentCulture;
         try
         {

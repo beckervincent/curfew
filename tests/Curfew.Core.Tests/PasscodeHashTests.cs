@@ -36,7 +36,7 @@ public class PasscodeHashTests
     [Fact]
     public void Legacy_plaintext_value_still_verifies()
     {
-        // Existing installs store the PIN as plaintext; it must keep working.
+        // existing installs store PIN as plaintext; must keep working
         Assert.True(PasscodeHash.Verify("1234", "1234"));
         Assert.False(PasscodeHash.Verify("0000", "1234"));
         Assert.False(PasscodeHash.IsHashed("1234"));

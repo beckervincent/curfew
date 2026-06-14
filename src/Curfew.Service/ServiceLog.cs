@@ -1,61 +1,41 @@
 namespace Curfew.Service;
 
-/// <summary>
-/// Minimal, dependency-free file logger that writes to a SYSTEM-writable file
-/// under <c>%ProgramData%\Curfew\service.log</c>.
-/// </summary>
+/// <summary>Minimal dependency-free file logger writing to SYSTEM-writable <c>%ProgramData%\Curfew\service.log</c>.</summary>
 /// <remarks>
-/// The standard hosted <see cref="Microsoft.Extensions.Logging.ILogger"/> output
-/// is not easily visible when the worker runs as a Windows service, so this
-/// provides simple on-device diagnostics that survive restarts.
-/// <para>
-/// Design constraints:
+/// Hosted <see cref="Microsoft.Extensions.Logging.ILogger"/> output hard to see as Windows service, so this is on-device diagnostics surviving restarts.
+/// <para>Constraints:
 /// <list type="bullet">
-/// <item>Logging must <b>never</b> throw — diagnostics failing must not take down
-/// the service, so every operation is wrapped and best-effort.</item>
-/// <item>Writes are serialized with a process-wide lock. Cross-process contention
-/// (multiple service instances) is not expected; the OS append still keeps lines
-/// intact even if it occurred.</item>
-/// <item>The file is size-capped so it cannot grow without bound on a long-running
-/// machine.</item>
+/// <item>Logging <b>never</b> throws — diagnostics failing no take down service; every op wrapped best-effort.</item>
+/// <item>Writes serialized with process-wide lock. Cross-process contention not expected; OS append keeps lines intact anyway.</item>
+/// <item>File size-capped so no unbounded growth on long-running machine.</item>
 /// </list>
 /// </para>
 /// </remarks>
 internal static class ServiceLog
 {
-    /// <summary>Serializes writes (and rotation) within this process.</summary>
+    /// <summary>Serialize writes (and rotation) within this process.</summary>
     private static readonly object Gate = new();
 
-    /// <summary>Log file name within the Curfew data directory.</summary>
+    /// <summary>Log file name within Curfew data dir.</summary>
     private const string LogFileName = "service.log";
 
-    /// <summary>
-    /// Maximum size of the active log file before it is rotated. Keeping this
-    /// small bounds disk usage while retaining enough history to diagnose the
-    /// most recent incidents.
-    /// </summary>
+    /// <summary>Max size of active log file before rotation. Small bounds disk while keeping enough history for recent incidents.</summary>
     private const long MaxLogBytes = 1 * 1024 * 1024; // 1 MiB
 
-    /// <summary>
-    /// Resolved full path to the log file, computed once. <see langword="null"/>
-    /// only if path resolution itself failed (extremely unlikely).
-    /// </summary>
+    /// <summary>Full path to log file, computed once. <see langword="null"/> only if path resolution failed (extremely unlikely).</summary>
     private static readonly string? LogFilePath = ResolveLogFilePath();
 
-    /// <summary>
-    /// Appends a timestamped line to the service log. Never throws; failures are
-    /// silently ignored so diagnostics can never disrupt the service.
-    /// </summary>
-    /// <param name="message">The message to record. <see langword="null"/> is treated as empty.</param>
+    /// <summary>Append timestamped line to service log. Never throws; failures silently ignored so diagnostics no disrupt service.</summary>
+    /// <param name="message">Message to record. <see langword="null"/> treated as empty.</param>
     public static void Write(string message)
     {
         var path = LogFilePath;
         if (path is null)
         {
-            return; // Path resolution failed earlier; nothing we can safely do.
+            return; // path resolution failed earlier; nothing safe to do
         }
 
-        // Build the line outside the lock to keep the critical section short.
+        // build line outside lock to keep critical section short
         var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message ?? string.Empty}{Environment.NewLine}";
 
         try
@@ -68,37 +48,28 @@ internal static class ServiceLog
         }
         catch
         {
-            // Diagnostics must never throw. Swallow IO, ACL and disk-full errors.
+            // diagnostics never throw. swallow IO, ACL, disk-full errors
         }
     }
 
-    /// <summary>
-    /// Convenience overload that records an exception with its type and message,
-    /// giving more actionable detail than the message alone.
-    /// </summary>
-    /// <param name="context">A short description of what was being attempted.</param>
-    /// <param name="ex">The exception to record.</param>
+    /// <summary>Overload recording exception with type and message, more actionable than message alone.</summary>
+    /// <param name="context">Short description of what was attempted.</param>
+    /// <param name="ex">Exception to record.</param>
     public static void Write(string context, Exception ex)
     {
-        // Defensive: never let a malformed argument escape from a logging call.
+        // defensive: never let malformed arg escape a logging call
         var detail = ex is null
             ? "(null exception)"
             : $"{ex.GetType().Name}: {ex.Message}";
         Write($"{context}: {detail}");
     }
 
-    /// <summary>
-    /// Computes the log file path under <c>%ProgramData%\Curfew</c>, creating the
-    /// directory if necessary. Returns <see langword="null"/> if the path cannot
-    /// be resolved at all (in which case logging becomes a no-op).
-    /// </summary>
+    /// <summary>Compute log file path under <c>%ProgramData%\Curfew</c>, creating dir if needed. Return <see langword="null"/> if path no resolve (logging becomes no-op).</summary>
     private static string? ResolveLogFilePath()
     {
         try
         {
-            // Prefer the well-known folder API; fall back to the environment
-            // variable and finally a hard-coded default for resilience on
-            // unusual or locked-down installs.
+            // prefer well-known folder API; fall back to env var, then hard-coded default for unusual/locked-down installs
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             if (string.IsNullOrWhiteSpace(programData))
             {
@@ -115,18 +86,12 @@ internal static class ServiceLog
         }
         catch
         {
-            // If even resolving/creating the directory fails, disable logging
-            // rather than risk throwing from every Write call.
+            // if resolving/creating dir fails, disable logging not risk throwing from every Write
             return null;
         }
     }
 
-    /// <summary>
-    /// Rotates the log when it exceeds <see cref="MaxLogBytes"/> by moving the
-    /// current file to <c>service.log.1</c> (replacing any previous backup), so
-    /// the live file always starts fresh. Best-effort: any failure leaves the
-    /// existing file in place and is ignored.
-    /// </summary>
+    /// <summary>Rotate log when over <see cref="MaxLogBytes"/> by moving current file to <c>service.log.1</c> (replacing prior backup) so live file starts fresh. Best-effort: failure leaves file in place, ignored.</summary>
     /// <remarks>Callers must hold <see cref="Gate"/>.</remarks>
     private static void RotateIfTooLarge(string path)
     {
@@ -139,13 +104,12 @@ internal static class ServiceLog
             }
 
             var backup = path + ".1";
-            // File.Move with overwrite is atomic enough for our needs and avoids
-            // a delete/copy race window.
+            // File.Move overwrite atomic enough, avoids delete/copy race window
             File.Move(path, backup, overwrite: true);
         }
         catch
         {
-            // Rotation is non-critical; on failure we simply keep appending.
+            // rotation non-critical; on failure keep appending
         }
     }
 }

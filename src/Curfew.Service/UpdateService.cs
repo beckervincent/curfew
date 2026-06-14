@@ -5,69 +5,43 @@ using Curfew.Core.Security;
 
 namespace Curfew.Service;
 
-/// <summary>
-/// Checks for and applies Curfew updates from the background worker.
-/// </summary>
+/// <summary>Check for and apply Curfew updates from background worker.</summary>
 /// <remarks>
-/// <para>
-/// The flow is: ask <see cref="Updater"/> whether a newer release exists, download
-/// its installer to the staging folder, then hand the installer off to a detached,
-/// one-shot SYSTEM scheduled task (built by <see cref="Updater.BuildScheduledInstallScript"/>).
-/// </para>
-/// <para>
-/// Running the install from a detached task — rather than directly here — is the
-/// whole point: the installer stops and restarts this service mid-update, so any
-/// process we own would be killed before the install finishes. The scheduled task
-/// outlives us and cleans itself up afterwards.
-/// </para>
-/// <para>
-/// Update activity is best-effort and must never destabilise the service. Only
-/// cancellation (service shutdown) is allowed to propagate; every other failure is
-/// logged and swallowed so the next six-hourly pass can simply retry.
-/// </para>
+/// <para>Flow: ask <see cref="Updater"/> if newer release exists, download installer to staging, hand off to detached one-shot SYSTEM scheduled task (built by <see cref="Updater.BuildScheduledInstallScript"/>).</para>
+/// <para>Install from detached task (not here) is the point: installer stops/restarts this service mid-update, so any process we own dies before install finishes. Scheduled task outlives us and self-cleans.</para>
+/// <para>Update is best-effort, never destabilise service. Only cancellation (shutdown) propagates; every other failure logged and swallowed so next six-hourly pass retries.</para>
 /// </remarks>
 internal static class UpdateService
 {
-    /// <summary>Settings flag that gates automatic updates; absent means "enabled".</summary>
+    /// <summary>Settings flag gating auto updates; absent means "enabled".</summary>
     private const string AutoUpdateEnabledKey = "auto_update_enabled";
 
-    /// <summary>Settings key choosing the update channel; <see cref="PrereleaseChannel"/> opts into pre-releases.</summary>
+    /// <summary>Settings key choosing update channel; <see cref="PrereleaseChannel"/> opts into pre-releases.</summary>
     private const string UpdateChannelKey = "update_channel";
 
-    /// <summary>Value of <see cref="UpdateChannelKey"/> that includes pre-releases.</summary>
+    /// <summary>Value of <see cref="UpdateChannelKey"/> including pre-releases.</summary>
     private const string PrereleaseChannel = "prerelease";
 
-    /// <summary>File name the downloaded installer is staged under in the update folder.</summary>
+    /// <summary>File name installer is staged under in update folder.</summary>
     private const string InstallerFileName = "curfew-update.exe";
 
-    /// <summary>
-    /// Minimum size, in bytes, a download must reach to be treated as a real installer.
-    /// GitHub error pages, rate-limit notices and truncated downloads are far smaller
-    /// than the genuine multi-megabyte setup, so anything below this is rejected.
-    /// </summary>
+    /// <summary>Min bytes a download must reach to count as real installer. GitHub error pages, rate-limit notices, truncated downloads far smaller than genuine multi-MB setup, so below this rejected.</summary>
     private const int MinimumInstallerBytes = 500_000;
 
-    /// <summary>
-    /// Upper bound on a download, in bytes, so a malformed or hostile
-    /// <c>Content-Length</c> can never make us buffer an unbounded amount into memory.
-    /// </summary>
+    /// <summary>Max download bytes so malformed/hostile <c>Content-Length</c> cannot make us buffer unbounded into memory.</summary>
     private const long MaximumInstallerBytes = 256L * 1024 * 1024;
 
-    /// <summary>How long the installer download may run before it is abandoned.</summary>
+    /// <summary>How long installer download may run before abandoned.</summary>
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(5);
 
-    /// <summary>The two-byte "MZ" signature that begins every Windows PE executable.</summary>
+    /// <summary>Two-byte "MZ" signature beginning every Windows PE executable.</summary>
     private static readonly byte[] PortableExecutableMagic = { 0x4D, 0x5A };
 
-    /// <summary>
-    /// Runs one update pass: checks for a newer release and, if found and downloadable,
-    /// schedules its silent installation. Does nothing when auto-update is disabled or
-    /// no newer release is available.
-    /// </summary>
-    /// <param name="settings">Open settings store; read for the auto-update flag.</param>
-    /// <param name="currentVersion">The currently installed version (e.g. "2.0.0").</param>
-    /// <param name="ct">Cancels the check, the download and (cooperatively) the pass.</param>
-    /// <exception cref="OperationCanceledException">The service is shutting down.</exception>
+    /// <summary>Run one update pass: check for newer release, if found and downloadable schedule silent install. No-op when auto-update disabled or no newer release.</summary>
+    /// <param name="settings">Open settings store; read for auto-update flag.</param>
+    /// <param name="currentVersion">Currently installed version (e.g. "2.0.0").</param>
+    /// <param name="ct">Cancels check, download, and (cooperatively) the pass.</param>
+    /// <exception cref="OperationCanceledException">Service shutting down.</exception>
     public static async Task RunAsync(SettingsStore settings, string currentVersion, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -76,7 +50,7 @@ internal static class UpdateService
 
         ReportPreviousInstallResult();
 
-        // Pre-releases are only auto-installed when the parent opts into that channel.
+        // pre-releases auto-installed only when parent opts into that channel
         var includePrereleases = settings.Get(UpdateChannelKey) == PrereleaseChannel;
         var release = await Updater.CheckForUpdateAsync(currentVersion, Updater.HttpFetchAsync, includePrereleases, ct,
                 onCheckFailure: reason => ServiceLog.Write($"update check failed: {reason}"))
@@ -88,8 +62,7 @@ internal static class UpdateService
         var installer = await DownloadInstallerAsync(release.Value.InstallerUrl, ct).ConfigureAwait(false);
         if (installer is null) return;
 
-        // BuildScheduledInstallScript validates the path; guard against it throwing
-        // so a bad path can't take down the update pass.
+        // BuildScheduledInstallScript validates path; guard vs throw so bad path cannot take down update pass
         string script;
         try
         {
@@ -111,12 +84,7 @@ internal static class UpdateService
             ServiceLog.Write($"update scheduling failed (powershell exit {exitCode})");
     }
 
-    /// <summary>
-    /// Logs (and clears) the exit code the previous scheduled install left behind.
-    /// The install runs as a detached one-shot task, so this marker is the only
-    /// place a failed silent install (locked files, disk full, another installer
-    /// running) ever surfaces.
-    /// </summary>
+    /// <summary>Log (and clear) exit code previous scheduled install left behind. Install runs as detached one-shot task, so this marker is the only place a failed silent install (locked files, disk full, another installer running) surfaces.</summary>
     private static void ReportPreviousInstallResult()
     {
         var marker = Path.Combine(CurfewPaths.UpdateDirectory, Updater.InstallResultFileName);
@@ -138,29 +106,21 @@ internal static class UpdateService
         }
     }
 
-    /// <summary>
-    /// Downloads the installer at <paramref name="url"/> into the staging folder and
-    /// returns its path, or <see langword="null"/> if the download is missing, too
-    /// small, too large, or does not look like a Windows executable.
-    /// </summary>
-    /// <param name="url">The installer asset's download URL.</param>
-    /// <param name="ct">Cancels the download.</param>
-    /// <returns>The staged installer path, or <see langword="null"/> on any failure.</returns>
-    /// <exception cref="OperationCanceledException">The service is shutting down.</exception>
+    /// <summary>Download installer at <paramref name="url"/> into staging, return its path, or <see langword="null"/> if download missing, too small, too large, or not a Windows executable.</summary>
+    /// <param name="url">Installer asset download URL.</param>
+    /// <param name="ct">Cancels download.</param>
+    /// <returns>Staged installer path, or <see langword="null"/> on any failure.</returns>
+    /// <exception cref="OperationCanceledException">Service shutting down.</exception>
     private static async Task<string?> DownloadInstallerAsync(string url, CancellationToken ct)
     {
-        // Re-pin the URL before this SYSTEM process fetches anything: it must be the
-        // HTTPS GitHub release path of THIS repo (not just any "curfew-setup.exe").
-        // The parse step already enforced this, but the updater runs as SYSTEM and
-        // later runs the payload, so it re-checks rather than trusting its caller.
+        // re-pin URL before this SYSTEM process fetches: must be HTTPS GitHub release path of THIS repo (not just any "curfew-setup.exe"). parse already enforced, but updater runs as SYSTEM and later runs payload, so re-check vs trusting caller
         if (!ReleaseInfo.IsInstallerUrl(url))
         {
             ServiceLog.Write("update download rejected: untrusted installer URL");
             return null;
         }
 
-        // A dedicated client with an explicit timeout: an updater download must never
-        // stall the service for the default (effectively unbounded) duration.
+        // dedicated client with explicit timeout: updater download must never stall service for default (effectively unbounded) duration
         using var client = new HttpClient { Timeout = DownloadTimeout };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
 
@@ -171,17 +131,14 @@ internal static class UpdateService
                 .ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
-            // GitHub redirects the release path to *.githubusercontent.com; make sure
-            // a redirect chain never lands us on some other host before we save and
-            // (later) execute the payload as SYSTEM.
+            // GitHub redirects release path to *.githubusercontent.com; ensure redirect chain never lands on some other host before we save and (later) run payload as SYSTEM
             if (response.RequestMessage?.RequestUri is { } finalUri && !IsTrustedDownloadHost(finalUri))
             {
                 ServiceLog.Write($"update download rejected: redirected to untrusted host {finalUri.Host}");
                 return null;
             }
 
-            // Reject an over-large body up front using the advertised length, before
-            // reading a single byte of it.
+            // reject over-large body up front using advertised length, before reading a byte
             if (response.Content.Headers.ContentLength is long advertised
                 && advertised > MaximumInstallerBytes)
             {
@@ -204,39 +161,23 @@ internal static class UpdateService
                 return null;
             }
 
-            // Stage the installer where the child cannot tamper with it. The update
-            // folder inherits Users=Modify from %ProgramData%\Curfew (the installer
-            // grants it so state.db and SQLite's sidecars stay writable), which would
-            // otherwise let a limited child overwrite the staged exe AFTER Verify()
-            // returns but BEFORE the detached SYSTEM task opens it — a signature TOCTOU
-            // that lands attacker code with SYSTEM rights. Drop the directory's
-            // inheritance and deny Users write/delete before we write the payload, then
-            // lock the file the same way and verify AFTER the lockdown, so the bytes the
-            // task later executes are exactly the bytes that passed the signature check.
+            // stage installer where child cannot tamper. update folder inherits Users=Modify from %ProgramData%\Curfew (installer grants it so state.db + SQLite sidecars stay writable), which would let limited child overwrite staged exe AFTER Verify() but BEFORE detached SYSTEM task opens it — signature TOCTOU landing attacker code with SYSTEM. drop dir inheritance + deny Users write/delete before writing payload, then lock file same way and verify AFTER lockdown, so bytes task runs are exactly bytes that passed signature check
             Directory.CreateDirectory(CurfewPaths.UpdateDirectory);
             ProtectFromChild(CurfewPaths.UpdateDirectory, isDirectory: true);
 
             var path = Path.Combine(CurfewPaths.UpdateDirectory, InstallerFileName);
 
-            // CreateNew + FileShare.None: no other handle may write or delete the file
-            // while we hold it, and a pre-created decoy left by the child is rejected
-            // rather than appended to. A stale exe from a previous pass is cleared first.
+            // CreateNew + FileShare.None: no other handle may write/delete file while we hold it, and child-left decoy rejected not appended. stale exe from previous pass cleared first
             try { File.Delete(path); } catch { /* may not exist; recreated below */ }
             await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 await file.WriteAsync(bytes, ct).ConfigureAwait(false);
             }
 
-            // Lock the file down with the same deny-ACE as the directory, so it is no
-            // longer child-writable once our handle is closed. This must happen before
-            // verification: a Verify() that races a still-writable file proves nothing.
+            // lock file with same deny-ACE as dir, no longer child-writable once handle closed. must run before verify: Verify() racing a still-writable file proves nothing
             ProtectFromChild(path, isDirectory: false);
 
-            // Last line of defence before this SYSTEM process schedules the installer
-            // to run: it must be Authenticode-signed by Curfew's own key. Anything
-            // else — unsigned, tampered, or signed by a different key — is discarded.
-            // Run AFTER the lockdown so the verified bytes are the bytes the detached
-            // task will open; the child can no longer swap them in the window between.
+            // last defence before SYSTEM schedules installer: must be Authenticode-signed by Curfew's key. anything else (unsigned, tampered, other key) discarded. run AFTER lockdown so verified bytes are bytes detached task opens; child can no longer swap in the window
             if (!InstallerSignature.Verify(path))
             {
                 ServiceLog.Write("update download rejected: installer is not signed by Curfew's key");
@@ -248,23 +189,18 @@ internal static class UpdateService
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // Service shutdown: a caller decision, not a failed update — let it surface.
+            // shutdown: caller decision, not failed update — let it surface
             throw;
         }
         catch (Exception ex)
         {
-            // Network error, HTTP failure, download timeout, disk error, etc.
-            // Any of these simply means "no update this pass"; retry in six hours.
+            // network error, HTTP fail, timeout, disk error — all mean "no update this pass"; retry in six hours
             ServiceLog.Write($"update download failed: {ex.Message}");
             return null;
         }
     }
 
-    /// <summary>
-    /// Reads the response body into memory, stopping (and returning <see langword="null"/>)
-    /// if it exceeds <see cref="MaximumInstallerBytes"/>. This protects against a server
-    /// that streams more data than its <c>Content-Length</c> claimed, or sends none at all.
-    /// </summary>
+    /// <summary>Read response body into memory, stop (return <see langword="null"/>) if it exceeds <see cref="MaximumInstallerBytes"/>. Guards a server streaming more than its <c>Content-Length</c> claimed, or none at all.</summary>
     private static async Task<byte[]?> ReadCappedAsync(HttpResponseMessage response, CancellationToken ct)
     {
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -285,41 +221,22 @@ internal static class UpdateService
         return buffer.ToArray();
     }
 
-    /// <summary>
-    /// Whether <paramref name="uri"/> is HTTPS on GitHub or its asset CDN. Used to
-    /// validate the final URL after redirects, which land on
-    /// <c>*.githubusercontent.com</c> and so cannot be matched by the repo-path pin.
-    /// </summary>
+    /// <summary>Whether <paramref name="uri"/> is HTTPS on GitHub or its asset CDN. Validates final URL after redirects, which land on <c>*.githubusercontent.com</c> so cannot match the repo-path pin.</summary>
     private static bool IsTrustedDownloadHost(Uri uri) =>
         uri.Scheme == Uri.UriSchemeHttps
         && (uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
             || uri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)
             || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>
-    /// Returns whether <paramref name="bytes"/> begins with the "MZ" Portable Executable
-    /// signature, a cheap sanity check that we downloaded a binary and not an HTML or
-    /// JSON error response that happened to be large.
-    /// </summary>
+    /// <summary>Whether <paramref name="bytes"/> begins with "MZ" Portable Executable signature; cheap check we downloaded a binary not a large HTML/JSON error response.</summary>
     private static bool HasExecutableHeader(byte[] bytes) =>
         bytes.Length >= PortableExecutableMagic.Length
         && bytes[0] == PortableExecutableMagic[0]
         && bytes[1] == PortableExecutableMagic[1];
 
-    /// <summary>
-    /// Locks down the staging folder (and the staged installer) so a limited child
-    /// cannot write, swap or delete the file this SYSTEM process will later execute.
-    /// Drops ACL inheritance — otherwise the update folder keeps the Users=Modify ACE
-    /// the installer grants on %ProgramData%\Curfew — and adds an explicit deny for the
-    /// Users group, while SYSTEM and Administrators keep full control. Mirrors
-    /// <see cref="ConfigFileGuard"/>; best-effort and Windows-only, a failure is logged.
-    /// </summary>
-    /// <param name="path">The directory or file to protect.</param>
-    /// <param name="isDirectory">
-    /// When true the deny is made inheritable so files later created in the folder
-    /// (a swapped-in payload, the install-result marker) cannot be child-written; the
-    /// SYSTEM scheduled task still writes its marker because SYSTEM keeps full control.
-    /// </param>
+    /// <summary>Lock down staging folder (and staged installer) so limited child cannot write/swap/delete the file SYSTEM later runs. Drop ACL inheritance (else folder keeps Users=Modify ACE installer grants on %ProgramData%\Curfew) and add explicit deny for Users, while SYSTEM + Administrators keep full control. Mirrors <see cref="ConfigFileGuard"/>; best-effort, Windows-only, failure logged.</summary>
+    /// <param name="path">Directory or file to protect.</param>
+    /// <param name="isDirectory">When true deny is inheritable so files later created in folder (swapped-in payload, install-result marker) cannot be child-written; SYSTEM scheduled task still writes its marker because SYSTEM keeps full control.</param>
     private static void ProtectFromChild(string path, bool isDirectory)
     {
         if (!OperatingSystem.IsWindows()) return;
@@ -330,8 +247,7 @@ internal static class UpdateService
             var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
             var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
 
-            // A directory's allow/deny rules propagate to the files inside it; a file's
-            // do not inherit anywhere. Match the inheritance scope to the target kind.
+            // dir allow/deny rules propagate to files inside; a file's do not inherit anywhere. match inheritance scope to target kind
             var inherit = isDirectory
                 ? InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit
                 : InheritanceFlags.None;
@@ -343,8 +259,7 @@ internal static class UpdateService
                 security.SetOwner(system);
                 security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
                 security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
-                // Deny wins over allow: the child can neither replace the staged exe nor
-                // create new files in the folder to redirect the install.
+                // deny wins over allow: child can neither replace staged exe nor create new files to redirect install
                 security.AddAccessRule(new FileSystemAccessRule(
                     users,
                     FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,

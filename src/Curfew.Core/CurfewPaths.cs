@@ -1,66 +1,40 @@
 namespace Curfew.Core;
 
-/// <summary>
-/// Well-known filesystem locations for Curfew.
-/// </summary>
-/// <remarks>
-/// All data lives under <c>%ProgramData%\Curfew</c> so that the SYSTEM-hosted
-/// service, the per-user tray app and the overlay all agree on a single,
-/// machine-wide location regardless of which Windows session is active. The
-/// folder name and layout here are an external contract: the installer
-/// (<c>setup.iss</c>) and uninstall scripts reference the same
-/// <c>Curfew</c> / <c>update</c> names, so changing them would orphan existing
-/// installations.
-/// </remarks>
+/// <summary>well-known filesystem locations for Curfew</summary>
+/// <remarks>all data under <c>%ProgramData%\Curfew</c> so SYSTEM service, tray app, overlay agree on one machine-wide location whatever session is active. folder name + layout are an external contract: installer (<c>setup.iss</c>) and uninstall scripts reference the same <c>Curfew</c> / <c>update</c> names, so changing them orphans existing installs</remarks>
 public static class CurfewPaths
 {
-    /// <summary>
-    /// Name of the application folder created under <c>%ProgramData%</c>.
-    /// Mirrors the <c>DataFolder</c> define in the installer; keep them in sync.
-    /// </summary>
+    /// <summary>app folder name under <c>%ProgramData%</c>. mirrors <c>DataFolder</c> in installer; keep in sync</summary>
     public const string AppFolderName = "Curfew";
 
-    /// <summary>File name of the legacy single-file settings/usage database (pre-split; migration source).</summary>
+    /// <summary>legacy single-file settings/usage db (pre-split; migration source)</summary>
     private const string DatabaseFileName = "data.db";
 
-    /// <summary>File name of the write-protected config store (policy + secrets).</summary>
+    /// <summary>write-protected config store (policy + secrets)</summary>
     private const string ConfigFileName = "config.db";
 
-    /// <summary>File name of the child-writable state store (per-day counters, lock coordination).</summary>
+    /// <summary>child-writable state store (per-day counters, lock coordination)</summary>
     private const string StateFileName = "state.db";
 
-    /// <summary>File name of the parent-facing activity/tamper event log.</summary>
+    /// <summary>parent-facing activity/tamper event log</summary>
     private const string EventLogFileName = "events.log";
 
-    /// <summary>Subfolder that holds a downloaded installer awaiting a silent update.</summary>
+    /// <summary>subfolder holding downloaded installer awaiting silent update</summary>
     private const string UpdateFolderName = "update";
 
-    /// <summary>Fallback used only if the <c>ProgramData</c> variable is missing.</summary>
+    /// <summary>fallback only if <c>ProgramData</c> variable missing</summary>
     private const string DefaultProgramData = @"C:\ProgramData";
 
-    /// <summary>
-    /// Absolute path to the data directory under <c>%ProgramData%</c>
-    /// (typically <c>C:\ProgramData\Curfew</c>). The directory is created on
-    /// access if it does not already exist.
-    /// </summary>
-    /// <exception cref="System.IO.IOException">
-    /// The directory could not be created (for example, a file with the same
-    /// name already exists, or the volume is read-only).
-    /// </exception>
-    /// <exception cref="System.UnauthorizedAccessException">
-    /// The caller lacks permission to create the directory.
-    /// </exception>
+    /// <summary>absolute path to data dir under <c>%ProgramData%</c> (typically <c>C:\ProgramData\Curfew</c>). created on access if missing</summary>
+    /// <exception cref="System.IO.IOException">dir couldn't be created (same-named file exists, or read-only volume)</exception>
+    /// <exception cref="System.UnauthorizedAccessException">caller lacks permission to create dir</exception>
     public static string DataDirectory
     {
         get
         {
             var dir = Path.Combine(ProgramDataRoot, AppFolderName);
 
-            // Fail closed if the data directory has been replaced with a reparse
-            // point (junction/symlink). A child who can create a junction here could
-            // otherwise redirect the SYSTEM service's reads/writes — including the
-            // staged installer it later executes — onto an attacker-controlled
-            // target. A genuine install is always a real directory.
+            // fail closed if data dir replaced by a reparse point (junction/symlink). a child who creates a junction here could redirect SYSTEM service reads/writes — including the staged installer it runs — onto an attacker target. genuine install is always a real directory
             var info = new DirectoryInfo(dir);
             if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
             {
@@ -73,51 +47,27 @@ public static class CurfewPaths
         }
     }
 
-    /// <summary>
-    /// Absolute path to the SQLite database file
-    /// (<c>%ProgramData%\Curfew\data.db</c>). Accessing this ensures
-    /// <see cref="DataDirectory"/> exists, but does not create the file itself.
-    /// </summary>
+    /// <summary>absolute path to SQLite db (<c>%ProgramData%\Curfew\data.db</c>). access ensures <see cref="DataDirectory"/> exists but doesn't create the file</summary>
     public static string DatabaseFile => Path.Combine(DataDirectory, DatabaseFileName);
 
-    /// <summary>Absolute path to the write-protected config store (<c>%ProgramData%\Curfew\config.db</c>).</summary>
+    /// <summary>absolute path to write-protected config store (<c>%ProgramData%\Curfew\config.db</c>)</summary>
     public static string ConfigFile => Path.Combine(DataDirectory, ConfigFileName);
 
-    /// <summary>Absolute path to the child-writable state store (<c>%ProgramData%\Curfew\state.db</c>).</summary>
+    /// <summary>absolute path to child-writable state store (<c>%ProgramData%\Curfew\state.db</c>)</summary>
     public static string StateFile => Path.Combine(DataDirectory, StateFileName);
 
-    /// <summary>
-    /// Opens the split settings stores, migrating from the legacy single-file
-    /// database on first run. The one place that wires the production paths together.
-    /// </summary>
+    /// <summary>open split settings stores, migrating from legacy single-file db on first run. one place that wires production paths together</summary>
     public static SettingsStore OpenSettings(DateOnly today, bool configWritable = false) =>
         SettingsStore.OpenSplit(ConfigFile, StateFile, DatabaseFile, today, configWritable);
 
-    /// <summary>
-    /// Absolute path to the activity/tamper event log
-    /// (<c>%ProgramData%\Curfew\events.log</c>), written by the service and overlay
-    /// and shown to the parent in Settings.
-    /// </summary>
+    /// <summary>absolute path to activity/tamper event log (<c>%ProgramData%\Curfew\events.log</c>), written by service + overlay, shown to parent in Settings</summary>
     public static string EventLogFile => Path.Combine(DataDirectory, EventLogFileName);
 
-    /// <summary>
-    /// Absolute path to the staging folder for downloaded updates
-    /// (<c>%ProgramData%\Curfew\update</c>). Accessing this ensures the parent
-    /// <see cref="DataDirectory"/> exists, but does not create the update folder.
-    /// </summary>
+    /// <summary>absolute path to update staging folder (<c>%ProgramData%\Curfew\update</c>). access ensures parent <see cref="DataDirectory"/> exists but doesn't create the update folder</summary>
     public static string UpdateDirectory => Path.Combine(DataDirectory, UpdateFolderName);
 
-    /// <summary>
-    /// The machine-wide application-data root (<c>%ProgramData%</c>), falling
-    /// back to a sensible default when the folder cannot be resolved.
-    /// </summary>
-    /// <remarks>
-    /// Resolved via <see cref="Environment.SpecialFolder.CommonApplicationData"/>
-    /// rather than the <c>ProgramData</c> environment variable: a non-admin child
-    /// can set a per-process/per-user <c>ProgramData</c> variable and redirect the
-    /// whole app onto an attacker-controlled database (enforcing nothing). The
-    /// known-folder API is not overridable that way.
-    /// </remarks>
+    /// <summary>machine-wide app-data root (<c>%ProgramData%</c>), falling back to a default when unresolvable</summary>
+    /// <remarks>resolved via <see cref="Environment.SpecialFolder.CommonApplicationData"/> not the <c>ProgramData</c> env var: a non-admin child can set a per-process <c>ProgramData</c> var and redirect the whole app onto an attacker db (enforcing nothing). known-folder API isn't overridable that way</remarks>
     private static string ProgramDataRoot
     {
         get

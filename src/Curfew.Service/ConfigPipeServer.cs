@@ -7,40 +7,22 @@ using Curfew.Core.Security;
 
 namespace Curfew.Service;
 
-/// <summary>
-/// Hosts the config-write named pipe as SYSTEM. The app sends config writes here
-/// once <c>config.db</c> is read-only for ordinary users; the service verifies the
-/// parent passcode and performs the write itself. The pipe ACL lets any
-/// authenticated user connect, but every write is passcode-gated (except the
-/// first-run bootstrap before a passcode exists), so connecting buys nothing.
-/// </summary>
+/// <summary>Host config-write named pipe as SYSTEM. Every write passcode-gated (except first-run bootstrap before <c>config.db</c> passcode exists); connecting buys nothing.</summary>
 internal sealed class ConfigPipeServer
 {
     private readonly SettingsStore _config;
     private static readonly JsonSerializerOptions Json = new() { IncludeFields = false };
 
-    /// <summary>
-    /// How long a single connection may take to deliver its request line. The child
-    /// is the adversary and any AuthenticatedUser may connect, so a client that
-    /// stalls (never sends a newline) must be dropped: without this the accept loop
-    /// never returns to <see cref="NamedPipeServerStream.WaitForConnectionAsync"/>
-    /// and every legitimate parent config write is denied for as long as the child
-    /// holds the pipe.
-    /// </summary>
+    /// <summary>Max time one connection may take to deliver request line; drop stallers else accept loop never returns to <see cref="NamedPipeServerStream.WaitForConnectionAsync"/> and parent writes starve.</summary>
     private static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(5);
 
-    /// <summary>
-    /// Cap on the request line, in bytes. A request is a small JSON envelope; without
-    /// a cap a child could stream gigabytes with no newline and OOM the SYSTEM
-    /// service, since <see cref="StreamReader.ReadLineAsync()"/> buffers until a
-    /// newline or EOF.
-    /// </summary>
+    /// <summary>Cap request line in bytes; without cap child streams gigabytes no newline and OOMs service, since <see cref="StreamReader.ReadLineAsync()"/> buffers till newline or EOF.</summary>
     private const int MaxRequestBytes = 8 * 1024;
 
     /// <param name="config">A config-writable settings store owned by the service.</param>
     public ConfigPipeServer(SettingsStore config) => _config = config;
 
-    /// <summary>Accepts connections until cancelled. Never throws out of the loop.</summary>
+    /// <summary>Accept connections till cancelled. Never throw out of loop.</summary>
     public async Task RunAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -58,7 +40,7 @@ internal sealed class ConfigPipeServer
             catch (Exception ex)
             {
                 ServiceLog.Write($"config pipe: {ex.Message}");
-                // Brief pause so a persistent failure cannot spin the CPU.
+                // pause so persistent failure no spin CPU
                 try { await Task.Delay(500, ct).ConfigureAwait(false); } catch { return; }
             }
         }
@@ -67,9 +49,7 @@ internal sealed class ConfigPipeServer
     private static NamedPipeServerStream CreateServer()
     {
         var security = new PipeSecurity();
-        // ReadWrite only — granting CreateNewInstance would let any local user add
-        // their own server instance under this name and harvest the passcodes that
-        // clients send in the clear. Only SYSTEM (below) may host instances.
+        // ReadWrite only — CreateNewInstance would let local user host own instance, harvest cleartext passcodes. Only SYSTEM hosts.
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
             PipeAccessRights.ReadWrite,
@@ -90,9 +70,7 @@ internal sealed class ConfigPipeServer
         using var reader = new StreamReader(server);
         var writer = new StreamWriter(server) { AutoFlush = true };
 
-        // Bound the connection: a stalled or slow client (the child) must never hold
-        // the accept loop open, so the request read is cancelled after
-        // ConnectionTimeout (or on service shutdown via ct, whichever is first).
+        // bound connection: stalled child no hold accept loop; cancel read after ConnectionTimeout (or ct shutdown, first wins)
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(ConnectionTimeout);
 
@@ -103,22 +81,16 @@ internal sealed class ConfigPipeServer
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            // The client stalled past ConnectionTimeout. Drop it; the loop re-accepts.
+            // client stalled past ConnectionTimeout. drop; loop re-accepts
             return;
         }
-        if (line is null) return; // request exceeded MaxRequestBytes — refuse without buffering more
+        if (line is null) return; // over MaxRequestBytes — refuse, no more buffering
 
         var response = Handle(line);
         await writer.WriteLineAsync(JsonSerializer.Serialize(response, Json).AsMemory(), ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Reads one newline-terminated request, refusing (returns <c>null</c>) once the
-    /// accumulated bytes exceed <see cref="MaxRequestBytes"/> so an unbounded body
-    /// cannot exhaust memory. Reads a character at a time rather than
-    /// <see cref="StreamReader.ReadLineAsync()"/> precisely because the latter would
-    /// buffer the whole line before the cap could apply.
-    /// </summary>
+    /// <summary>Read one newline-terminated request; return <c>null</c> once bytes exceed <see cref="MaxRequestBytes"/>. Char-at-a-time, not <see cref="StreamReader.ReadLineAsync()"/>, which buffers whole line before cap applies.</summary>
     private static async Task<string?> ReadRequestAsync(StreamReader reader, CancellationToken ct)
     {
         var sb = new System.Text.StringBuilder();
@@ -132,7 +104,7 @@ internal sealed class ConfigPipeServer
             {
                 if (buffer[i] == '\n') return sb.ToString();
                 if (buffer[i] != '\r') sb.Append(buffer[i]);
-                if (sb.Length > MaxRequestBytes) return null; // over the cap — refuse
+                if (sb.Length > MaxRequestBytes) return null; // over cap — refuse
             }
         }
         return null;
@@ -157,13 +129,7 @@ internal sealed class ConfigPipeServer
         };
     }
 
-    /// <summary>
-    /// Sets up a new Windows user after the parent passcode is verified: writes that
-    /// user's per-user daily limit (all weekdays, so they stop falling back to the
-    /// device default) and adds their SID to the set-up list. The pipe is the
-    /// authoritative verification path and any AuthenticatedUser can connect, so the
-    /// brute-force lockout is enforced here, not just in the lock UI.
-    /// </summary>
+    /// <summary>Set up new Windows user after parent passcode verified: write per-user daily limit (all weekdays) and add SID to set-up list. Brute-force lockout enforced here, not just lock UI.</summary>
     private ConfigResponse HandleProvision(ConfigRequest request)
     {
         if (string.IsNullOrEmpty(request.Sid))
@@ -175,8 +141,7 @@ internal sealed class ConfigPipeServer
         if (string.IsNullOrEmpty(passcode) || !PasscodeHash.Verify(request.Passcode, passcode))
             return RecordFailureAndReject();
 
-        // Persist this user's per-user daily limit (every weekday) so the budget seeds
-        // from it instead of the device default. Clamp to a sane range; skip if absent.
+        // persist per-user daily limit (every weekday) so budget seeds from it not device default. clamp sane range; skip if absent
         if (int.TryParse(request.Value, out var limitMinutes))
         {
             limitMinutes = Math.Clamp(limitMinutes, 0, 24 * 60);
@@ -189,14 +154,14 @@ internal sealed class ConfigPipeServer
         return new ConfigResponse(true);
     }
 
-    /// <summary>Advances the failed-attempt lockout counter (no auth — it only rate-limits).</summary>
+    /// <summary>Bump failed-attempt lockout counter (no auth — only rate-limits).</summary>
     private ConfigResponse HandleRecordFailure()
     {
         RecordFailure();
         return new ConfigResponse(true);
     }
 
-    /// <summary>Increments the failed-attempt counter and stamps the time (UTC seconds).</summary>
+    /// <summary>Increment failed-attempt counter and stamp time (UTC seconds).</summary>
     private void RecordFailure()
     {
         var count = int.TryParse(_config.Get("failed_attempts"), out var n) ? n : 0;
@@ -204,12 +169,7 @@ internal sealed class ConfigPipeServer
         _config.Set("failed_attempt_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
     }
 
-    /// <summary>
-    /// Whether the brute-force backoff currently blocks a verification attempt, using
-    /// the same counter the client UIs read. Enforced server-side because the pipe is
-    /// the authoritative path and a child can drive it directly, skipping any UI
-    /// check; <paramref name="response"/> carries the retry-after seconds when locked.
-    /// </summary>
+    /// <summary>True if brute-force backoff blocks attempt; enforced server-side since child drives pipe direct, skip UI check. <paramref name="response"/> carries retry-after seconds when locked.</summary>
     private bool IsLockedOut(out ConfigResponse response)
     {
         var state = new LockoutState(
@@ -225,35 +185,26 @@ internal sealed class ConfigPipeServer
         return false;
     }
 
-    /// <summary>
-    /// Records a wrong guess inside the handler (so a direct pipe client cannot skip
-    /// <see cref="ConfigClient.RecordFailure"/>) and returns the rejection response.
-    /// </summary>
+    /// <summary>Record wrong guess in handler (so direct pipe client no skip <see cref="ConfigClient.RecordFailure"/>) and return rejection.</summary>
     private ConfigResponse RecordFailureAndReject()
     {
         RecordFailure();
         return new ConfigResponse(false, "wrong code");
     }
 
-    /// <summary>
-    /// Clears the failed-attempt counter after a success. Gated on the parent
-    /// passcode that just succeeded: an unauthenticated reset would let the child
-    /// zero the counter between guesses and defeat the brute-force lockout entirely.
-    /// </summary>
+    /// <summary>Clear failed-attempt counter after success. Gated on parent passcode: unauthenticated reset would let child zero counter between guesses and defeat lockout.</summary>
     private ConfigResponse HandleResetFailures(ConfigRequest request)
     {
         var passcode = _config.Get("passcode");
 
-        // Bootstrap: no passcode is set yet, so the reset is trivially allowed and must
-        // not touch the counter (there is nothing to brute-force against).
+        // bootstrap: no passcode yet, reset trivially allowed, no touch counter (nothing to brute-force)
         if (string.IsNullOrEmpty(passcode))
         {
             _config.Set("failed_attempts", "0");
             return new ConfigResponse(true);
         }
 
-        // Refuse while locked out without evaluating the code; otherwise a child could
-        // grind reset guesses (each a free PBKDF2) against the service unhindered.
+        // refuse while locked out, no eval code; else child grinds reset guesses (each free PBKDF2)
         if (IsLockedOut(out var locked)) return locked;
 
         if (!PasscodeHash.Verify(request.Passcode, passcode)) return RecordFailureAndReject();
@@ -267,17 +218,15 @@ internal sealed class ConfigPipeServer
         if (string.IsNullOrEmpty(request.Key) || request.Value is null)
             return new ConfigResponse(false, "key/value required");
 
-        // Only config keys may be written through the pipe; state is child-writable.
+        // only config keys writable via pipe; state is child-writable
         if (SettingsPartition.StoreFor(request.Key) != SettingsStoreKind.Config)
             return new ConfigResponse(false, "not a config key");
 
-        // Gate on the parent passcode, except the first-run bootstrap (no passcode yet).
+        // gate on parent passcode, except first-run bootstrap (no passcode yet)
         var stored = _config.Get("passcode");
         if (!string.IsNullOrEmpty(stored))
         {
-            // The pipe is the authoritative verification path; enforce the brute-force
-            // lockout and count wrong guesses here so a direct pipe client cannot grind
-            // the passcode by skipping the client-side check.
+            // enforce lockout and count wrong guesses here so direct pipe client no grind passcode by skipping client-side check
             if (IsLockedOut(out var locked)) return locked;
             if (!PasscodeHash.Verify(request.Passcode, stored))
             {

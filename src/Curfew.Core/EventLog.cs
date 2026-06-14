@@ -2,61 +2,52 @@ using System.Globalization;
 
 namespace Curfew.Core;
 
-/// <summary>Categories of events recorded for the parent's activity view.</summary>
+/// <summary>event kinds for parent activity view</summary>
 public enum CurfewEventKind
 {
-    /// <summary>The lock screen was raised.</summary>
+    /// <summary>lock screen raised</summary>
     Locked,
 
-    /// <summary>The lock was dismissed with the passcode / a valid code.</summary>
+    /// <summary>lock dismissed with passcode / valid code</summary>
     Unlocked,
 
-    /// <summary>Bonus time was granted.</summary>
+    /// <summary>bonus time granted</summary>
     Extended,
 
-    /// <summary>A wrong passcode was entered at the lock.</summary>
+    /// <summary>wrong passcode at lock</summary>
     FailedUnlock,
 
-    /// <summary>The weekly schedule was ignored until restart.</summary>
+    /// <summary>weekly schedule ignored until restart</summary>
     ScheduleIgnored,
 
-    /// <summary>The system clock was found tampered and corrected.</summary>
+    /// <summary>clock found tampered and corrected</summary>
     ClockTamper,
 
-    /// <summary>A content-filter / DoH-block step failed to apply.</summary>
+    /// <summary>content-filter / DoH-block step failed to apply</summary>
     FilterFailure,
 
-    /// <summary>An update was downloaded and scheduled to install.</summary>
+    /// <summary>update downloaded and scheduled to install</summary>
     UpdateInstalled,
 
-    /// <summary>A settings store was corrupt and had to be deleted and recreated.</summary>
+    /// <summary>settings store corrupt, deleted and recreated</summary>
     StoreRecreated,
 }
 
-/// <summary>One recorded event: when it happened, what kind, and a short detail.</summary>
+/// <summary>one event: when, what kind, short detail</summary>
 public readonly record struct CurfewEvent(DateTimeOffset Time, CurfewEventKind Kind, string Detail);
 
-/// <summary>
-/// A tiny, dependency-free, cross-process append log of parent-facing events
-/// (locks, failed unlocks, clock tampering, filter failures, updates). One
-/// tab-separated line per event; the file is trimmed to the most recent
-/// <see cref="MaxEntries"/> so it can never grow without bound.
-/// </summary>
+/// <summary>tiny dependency-free cross-process append log of parent-facing events; one tab-separated line each, trimmed to <see cref="MaxEntries"/></summary>
 /// <remarks>
-/// Every operation is best-effort and never throws: recording an event must not
-/// disrupt enforcement, and the parent view must tolerate a missing or partially
-/// written file. The path is a parameter so the writers (service, overlay) and the
-/// reader (app) all point at <see cref="CurfewPaths.EventLogFile"/>, and tests can
-/// use a temp file.
+/// best-effort, never throws. writers (service, overlay) + reader (app) all point at <see cref="CurfewPaths.EventLogFile"/>; tests use temp file.
 /// </remarks>
 public static class EventLog
 {
-    /// <summary>Maximum events retained; older ones are dropped on append.</summary>
+    /// <summary>max events kept; older dropped on append</summary>
     public const int MaxEntries = 500;
 
     private static readonly object Gate = new();
 
-    /// <summary>Appends an event. Never throws; failures are silently ignored.</summary>
+    /// <summary>append event. never throws; failures silently ignored</summary>
     public static void Append(string path, CurfewEventKind kind, string detail)
     {
         if (string.IsNullOrEmpty(path)) return;
@@ -76,18 +67,11 @@ public static class EventLog
         }
         catch
         {
-            // Diagnostics must never disrupt enforcement.
+            // diagnostics never disrupt enforcement
         }
     }
 
-    /// <summary>
-    /// Appends one line with <see cref="FileShare.ReadWrite"/> and a short retry.
-    /// The in-process <see cref="Gate"/> cannot serialize the three writer
-    /// PROCESSES (service, overlay, app); an exclusive append would make
-    /// concurrent events fail with a sharing violation and silently vanish.
-    /// Append-mode writes are atomic per call, and the retry covers the rare
-    /// collision with the trim's rewrite.
-    /// </summary>
+    /// <summary>append one line with <see cref="FileShare.ReadWrite"/> + short retry; <see cref="Gate"/> can't serialize 3 writer PROCESSES, exclusive append would lose concurrent events. append writes atomic per call; retry covers rare collision with trim rewrite</summary>
     private static void AppendLineShared(string path, string line)
     {
         for (var attempt = 0; ; attempt++)
@@ -106,10 +90,7 @@ public static class EventLog
         }
     }
 
-    /// <summary>
-    /// Returns up to <paramref name="max"/> most-recent events, newest first.
-    /// A missing or unreadable file yields an empty list.
-    /// </summary>
+    /// <summary>up to <paramref name="max"/> newest events, newest first; missing/unreadable file gives empty list</summary>
     public static IReadOnlyList<CurfewEvent> ReadRecent(string path, int max)
     {
         if (string.IsNullOrEmpty(path) || max <= 0) return Array.Empty<CurfewEvent>();
@@ -163,11 +144,11 @@ public static class EventLog
         }
         catch
         {
-            // If trimming fails the file simply keeps growing slowly; not critical.
+            // trim fail = file grows slowly; not critical
         }
     }
 
-    /// <summary>Strips tabs/newlines so a detail can never break the line format.</summary>
+    /// <summary>strip tabs/newlines so detail can't break line format</summary>
     private static string Sanitize(string? detail) =>
         (detail ?? string.Empty)
             .Replace('\t', ' ')

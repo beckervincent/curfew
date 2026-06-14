@@ -2,30 +2,19 @@ using Curfew.Core;
 
 namespace Curfew.App;
 
-/// <summary>
-/// Routes the app's CONFIG writes through the SYSTEM service over the config pipe,
-/// since config.db is read-only for ordinary users. State writes are unaffected
-/// (state.db stays child-writable). The verified parent passcode is captured when
-/// a gate is passed (or set to the new PIN during first-run setup) and sent with
-/// each write so the service can authorise it.
-/// </summary>
+/// <summary>route app CONFIG writes through SYSTEM service over config pipe, since config.db read-only for ordinary users. state writes unaffected (state.db stays child-writable). verified parent passcode captured when gate passed (or set to new PIN during first-run setup) + sent with each write so service can authorise it</summary>
 internal static class ConfigBridge
 {
-    /// <summary>The verified parent passcode (or the new PIN during setup); null before any gate.</summary>
+    /// <summary>verified parent passcode (or new PIN during setup); null before any gate</summary>
     public static string? Passcode;
 
-    /// <summary>False if any config write since the last <see cref="ResetWriteStatus"/> failed.</summary>
+    /// <summary>False if any config write since last <see cref="ResetWriteStatus"/> failed</summary>
     public static bool LastWriteOk { get; private set; } = true;
 
-    /// <summary>Resets the write-status flag before a batch of saves.</summary>
+    /// <summary>reset write-status flag before batch of saves</summary>
     public static void ResetWriteStatus() => LastWriteOk = true;
 
-    /// <summary>
-    /// Makes <paramref name="settings"/> forward its config writes to the service.
-    /// The write is always reported as handled (config.db is read-only, so there is
-    /// no direct fallback); a pipe failure is recorded in <see cref="LastWriteOk"/>
-    /// for the caller to surface rather than thrown.
-    /// </summary>
+    /// <summary>make <paramref name="settings"/> forward config writes to service. write always reported handled (config.db read-only, no direct fallback); pipe failure recorded in <see cref="LastWriteOk"/> for caller to surface, not thrown</summary>
     public static void Attach(SettingsStore settings) =>
         settings.ConfigWriter = (key, value) =>
         {

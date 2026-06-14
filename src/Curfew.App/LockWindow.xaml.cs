@@ -7,13 +7,7 @@ using Windows.System;
 
 namespace Curfew.App;
 
-/// <summary>
-/// The primary-monitor WinUI lock surface. It collects input and verifies the
-/// parent passcode (or an offline unlock code) in process, enforces the brute-force
-/// lockout, then raises <see cref="ActionConfirmed"/>;
-/// <see cref="LockController"/> records the action for the overlay and tears the
-/// lock down. The window has no title bar and is shown full-screen by the controller.
-/// </summary>
+/// <summary>primary-monitor WinUI lock surface. collects input, verifies parent passcode (or offline unlock code) in process, enforces brute-force lockout, then raises <see cref="ActionConfirmed"/>; <see cref="LockController"/> records action for overlay + tears lock down. no title bar, shown full-screen by controller</summary>
 public sealed partial class LockWindow : Window
 {
     private readonly SettingsStore _settings;
@@ -21,31 +15,13 @@ public sealed partial class LockWindow : Window
     private readonly bool _budgetMode;
     private readonly bool _newUser;
 
-    /// <summary>
-    /// The daily limit (minutes) the parent chose on the new-user setup lock, read by
-    /// <see cref="LockController"/> when it records a "provision" action. Only
-    /// meaningful while <see cref="_newUser"/>.
-    /// </summary>
+    /// <summary>daily limit (minutes) parent chose on new-user setup lock, read by <see cref="LockController"/> when it records a "provision" action. only meaningful while <see cref="_newUser"/></summary>
     public int SetupLimitMinutes { get; private set; }
 
-    /// <summary>
-    /// Fail-closed cooldown deadline (Unix seconds, UTC) used when the SYSTEM
-    /// service could not record a failure. The persisted counter lives in
-    /// config.db and is the only thing that drives <see cref="LockoutPolicy"/>'s
-    /// backoff; the WinUI lock can only advance it via the best-effort config
-    /// pipe, which returns false (never throws) whenever the service is down,
-    /// restarting, or the pipe is busy. If we re-accepted input in that window the
-    /// lock would become an unthrottled oracle, so a failed RecordFailure() arms
-    /// this local floor instead — re-checked by <see cref="IsLockedOut"/> on every
-    /// attempt and cleared automatically once the wall clock passes it.
-    /// </summary>
+    /// <summary>fail-closed cooldown deadline (Unix seconds, UTC) used when SYSTEM service couldnt record a failure. persisted counter lives in config.db + is the only thing driving <see cref="LockoutPolicy"/> backoff; WinUI lock can only advance it via best-effort config pipe, which returns false (never throws) when service down/restarting/pipe busy. re-accepting input in that window would make lock an unthrottled oracle, so failed RecordFailure() arms this local floor instead — re-checked by <see cref="IsLockedOut"/> every attempt + cleared once wall clock passes it</summary>
     private long _localCooldownUntilUnix;
 
-    /// <summary>
-    /// Raised on a confirmed action (extend15/30/60 / unlock / ignore_schedule /
-    /// redeem / provision / logoff). The second argument is the entered code for
-    /// redeem/provision, otherwise null.
-    /// </summary>
+    /// <summary>raised on confirmed action (extend15/30/60 / unlock / ignore_schedule / redeem / provision / logoff). second arg = entered code for redeem/provision, otherwise null</summary>
     public event Action<string, string?>? ActionConfirmed;
 
     public LockWindow(SettingsStore settings, string reason)
@@ -62,8 +38,7 @@ public sealed partial class LockWindow : Window
 
         if (_newUser)
         {
-            // First-time setup for this Windows user: the parent picks the daily limit
-            // and enters the PIN, then "Save & unlock" sets the user up.
+            // first-time setup for this Windows user: parent picks daily limit + enters PIN, then "Save & unlock" sets user up
             TitleText.Text = Loc.T("lock.title.newuser");
             MessageText.Text = Loc.T("lock.newuser.message");
             UnlockButton.Content = Loc.T("lock.activate");
@@ -79,18 +54,17 @@ public sealed partial class LockWindow : Window
         }
     }
 
-    /// <summary>The device's current daily limit (hours) for today, shown as the default
-    /// when setting up a new user.</summary>
+    /// <summary>device's current daily limit (hours) for today, shown as default when setting up new user</summary>
     private double DefaultSetupHours()
     {
         var weekday = TimeMath.MondayBasedWeekday(DateOnly.FromDateTime(DateTime.Now));
         return Math.Round(_settings.GetDailyLimit(weekday) / 60.0, 2);
     }
 
-    /// <summary>Updates the logoff-countdown line (driven by the controller's timer).</summary>
+    /// <summary>update logoff-countdown line (driven by controller's timer)</summary>
     public void SetCountdown(string text) => CountdownText.Text = text;
 
-    /// <summary>Focuses the passcode field (called once the window is shown).</summary>
+    /// <summary>focus passcode field (once window shown)</summary>
     public void FocusInput() => PinBox.Focus(FocusState.Programmatic);
 
     private string BudgetMessage()
@@ -99,7 +73,7 @@ public sealed partial class LockWindow : Window
         return string.IsNullOrWhiteSpace(configured) ? Loc.T("lock.default.message") : configured;
     }
 
-    /// <summary>The daily limit (minutes, clamped 0..24h) the parent entered for the new user.</summary>
+    /// <summary>daily limit (minutes, clamped 0..24h) parent entered for new user</summary>
     private int ChosenSetupMinutes()
     {
         var hours = double.IsNaN(SetupLimitHours.Value) ? 0 : SetupLimitHours.Value;
@@ -125,10 +99,7 @@ public sealed partial class LockWindow : Window
         }
     }
 
-    /// <summary>
-    /// Enforces the lockout, verifies the entry, and on success raises the action
-    /// (resetting the failed-attempt counter); on failure records the attempt.
-    /// </summary>
+    /// <summary>enforce lockout, verify entry, on success raise action (reset failed-attempt counter); on failure record attempt</summary>
     private void TryAction(string action)
     {
         if (IsLockedOut(out var wait))
@@ -139,9 +110,7 @@ public sealed partial class LockWindow : Window
 
         var entered = PinBox.Password;
 
-        // The parent passcode authorizes everything. For a new-user setup it also
-        // carries the chosen daily limit (captured here) and the PIN itself through
-        // to the service, which re-verifies before writing the limit + setting up.
+        // parent passcode authorizes everything. for new-user setup it also carries chosen daily limit (captured here) + PIN itself through to service, which re-verifies before writing limit + setting up
         if (PasscodeHash.Verify(entered, _settings.Get("passcode")))
         {
             ConfigClient.ResetFailures(entered);
@@ -157,13 +126,10 @@ public sealed partial class LockWindow : Window
             return;
         }
 
-        // An offline unlock code grants bonus time on an ordinary lock, but cannot
-        // skip a new user's setup.
+        // offline unlock code grants bonus time on ordinary lock, but cant skip new user's setup
         if (!_newUser && IsValidUnlockCode(entered))
         {
-            // An offline unlock code cannot authenticate the reset (the service
-            // only verifies the passcode), so the counter simply keeps its value
-            // until the next passcode success — fail-closed and harmless.
+            // offline unlock code cant authenticate the reset (service only verifies passcode), so counter keeps its value until next passcode success — fail-closed + harmless
             ConfigClient.ResetFailures(entered);
             ActionConfirmed?.Invoke("redeem", entered);
             return;
@@ -171,14 +137,7 @@ public sealed partial class LockWindow : Window
 
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, _reason);
 
-        // The persisted counter is what throttles guessing; advancing it is a
-        // best-effort pipe round-trip to the SYSTEM service that returns false
-        // (never throws) when the service is stopped/restarting or the pipe is
-        // busy. If we cannot advance it, re-prompting would let the child grind
-        // freely for the whole outage window — including the brief restart windows
-        // the child can provoke. Fail closed: arm a local cooldown (the policy's
-        // first throttle step) so IsLockedOut keeps refusing input until either the
-        // server counter advances or the local floor expires.
+        // persisted counter throttles guessing; advancing it is best-effort pipe round-trip to SYSTEM service that returns false (never throws) when service stopped/restarting or pipe busy. if we cant advance it, re-prompting would let child grind freely for whole outage window — including brief restart windows child can provoke. fail closed: arm local cooldown (policy's first throttle step) so IsLockedOut keeps refusing input until server counter advances or local floor expires
         if (ConfigClient.RecordFailure())
         {
             ShowError(Loc.T("lock.incorrect"));
@@ -199,12 +158,7 @@ public sealed partial class LockWindow : Window
         PinBox.Focus(FocusState.Programmatic);
     }
 
-    /// <summary>
-    /// Surfaces a controller-side failure (e.g. the lock-handshake write to state.db
-    /// could not land) on the still-open lock window so the parent can retry, rather
-    /// than the action being silently dropped. Called by <see cref="LockController"/>
-    /// after a verified action fails to persist.
-    /// </summary>
+    /// <summary>surface controller-side failure (e.g. lock-handshake write to state.db couldnt land) on still-open lock window so parent can retry, instead of action silently dropped. called by <see cref="LockController"/> after verified action fails to persist</summary>
     public void ShowActionError(string message)
     {
         ErrorBar.Message = message;
@@ -222,9 +176,7 @@ public sealed partial class LockWindow : Window
         if (LockoutPolicy.IsLockedOut(state, now, out retryAfterSeconds))
             return true;
 
-        // Local floor armed when the service could not advance the persisted
-        // counter (see TryAction): hold input shut until it expires so a service
-        // outage cannot turn the lock into an unthrottled oracle.
+        // local floor armed when service couldnt advance persisted counter (see TryAction): hold input shut until it expires so service outage cant turn lock into unthrottled oracle
         var localRemaining = (int)(_localCooldownUntilUnix - now);
         if (localRemaining > 0)
         {

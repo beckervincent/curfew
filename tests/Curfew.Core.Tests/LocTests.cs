@@ -3,11 +3,7 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Tests for <see cref="Loc"/>, the shared key/catalog localizer. They restore
-/// the language after each case so the static active-language state does not leak
-/// between tests.
-/// </summary>
+/// <summary>Tests for <see cref="Loc"/>, shared key/catalog localizer; restore language after each case so static active-language state no leak between tests.</summary>
 public class LocTests : IDisposable
 {
     private readonly string _original = Loc.Language;
@@ -66,8 +62,7 @@ public class LocTests : IDisposable
     [Fact]
     public void Every_language_defines_the_same_keys_as_english()
     {
-        // A missing key would silently fall back to English; assert parity so
-        // translations stay complete as the catalog grows.
+        // missing key silently falls back to English; assert parity so translations stay complete
         Loc.SetLanguage("en");
         var englishKeys = new[]
         {
@@ -79,7 +74,7 @@ public class LocTests : IDisposable
         {
             Loc.SetLanguage(lang);
             foreach (var key in englishKeys)
-                Assert.NotEqual(key, Loc.T(key)); // T returns the key only when unresolved
+                Assert.NotEqual(key, Loc.T(key)); // T returns key only when unresolved
         }
     }
 }

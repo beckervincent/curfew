@@ -2,30 +2,15 @@ using System.Globalization;
 
 namespace Curfew.Core;
 
-/// <summary>
-/// Minimal three-part numeric version (<c>Major.Minor.Patch</c>) used to decide
-/// whether a GitHub release is newer than the running build.
-/// </summary>
+/// <summary>Minimal three-part numeric version (<c>Major.Minor.Patch</c>) to decide whether a GitHub release is newer than the running build.</summary>
 /// <remarks>
-/// This intentionally implements only the subset of Semantic Versioning that the
-/// update check needs: three non-negative integer components compared
-/// most-significant first. Pre-release and build-metadata suffixes
-/// (e.g. <c>-rc.1</c> or <c>+build.5</c>) are not interpreted; see <see cref="Parse"/>
-/// for exactly what is accepted.
+/// Only the SemVer subset the update check needs: three non-negative integer components compared most-significant first. Pre-release + build-metadata suffixes (e.g. <c>-rc.1</c> or <c>+build.5</c>) not interpreted; see <see cref="Parse"/> for exactly what's accepted.
 /// </remarks>
 public readonly record struct SemVer(int Major, int Minor, int Patch) : IComparable<SemVer>
 {
-    /// <summary>
-    /// Parses a version such as <c>"1.2.3"</c> or <c>"v1.2.3"</c>.
-    /// </summary>
-    /// <param name="text">
-    /// The version text. A single leading <c>v</c> or <c>V</c> is ignored, as is
-    /// surrounding whitespace. Each of the first three dot-separated components must
-    /// be a non-negative base-10 integer; additional components (e.g. the <c>4</c> in
-    /// <c>"1.2.3.4"</c>) are ignored. Signs, thousands separators and culture-specific
-    /// formatting are rejected.
-    /// </param>
-    /// <returns>The parsed <see cref="SemVer"/>, or <see langword="null"/> when <paramref name="text"/> is malformed.</returns>
+    /// <summary>Parse a version like <c>"1.2.3"</c> or <c>"v1.2.3"</c>.</summary>
+    /// <param name="text">Version text. Single leading <c>v</c>/<c>V</c> ignored, surrounding whitespace too. Each of the first three dot-separated components must be a non-negative base-10 integer; extra components (e.g. <c>4</c> in <c>"1.2.3.4"</c>) ignored. Signs, thousands separators, culture-specific formatting rejected.</param>
+    /// <returns>Parsed <see cref="SemVer"/>, or <see langword="null"/> when <paramref name="text"/> malformed.</returns>
     public static SemVer? Parse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -49,17 +34,11 @@ public readonly record struct SemVer(int Major, int Minor, int Patch) : ICompara
         return null;
     }
 
-    /// <summary>
-    /// Parses a single version component as a non-negative, culture-invariant
-    /// integer with no sign, separators or surrounding whitespace.
-    /// </summary>
+    /// <summary>Parse one version component as a non-negative culture-invariant integer with no sign, separators, or surrounding whitespace.</summary>
     private static bool TryParseComponent(string part, out int value) =>
         int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out value);
 
-    /// <summary>
-    /// Compares this version with <paramref name="other"/>, ordering by
-    /// <see cref="Major"/>, then <see cref="Minor"/>, then <see cref="Patch"/>.
-    /// </summary>
+    /// <summary>Compare this version with <paramref name="other"/>, ordering by <see cref="Major"/>, then <see cref="Minor"/>, then <see cref="Patch"/>.</summary>
     public int CompareTo(SemVer other)
     {
         var c = Major.CompareTo(other.Major);
@@ -69,19 +48,19 @@ public readonly record struct SemVer(int Major, int Minor, int Patch) : ICompara
         return Patch.CompareTo(other.Patch);
     }
 
-    /// <summary>Returns the canonical <c>Major.Minor.Patch</c> string.</summary>
+    /// <summary>Canonical <c>Major.Minor.Patch</c> string.</summary>
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"{Major}.{Minor}.{Patch}");
 
-    /// <summary>Indicates whether <paramref name="a"/> precedes <paramref name="b"/>.</summary>
+    /// <summary>Whether <paramref name="a"/> precedes <paramref name="b"/>.</summary>
     public static bool operator <(SemVer a, SemVer b) => a.CompareTo(b) < 0;
 
-    /// <summary>Indicates whether <paramref name="a"/> follows <paramref name="b"/>.</summary>
+    /// <summary>Whether <paramref name="a"/> follows <paramref name="b"/>.</summary>
     public static bool operator >(SemVer a, SemVer b) => a.CompareTo(b) > 0;
 
-    /// <summary>Indicates whether <paramref name="a"/> precedes or equals <paramref name="b"/>.</summary>
+    /// <summary>Whether <paramref name="a"/> precedes or equals <paramref name="b"/>.</summary>
     public static bool operator <=(SemVer a, SemVer b) => a.CompareTo(b) <= 0;
 
-    /// <summary>Indicates whether <paramref name="a"/> follows or equals <paramref name="b"/>.</summary>
+    /// <summary>Whether <paramref name="a"/> follows or equals <paramref name="b"/>.</summary>
     public static bool operator >=(SemVer a, SemVer b) => a.CompareTo(b) >= 0;
 }

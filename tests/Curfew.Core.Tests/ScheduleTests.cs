@@ -3,15 +3,8 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Unit tests for <see cref="Schedule"/>, the weekly 15-minute allowed-time grid.
-/// </summary>
-/// <remarks>
-/// The schedule is "fail open": missing, short or malformed data must always be
-/// treated as <em>allowed</em> so that enabling scheduling can never accidentally
-/// lock the user out. A large share of these tests pins that guarantee down,
-/// since it is the property other projects (App, Overlay, Service) rely on.
-/// </remarks>
+/// <summary>Tests for <see cref="Schedule"/>, weekly 15-minute allowed-time grid.</summary>
+/// <remarks>"fail open": missing/short/malformed data always <em>allowed</em> so enabling scheduling never locks user out; most tests pin that guarantee, relied on by App, Overlay, Service.</remarks>
 public class ScheduleTests
 {
     // Monday = 0 … Sunday = 6.
@@ -26,7 +19,7 @@ public class ScheduleTests
         Assert.Equal(96, Schedule.SlotsPerDay);
         Assert.Equal(15, Schedule.SlotMinutes);
 
-        // The grid must tile a full 24h day with no remainder.
+        // grid must tile full 24h day no remainder
         Assert.Equal(24 * 60, Schedule.SlotsPerDay * Schedule.SlotMinutes);
     }
 
@@ -61,7 +54,7 @@ public class ScheduleTests
 
         a.SetSlot(Monday, 0, false);
 
-        // Mutating one instance must not bleed into another.
+        // mutate one instance must not bleed into another
         Assert.False(a.GetSlot(Monday, 0));
         Assert.True(b.GetSlot(Monday, 0));
     }
@@ -82,25 +75,25 @@ public class ScheduleTests
     [Fact]
     public void Constructor_normalises_a_ragged_grid_defaulting_missing_cells_to_allowed()
     {
-        // Fewer than Days rows, and the present rows are shorter than SlotsPerDay.
+        // fewer than Days rows, present rows shorter than SlotsPerDay
         var ragged = new[]
         {
-            new[] { false },          // Monday: only slot 0 specified (blocked)
+            new[] { false },          // Monday: slot 0 specified (blocked)
             new[] { false, false },   // Tuesday: slots 0..1 specified (blocked)
         };
 
         var s = new Schedule(ragged);
 
-        // Specified cells survive.
+        // specified cells survive
         Assert.False(s.GetSlot(Monday, 0));
         Assert.False(s.GetSlot(1, 0));
         Assert.False(s.GetSlot(1, 1));
 
-        // Missing cells within a short row default to allowed.
+        // missing cells in short row default allowed
         Assert.True(s.GetSlot(Monday, 1));
         Assert.True(s.GetSlot(1, 2));
 
-        // Entirely missing rows default to allowed.
+        // missing rows default allowed
         Assert.True(s.GetSlot(Sunday, 0));
         Assert.True(s.GetSlot(Sunday, Schedule.SlotsPerDay - 1));
     }
@@ -114,10 +107,10 @@ public class ScheduleTests
 
         var s = new Schedule(grid);
 
-        // Mutate the caller's array after construction.
+        // mutate caller's array after construction
         grid[Monday][0] = false;
 
-        // The schedule must not observe the post-construction change.
+        // schedule must not observe post-construction change
         Assert.True(s.GetSlot(Monday, 0));
     }
 
@@ -136,7 +129,7 @@ public class ScheduleTests
     {
         var s = Schedule.Parse(text);
 
-        // Probe a few arbitrary points; all must be allowed.
+        // probe arbitrary points; all allowed
         Assert.True(s.IsAllowed(Monday, 0));
         Assert.True(s.IsAllowed(Wednesday, 10 * 60));
         Assert.True(s.IsAllowed(Sunday, 23 * 60 + 59));
@@ -145,7 +138,7 @@ public class ScheduleTests
     [Fact]
     public void Parse_treats_only_zero_as_blocked()
     {
-        // Each row is one character long; everything except '0' means allowed.
+        // each row one char; everything except '0' means allowed
         var s = Schedule.Parse("0;1;x;9; ;-;a");
 
         Assert.False(s.GetSlot(Monday, 0));   // '0' -> blocked
@@ -160,7 +153,7 @@ public class ScheduleTests
     [Fact]
     public void Parse_defaults_missing_positions_in_a_short_row_to_allowed()
     {
-        // Seven rows (valid count), but each row is far shorter than SlotsPerDay.
+        // seven rows (valid count), each far shorter than SlotsPerDay
         var rows = Enumerable.Repeat("0", Schedule.Days);
         var s = Schedule.Parse(string.Join(';', rows));
 
@@ -202,7 +195,7 @@ public class ScheduleTests
     public void Serialize_roundtrips_through_parse()
     {
         var s = Schedule.AllAllowed();
-        s.SetSlot(Monday, 40, false); // Monday 10:00–10:15 blocked
+        s.SetSlot(Monday, 40, false); // Monday 10:00-10:15 blocked
         s.SetSlot(Monday, 41, false);
 
         var round = Schedule.Parse(s.Serialize());
@@ -223,7 +216,7 @@ public class ScheduleTests
         var text = s.Serialize();
         var round = Schedule.Parse(text);
 
-        // Re-serialising the parsed schedule yields identical text.
+        // re-serialise parsed schedule yields identical text
         Assert.Equal(text, round.Serialize());
 
         for (var day = 0; day < Schedule.Days; day++)
@@ -239,7 +232,7 @@ public class ScheduleTests
     public void IsAllowed_maps_minutes_onto_their_15_minute_slot()
     {
         var s = Schedule.AllAllowed();
-        // Block 14:00–15:00 on Wednesday (slots 56..59).
+        // block 14:00-15:00 Wednesday (slots 56..59)
         for (var slot = 56; slot < 60; slot++) s.SetSlot(Wednesday, slot, false);
 
         Assert.False(s.IsAllowed(Wednesday, 14 * 60));      // 14:00 — start of block
@@ -262,7 +255,7 @@ public class ScheduleTests
 
         Assert.False(s.IsAllowed(Monday, minute));
 
-        // Neighbouring slots remain allowed, confirming the minute hit exactly one slot.
+        // neighbour slots stay allowed, confirm minute hit exactly one slot
         if (expectedSlot > 0) Assert.True(s.IsAllowed(Monday, (expectedSlot - 1) * Schedule.SlotMinutes));
         if (expectedSlot < Schedule.SlotsPerDay - 1)
             Assert.True(s.IsAllowed(Monday, (expectedSlot + 1) * Schedule.SlotMinutes));
@@ -274,33 +267,32 @@ public class ScheduleTests
     public void IsAllowed_clamps_negative_minutes_into_the_first_slot(int minute)
     {
         var s = Schedule.AllAllowed();
-        s.SetSlot(Monday, 0, false);   // block the first slot
+        s.SetSlot(Monday, 0, false);   // block first slot
 
         Assert.False(s.IsAllowed(Monday, minute));
     }
 
     [Theory]
-    [InlineData(1440)]            // first minute of the next day
+    [InlineData(1440)]            // first minute of next day
     [InlineData(10_000)]
     [InlineData(int.MaxValue)]
     public void IsAllowed_clamps_minutes_past_midnight_into_the_last_slot(int minute)
     {
         var s = Schedule.AllAllowed();
-        s.SetSlot(Monday, Schedule.SlotsPerDay - 1, false); // block the last slot
+        s.SetSlot(Monday, Schedule.SlotsPerDay - 1, false); // block last slot
 
         Assert.False(s.IsAllowed(Monday, minute));
     }
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(Schedule.Days)]   // 7 is one past Sunday
+    [InlineData(Schedule.Days)]   // 7 = one past Sunday
     [InlineData(99)]
     [InlineData(int.MinValue)]
     [InlineData(int.MaxValue)]
     public void IsAllowed_treats_out_of_range_weekdays_as_allowed(int weekday)
     {
-        // Even a fully blocked schedule reports "allowed" for a non-existent day,
-        // because there is no day to block.
+        // fully blocked schedule still reports "allowed" for non-existent day; no day to block
         var s = Schedule.AllAllowed();
         for (var slot = 0; slot < Schedule.SlotsPerDay; slot++)
             s.SetSlot(Monday, slot, false);
@@ -343,7 +335,7 @@ public class ScheduleTests
     {
         var s = Schedule.AllAllowed();
 
-        // Must neither throw nor corrupt any in-range cell.
+        // must not throw nor corrupt any in-range cell
         s.SetSlot(weekday, slot, false);
 
         for (var day = 0; day < Schedule.Days; day++)

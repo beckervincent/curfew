@@ -2,47 +2,23 @@ using System.Text.Json;
 
 namespace Curfew.Core;
 
-/// <summary>A GitHub release tag plus the matching installer asset URL.</summary>
+/// <summary>GitHub release tag + matching installer asset URL</summary>
 public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
 {
-    /// <summary>
-    /// Substring an asset's download URL must contain (case-insensitively) to be
-    /// recognised as the Curfew installer, distinguishing it from other release
-    /// assets such as source archives or checksum files.
-    /// </summary>
+    /// <summary>substring asset download URL must contain (case-insensitive) to count as Curfew installer, vs source archives or checksum files</summary>
     private const string InstallerUrlMarker = "curfew-setup";
 
-    /// <summary>File extension of the Windows installer asset (case-insensitive).</summary>
+    /// <summary>Windows installer asset extension (case-insensitive)</summary>
     private const string InstallerExtension = ".exe";
 
-    /// <summary>
-    /// Required prefix of a trusted installer download URL: HTTPS, the canonical
-    /// GitHub releases host, and this repository's release-asset path. Pinning the
-    /// full prefix (not just a "curfew-setup" substring) stops an attacker-hosted
-    /// <c>http://evil/curfew-setup.exe</c> — or any other GitHub account's release
-    /// asset of the same name — from being accepted as an update by the SYSTEM
-    /// service. Kept in sync with the App-side check in SettingsWindow.
-    /// </summary>
+    /// <summary>required prefix of trusted installer URL: HTTPS, canonical GitHub releases host, this repo's release-asset path. pinning full prefix (not just "curfew-setup" substring) stops attacker-hosted <c>http://evil/curfew-setup.exe</c> or another account's same-named asset from being accepted by SYSTEM service. kept in sync with App-side check in SettingsWindow</summary>
     public const string TrustedInstallerUrlPrefix =
         "https://github.com/beckervincent/curfew/releases/download/";
 
-    /// <summary>
-    /// Parses the GitHub "latest release" JSON, returning the tag and the first
-    /// asset whose download URL looks like a Curfew installer.
-    /// </summary>
-    /// <param name="json">
-    /// The raw JSON body returned by the GitHub releases API. May be null,
-    /// empty, or malformed; such inputs simply yield <see langword="null"/>.
-    /// </param>
-    /// <returns>
-    /// A populated <see cref="ReleaseInfo"/> when a non-empty tag and a matching
-    /// installer asset are both present; otherwise <see langword="null"/>.
-    /// </returns>
-    /// <remarks>
-    /// This method never throws for malformed or unexpected input: it is the
-    /// untrusted boundary between a remote HTTP response and the update logic, so
-    /// any parsing failure is treated the same as "no usable release".
-    /// </remarks>
+    /// <summary>parse GitHub "latest release" JSON; tag + first asset whose URL looks like a Curfew installer</summary>
+    /// <param name="json">raw JSON body from GitHub releases API. null/empty/malformed yields <see langword="null"/></param>
+    /// <returns>populated <see cref="ReleaseInfo"/> when non-empty tag + matching installer asset both present; else <see langword="null"/></returns>
+    /// <remarks>never throws on bad input: untrusted boundary between remote HTTP response and update logic, parse failure = "no usable release"</remarks>
     public static ReleaseInfo? FromGitHubJson(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return null;
@@ -64,13 +40,8 @@ public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
         }
     }
 
-    /// <summary>
-    /// Parses the GitHub "list releases" JSON (an array, newest first, that — unlike
-    /// the "latest release" endpoint — includes pre-releases) into every release
-    /// that carries a trusted installer asset. The caller picks the newest by
-    /// version; ordering and pre-release filtering are not done here.
-    /// </summary>
-    /// <param name="json">The raw JSON array body. Null/empty/malformed yields an empty list.</param>
+    /// <summary>parse GitHub "list releases" JSON (array, newest first, includes pre-releases unlike "latest") into every release with a trusted installer asset. caller picks newest by version; no ordering/pre-release filtering here</summary>
+    /// <param name="json">raw JSON array body. null/empty/malformed yields empty list</param>
     public static IReadOnlyList<ReleaseInfo> ListFromGitHubJson(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return Array.Empty<ReleaseInfo>();
@@ -100,7 +71,7 @@ public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
         }
     }
 
-    /// <summary>Extracts the tag and first trusted installer asset from one release object.</summary>
+    /// <summary>extract tag + first trusted installer asset from one release object</summary>
     private static ReleaseInfo? ParseRelease(JsonElement release)
     {
         if (!release.TryGetProperty("tag_name", out var tagProp)
@@ -133,13 +104,7 @@ public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
         return null;
     }
 
-    /// <summary>
-    /// Returns whether <paramref name="url"/> is a trusted Curfew installer URL:
-    /// it must sit under <see cref="TrustedInstallerUrlPrefix"/> (HTTPS + this
-    /// repo's GitHub release path), carry the installer extension, and contain the
-    /// installer marker. The host/path prefix is matched case-sensitively (a
-    /// genuine GitHub URL is already lower-case); the name parts case-insensitively.
-    /// </summary>
+    /// <summary>is <paramref name="url"/> a trusted Curfew installer URL: under <see cref="TrustedInstallerUrlPrefix"/> (HTTPS + this repo's GitHub release path), installer extension, installer marker. host/path prefix matched case-sensitively (genuine GitHub URL already lower-case); name parts case-insensitively</summary>
     public static bool IsInstallerUrl(string url) =>
         url.StartsWith(TrustedInstallerUrlPrefix, StringComparison.Ordinal)
         && url.EndsWith(InstallerExtension, StringComparison.OrdinalIgnoreCase)

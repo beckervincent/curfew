@@ -5,24 +5,16 @@ using Curfew.Core.Localization;
 
 namespace Curfew.Overlay;
 
-/// <summary>
-/// System-tray (notification-area) icon for the overlay process. Shows the
-/// remaining budget in its tooltip, a right-click menu to open Settings, and
-/// balloon notifications at the warning thresholds. Self-contained Win32 interop
-/// so it doesn't disturb the rest of the overlay's P/Invoke surface.
-/// </summary>
+/// <summary>system-tray icon for overlay process: tooltip shows remaining budget, right-click menu opens Settings, balloons at warning thresholds. self-contained Win32 interop, separate from rest of overlay P/Invoke</summary>
 internal static class TrayIcon
 {
-    /// <summary>Callback message the shell posts to our window for tray events (WM_APP + 1).</summary>
+    /// <summary>callback msg shell posts to our window for tray events (WM_APP + 1)</summary>
     public const uint WM_TRAYICON = 0x8000 + 1;
 
-    /// <summary>
-    /// Whether the debug/test items ("Show Warning", "Show Blocking Overlay") are
-    /// listed in the menu. Set to <c>false</c> for a final release build.
-    /// </summary>
+    /// <summary>list debug/test items ("Show Warning", "Show Blocking Overlay") in menu; <c>false</c> for release build</summary>
     internal const bool ShowDebugItems = true;
 
-    /// <summary>Repository opened by the About item.</summary>
+    /// <summary>repo opened by About item</summary>
     private const string GitHubUrl = "https://github.com/beckervincent/curfew";
 
     private const uint TrayId = 1;
@@ -50,7 +42,7 @@ internal static class TrayIcon
     private static IntPtr _icon;
     private static bool _added;
 
-    /// <summary>Adds the tray icon for <paramref name="hwnd"/>.</summary>
+    /// <summary>add tray icon for <paramref name="hwnd"/></summary>
     public static void Add(IntPtr hwnd, IntPtr hInstance)
     {
         _icon = LoadAppIcon(hInstance);
@@ -65,7 +57,7 @@ internal static class TrayIcon
         OverlayLog.Write($"tray icon add={_added}");
     }
 
-    /// <summary>Updates the hover tooltip text.</summary>
+    /// <summary>update hover tooltip text</summary>
     public static void UpdateTooltip(string tip)
     {
         if (!_added) return;
@@ -75,7 +67,7 @@ internal static class TrayIcon
         Shell_NotifyIconW(NIM_MODIFY, ref data);
     }
 
-    /// <summary>Shows a balloon notification (used for time warnings).</summary>
+    /// <summary>show balloon notification (time warnings)</summary>
     public static void ShowBalloon(string title, string message)
     {
         if (!_added) return;
@@ -87,7 +79,7 @@ internal static class TrayIcon
         Shell_NotifyIconW(NIM_MODIFY, ref data);
     }
 
-    /// <summary>Removes the tray icon (call on shutdown).</summary>
+    /// <summary>remove tray icon (call on shutdown)</summary>
     public static void Remove()
     {
         if (!_added) return;
@@ -96,7 +88,7 @@ internal static class TrayIcon
         _added = false;
     }
 
-    /// <summary>Handles a tray callback: any click opens the context menu.</summary>
+    /// <summary>handle tray callback: any click opens context menu</summary>
     public static void OnMessage(IntPtr hwnd, IntPtr lParam)
     {
         var evt = (uint)(lParam.ToInt64() & 0xFFFF);
@@ -109,10 +101,7 @@ internal static class TrayIcon
         var menu = CreatePopupMenu();
         if (menu == IntPtr.Zero) return;
 
-        // Privileged items (stats, settings, extend, pause, quit) are gated: they
-        // hand off to Curfew.App, which verifies the parent passcode before the
-        // overlay acts. Harmless items (update check, about) and the optional
-        // debug items run directly.
+        // privileged items (stats, settings, extend, pause, quit) gated: hand off to Curfew.App which verifies passcode before overlay acts. harmless items (update check, about) + debug items run directly
         AppendMenuW(menu, MF_STRING, (nuint)IdStats, Loc.T("tray.stats"));
         AppendMenuW(menu, MF_STRING, (nuint)IdSettings, Loc.T("tray.settings"));
         AppendMenuW(menu, MF_SEPARATOR, 0, string.Empty);
@@ -134,7 +123,7 @@ internal static class TrayIcon
         AppendMenuW(menu, MF_SEPARATOR, 0, string.Empty);
         AppendMenuW(menu, MF_STRING, (nuint)IdQuit, Loc.T("tray.quit"));
 
-        // Required so the menu dismisses correctly when focus is elsewhere.
+        // needed so menu dismisses correctly when focus elsewhere
         SetForegroundWindow(hwnd);
         GetCursorPos(out var pt);
         var cmd = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.X, pt.Y, 0, hwnd, IntPtr.Zero);
@@ -143,16 +132,16 @@ internal static class TrayIcon
         Dispatch(cmd);
     }
 
-    /// <summary>Routes a chosen menu command to its action.</summary>
+    /// <summary>route chosen menu command to its action</summary>
     private static void Dispatch(int cmd)
     {
         switch (cmd)
         {
-            // Settings is already passcode-gated; the stats live inside it.
+            // Settings already passcode-gated; stats live inside it
             case IdStats:
             case IdSettings: LaunchApp("--settings"); break;
 
-            // Gated in Curfew.App, which writes a command the overlay then applies.
+            // gated in Curfew.App, which writes a command the overlay applies
             case IdExtend15: LaunchApp("--tray=extend15"); break;
             case IdExtend45: LaunchApp("--tray=extend45"); break;
             case IdPause: LaunchApp(OverlayState.IsPaused ? "--tray=resume" : "--tray=pause"); break;
@@ -161,13 +150,13 @@ internal static class TrayIcon
             case IdCheckUpdate: CheckForUpdates(); break;
             case IdAbout: OpenUrl(GitHubUrl); break;
 
-            // Debug items — harmless, ungated.
+            // debug items -- harmless, ungated
             case IdShowWarning: ShowBalloon(Loc.T("tray.warning.test.title"), Loc.T("tray.warning.test.body")); break;
             case IdShowOverlay: LockScreen.Show(); break;
         }
     }
 
-    /// <summary>Launches Curfew.App from the sibling app folder with the given arguments.</summary>
+    /// <summary>launch Curfew.App from sibling app folder with given arguments</summary>
     private static void LaunchApp(string arguments)
     {
         try
@@ -184,11 +173,11 @@ internal static class TrayIcon
         }
         catch
         {
-            // Best effort: failing to launch the app must never crash the overlay.
+            // best effort: launch failure must never crash overlay
         }
     }
 
-    /// <summary>Checks GitHub for a newer release and reports the result as a balloon.</summary>
+    /// <summary>check GitHub for newer release, report result as balloon</summary>
     private static void CheckForUpdates()
     {
         _ = Task.Run(async () =>
@@ -210,7 +199,7 @@ internal static class TrayIcon
         });
     }
 
-    /// <summary>Opens a URL in the default browser.</summary>
+    /// <summary>open URL in default browser</summary>
     private static void OpenUrl(string url)
     {
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
@@ -223,7 +212,7 @@ internal static class TrayIcon
         if (path is not null)
         {
             var icon = ExtractIconW(hInstance, path, 0);
-            // ExtractIcon returns 1 when the file has no icons; treat that as none.
+            // ExtractIcon returns 1 when file has no icons -> treat as none
             if (icon != IntPtr.Zero && icon.ToInt64() != 1) return icon;
         }
         return LoadIconW(IntPtr.Zero, new IntPtr(32512)); // IDI_APPLICATION

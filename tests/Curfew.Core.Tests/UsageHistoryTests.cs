@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>Tests for <see cref="SettingsStore.GetUsageHistory"/>.</summary>
+/// <summary>tests for <see cref="SettingsStore.GetUsageHistory"/></summary>
 public class UsageHistoryTests : IDisposable
 {
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"curfew-usage-{Guid.NewGuid():N}.db");
@@ -77,7 +77,7 @@ public class UsageHistoryTests : IDisposable
             store.Set("remaining_time_" + _today.AddDays(-3).ToString("yyyy-MM-dd"), "600");
         }
 
-        // Reopening purges stale remaining_time_ rows but must keep usage history.
+        // reopen purges stale remaining_time_ rows but keeps usage history
         using var reopened = Open();
         Assert.Equal(10, reopened.GetUsageHistory(7)[^4].Minutes);
         Assert.Null(reopened.Get("remaining_time_" + _today.AddDays(-3).ToString("yyyy-MM-dd")));

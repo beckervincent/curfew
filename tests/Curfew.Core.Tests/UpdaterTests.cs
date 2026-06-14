@@ -3,17 +3,10 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Unit tests for <see cref="Updater"/>. The HTTP fetch is always injected, so these
-/// tests exercise the decision logic and the generated install script without touching
-/// the network or the file system.
-/// </summary>
+/// <summary>tests for <see cref="Updater"/>; HTTP fetch injected, exercise decision logic and install script, no network/filesystem</summary>
 public class UpdaterTests
 {
-    /// <summary>
-    /// A well-formed GitHub "latest release" payload advertising v1.5.0 with a single
-    /// recognisable Curfew installer asset.
-    /// </summary>
+    /// <summary>well-formed GitHub "latest release" payload: v1.5.0, one Curfew installer asset</summary>
     private const string ReleaseJson = """
     {
       "tag_name": "v1.5.0",
@@ -25,11 +18,11 @@ public class UpdaterTests
 
     private const string InstallerUrl = "https://github.com/beckervincent/curfew/releases/download/v1.0.0/curfew-setup-v1.5.0.exe";
 
-    /// <summary>Builds a fetcher that always returns <paramref name="json"/>.</summary>
+    /// <summary>fetcher that always returns <paramref name="json"/></summary>
     private static Func<string, CancellationToken, Task<string>> Returns(string json) =>
         (_, _) => Task.FromResult(json);
 
-    /// <summary>Builds a fetcher that always faults with <paramref name="error"/>.</summary>
+    /// <summary>fetcher that always faults with <paramref name="error"/></summary>
     private static Func<string, CancellationToken, Task<string>> Throws(Exception error) =>
         (_, _) => Task.FromException<string>(error);
 
@@ -45,18 +38,18 @@ public class UpdaterTests
 
     [Theory]
     [InlineData("1.0.0")]   // older
-    [InlineData("v1.0.0")]  // older, with the same leading-v convention the tags use
-    [InlineData("1.4.9")]   // older, differing only in patch
+    [InlineData("v1.0.0")]  // older, leading-v like tags
+    [InlineData("1.4.9")]   // older, only patch differs
     public async Task CheckForUpdate_returns_release_for_any_older_current_version(string current)
     {
         Assert.NotNull(await Updater.CheckForUpdateAsync(current, Returns(ReleaseJson)));
     }
 
     [Theory]
-    [InlineData("1.5.0")]   // identical: an equal version is not an update
-    [InlineData("v1.5.0")]  // identical, expressed with a leading v
+    [InlineData("1.5.0")]   // identical: equal is not an update
+    [InlineData("v1.5.0")]  // identical, leading v
     [InlineData("2.0.0")]   // strictly newer
-    [InlineData("1.5.1")]   // newer by a single patch
+    [InlineData("1.5.1")]   // newer by one patch
     public async Task CheckForUpdate_returns_null_when_current_is_same_or_newer(string current)
     {
         Assert.Null(await Updater.CheckForUpdateAsync(current, Returns(ReleaseJson)));
@@ -69,8 +62,7 @@ public class UpdaterTests
     [InlineData("1.2")]
     public async Task CheckForUpdate_returns_null_when_current_version_is_unparsable(string current)
     {
-        // A version we cannot parse must not be treated as "older than the release";
-        // doing so would let a corrupt local version trigger an unwanted reinstall.
+        // unparsable version must not count as "older than release"; corrupt local would trigger reinstall
         Assert.Null(await Updater.CheckForUpdateAsync(current, Returns(ReleaseJson)));
     }
 
@@ -99,9 +91,9 @@ public class UpdaterTests
 
     [Theory]
     [InlineData("")]                 // empty body
-    [InlineData("   ")]              // whitespace-only body
+    [InlineData("   ")]              // whitespace body
     [InlineData("{ not json }")]     // malformed JSON
-    [InlineData("[]")]               // valid JSON but not a release object
+    [InlineData("[]")]               // valid JSON, not a release object
     [InlineData("""{ "assets": [] }""")] // missing tag_name
     public async Task CheckForUpdate_returns_null_when_response_is_unusable(string json)
     {
@@ -155,8 +147,7 @@ public class UpdaterTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        // When the caller cancels, that is a deliberate decision and must surface as a
-        // cancellation rather than being swallowed into a silent "no update".
+        // caller cancel is deliberate; surface cancellation, not silent "no update"
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             Updater.CheckForUpdateAsync(
                 "1.0.0",
@@ -167,8 +158,7 @@ public class UpdaterTests
     [Fact]
     public async Task CheckForUpdate_swallows_cancellation_exception_when_not_requested()
     {
-        // A fetcher that reports cancellation while no cancellation was actually
-        // requested is an internal fault, not a caller decision: treat it as no update.
+        // cancellation reported with none requested is internal fault, not caller decision: treat as no update
         var result = await Updater.CheckForUpdateAsync(
             "1.0.0",
             (_, _) => Task.FromException<string>(new OperationCanceledException()),
@@ -191,32 +181,28 @@ public class UpdaterTests
 
         var script = Updater.BuildScheduledInstallScript(installerPath);
 
-        // Registers an on-demand task that runs as SYSTEM via the ScheduledTasks
-        // cmdlets (schtasks.exe /create is corrupted by PowerShell's native-argument
-        // quote rewriting), then triggers it immediately.
+        // register on-demand SYSTEM task via ScheduledTasks cmdlets (schtasks.exe /create breaks on PowerShell quote rewriting), then trigger now
         Assert.Contains("Register-ScheduledTask -TaskName 'CurfewAutoUpdate'", script, StringComparison.Ordinal);
         Assert.Contains("-UserId 'SYSTEM'", script, StringComparison.Ordinal);
         Assert.Contains("Start-ScheduledTask -TaskName 'CurfewAutoUpdate'", script, StringComparison.Ordinal);
         Assert.DoesNotContain("schtasks /create", script, StringComparison.Ordinal);
 
-        // Runs the installer non-interactively so it can proceed unattended.
+        // run installer non-interactively, unattended
         Assert.Contains("/VERYSILENT", script, StringComparison.Ordinal);
         Assert.Contains("/SUPPRESSMSGBOXES", script, StringComparison.Ordinal);
         Assert.Contains("/NORESTART", script, StringComparison.Ordinal);
 
-        // The task tears itself down so it cannot linger and re-fire.
+        // task tears itself down, no linger/re-fire
         Assert.Contains("schtasks /delete /tn CurfewAutoUpdate /f", script, StringComparison.Ordinal);
 
-        // The installer path is embedded quoted inside the cmd.exe action so paths
-        // with spaces survive.
+        // installer path embedded quoted in cmd.exe action so spaces survive
         Assert.Contains($"\"{installerPath}\"", script, StringComparison.Ordinal);
 
-        // Laptops: the default task settings refuse to start (and kill) on battery.
+        // laptops: default task settings refuse to start (and kill) on battery
         Assert.Contains("-AllowStartIfOnBatteries", script, StringComparison.Ordinal);
         Assert.Contains("-DontStopIfGoingOnBatteries", script, StringComparison.Ordinal);
 
-        // The detached install records its exit code so the service can log a
-        // failed silent install on its next pass instead of it vanishing silently.
+        // detached install records exit code so service logs failed silent install next pass, not vanish
         Assert.Contains("!ERRORLEVEL!", script, StringComparison.Ordinal);
         Assert.Contains(Updater.InstallResultFileName, script, StringComparison.Ordinal);
     }
@@ -224,8 +210,7 @@ public class UpdaterTests
     [Fact]
     public void BuildScheduledInstallScript_rejects_path_containing_a_single_quote()
     {
-        // The action is embedded in a single-quoted PowerShell string; a single
-        // quote in the path would break out of it.
+        // action in single-quoted PowerShell string; single quote in path breaks out
         var ex = Assert.Throws<ArgumentException>(() =>
             Updater.BuildScheduledInstallScript(@"C:\o'brien\setup.exe"));
         Assert.Equal("installerPath", ex.ParamName);
@@ -236,9 +221,7 @@ public class UpdaterTests
     {
         var script = Updater.BuildScheduledInstallScript(@"C:\Curfew\setup.exe");
 
-        // The same task name must be used to register, start, and delete the task; if
-        // the names diverged the cleanup would target a non-existent task and leave the
-        // real one behind.
+        // same task name to register, start, delete; diverged names leave real task behind
         var occurrences = CountOccurrences(script, "CurfewAutoUpdate");
         Assert.Equal(3, occurrences);
     }
@@ -259,9 +242,7 @@ public class UpdaterTests
     [InlineData(@"C:\evil' \payload.exe")]
     public void BuildScheduledInstallScript_rejects_path_containing_a_quote(string installerPath)
     {
-        // A quote of either kind would break out of the single-quoted PowerShell
-        // string or the cmd.exe action quoting and cannot be escaped safely, so it
-        // must be rejected rather than silently mis-built.
+        // either quote breaks out of single-quoted PowerShell string or cmd.exe action quoting, can't escape safely: reject, not mis-build
         var ex = Assert.Throws<ArgumentException>(() =>
             Updater.BuildScheduledInstallScript(installerPath));
         Assert.Equal("installerPath", ex.ParamName);
@@ -285,7 +266,7 @@ public class UpdaterTests
             (url, _) => { requested = url; return Task.FromResult(releasesJson); },
             includePrereleases: true);
 
-        Assert.Equal(Updater.ReleasesUrl, requested);   // used the list endpoint, not "latest"
+        Assert.Equal(Updater.ReleasesUrl, requested);   // list endpoint, not "latest"
         Assert.NotNull(result);
         Assert.Equal("v1.6.0", result.Value.Tag);
     }
