@@ -2,21 +2,12 @@ using System.Diagnostics;
 
 namespace Curfew.Overlay;
 
-/// <summary>
-/// Launches and tracks the WinUI lock surface (<c>Curfew.App --lock</c>) that
-/// renders on top of the overlay's black enforcement cover. The overlay keeps the
-/// hard floor (black window + keyboard hook); this is the pretty layer, relaunched
-/// by the overlay if it is killed.
-/// </summary>
+/// <summary>launch + track WinUI lock surface (<c>Curfew.App --lock</c>) on top of black cover; overlay relaunches if killed</summary>
 internal static class LockAppHost
 {
     private static Process? _process;
 
-    /// <summary>
-    /// Starts the WinUI lock app. Returns false if the app cannot be found or
-    /// launched — the caller then falls back to the built-in GDI lock so there is
-    /// always an unlock path.
-    /// </summary>
+    /// <summary>start WinUI lock app; false if not found/launched -> caller falls back to GDI lock</summary>
     public static bool Launch()
     {
         try
@@ -30,10 +21,7 @@ internal static class LockAppHost
             var app = Path.Combine(installRoot, "app", "Curfew.App.exe");
             if (!File.Exists(app)) return false;
 
-            // Release the prior surface's Win32 handle before overwriting the field.
-            // WhileLockedTick() relaunches once per second while the surface is dead, so
-            // without this every relaunch leaks a process handle until GC finalization —
-            // a child can amplify this by killing Curfew.App.exe on a tight loop.
+            // release prior Win32 handle before overwrite; else every relaunch leaks handle until GC (child can loop-kill Curfew.App.exe)
             _process?.Dispose();
             _process = Process.Start(new ProcessStartInfo(app, "--lock") { UseShellExecute = false });
             return _process is not null;
@@ -63,9 +51,9 @@ internal static class LockAppHost
         }
         catch
         {
-            // Already gone or no rights — nothing more to do.
+            // already gone or no rights
         }
-        // Free the handle (and its exit wait registration), not just the reference.
+        // free handle + exit wait registration, not just reference
         _process?.Dispose();
         _process = null;
     }

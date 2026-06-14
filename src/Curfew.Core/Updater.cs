@@ -2,17 +2,13 @@ using System.Net.Http.Headers;
 
 namespace Curfew.Core;
 
-/// <summary>
-/// Checks GitHub for a newer Curfew release and builds the script that installs it.
-/// </summary>
+/// <summary>Check GitHub for a newer Curfew release, build the install script.</summary>
 /// <remarks>
-/// The HTTP fetch is injected into <see cref="CheckForUpdateAsync"/> so the decision
-/// logic can be unit-tested without network access. Production callers pass
-/// <see cref="HttpFetchAsync"/>.
+/// HTTP fetch injected into <see cref="CheckForUpdateAsync"/> so decision logic is unit-testable without network. Production callers pass <see cref="HttpFetchAsync"/>.
 /// </remarks>
 public static class Updater
 {
-    /// <summary>GitHub REST endpoint for the most recent published Curfew release (excludes pre-releases).</summary>
+    /// <summary>GitHub REST endpoint for most recent published Curfew release (excludes pre-releases).</summary>
     public const string LatestReleaseUrl =
         "https://api.github.com/repos/beckervincent/curfew/releases/latest";
 
@@ -20,16 +16,13 @@ public static class Updater
     public const string ReleasesUrl =
         "https://api.github.com/repos/beckervincent/curfew/releases?per_page=30";
 
-    /// <summary>User-Agent sent with update requests; GitHub rejects requests without one.</summary>
+    /// <summary>User-Agent for update requests; GitHub rejects requests without one.</summary>
     private const string UserAgent = "curfew-updater";
 
-    /// <summary>How long an update fetch may run before it is abandoned.</summary>
+    /// <summary>How long an update fetch runs before abandoned.</summary>
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(30);
 
-    /// <summary>
-    /// Shared client for <see cref="HttpFetchAsync"/>. A single long-lived instance
-    /// avoids the socket-exhaustion that results from creating one client per call.
-    /// </summary>
+    /// <summary>Shared client for <see cref="HttpFetchAsync"/>. One long-lived instance avoids the socket-exhaustion of one client per call.</summary>
     private static readonly HttpClient SharedClient = CreateClient();
 
     private static HttpClient CreateClient()
@@ -41,26 +34,11 @@ public static class Updater
         return client;
     }
 
-    /// <summary>
-    /// Returns the release to install when it is strictly newer than
-    /// <paramref name="currentVersion"/>, otherwise <see langword="null"/>.
-    /// </summary>
-    /// <param name="currentVersion">
-    /// The version currently installed, e.g. "1.2.3" or "v1.2.3". When this cannot be
-    /// parsed as a version the method returns <see langword="null"/> rather than
-    /// assuming an update is needed, so a malformed local version never triggers an
-    /// unwanted reinstall.
-    /// </param>
-    /// <param name="fetchJson">
-    /// Retrieves the GitHub "latest release" JSON for a given URL. Network or HTTP
-    /// failures are expected and treated as "no update available"; only cancellation
-    /// is allowed to propagate.
-    /// </param>
+    /// <summary>Release to install when strictly newer than <paramref name="currentVersion"/>, else <see langword="null"/>.</summary>
+    /// <param name="currentVersion">Currently installed version, e.g. "1.2.3" or "v1.2.3". Unparseable returns <see langword="null"/> instead of assuming an update, so a malformed local version never triggers an unwanted reinstall.</param>
+    /// <param name="fetchJson">Gets GitHub "latest release" JSON for a URL. Network/HTTP failures = "no update available"; only cancellation propagates.</param>
     /// <param name="cancellationToken">Cancels the fetch.</param>
-    /// <returns>
-    /// The newer <see cref="ReleaseInfo"/>, or <see langword="null"/> when there is no
-    /// newer release, the response is unusable, or the fetch fails.
-    /// </returns>
+    /// <returns>Newer <see cref="ReleaseInfo"/>, or <see langword="null"/> when no newer release, response unusable, or fetch fails.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="fetchJson"/> is null.</exception>
     /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>
     public static async Task<ReleaseInfo?> CheckForUpdateAsync(
@@ -70,13 +48,7 @@ public static class Updater
         await CheckForUpdateAsync(currentVersion, fetchJson, includePrereleases: false, cancellationToken)
             .ConfigureAwait(false);
 
-    /// <summary>
-    /// As <see cref="CheckForUpdateAsync(string, Func{string, CancellationToken, Task{string}}, CancellationToken)"/>,
-    /// but when <paramref name="includePrereleases"/> is true it considers the whole
-    /// release list (pre-releases included) and returns the newest one strictly
-    /// above the current version. Otherwise it uses the stable "latest" endpoint,
-    /// which GitHub already filters to non-pre-release builds.
-    /// </summary>
+    /// <summary>Like <see cref="CheckForUpdateAsync(string, Func{string, CancellationToken, Task{string}}, CancellationToken)"/>, but <paramref name="includePrereleases"/> true scans the whole release list (pre-releases included), returns newest strictly above current. Else uses the stable "latest" endpoint, already filtered to non-pre-release builds.</summary>
     public static async Task<ReleaseInfo?> CheckForUpdateAsync(
         string currentVersion,
         Func<string, CancellationToken, Task<string>> fetchJson,
@@ -98,15 +70,15 @@ public static class Updater
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Cancellation is a caller decision, not a failed update check: re-throw it.
+            // cancellation = caller decision, not a failed update check: re-throw
             throw;
         }
         catch (Exception ex)
         {
-            // Offline, DNS failure, HTTP error, rate limit, etc. — no update this
-            // pass, but tell the caller why: a permanently broken check (expired
-            // proxy, TLS misconfiguration) is otherwise indistinguishable from
-            // "already up to date" and would never surface in any log.
+            // offline, DNS failure, HTTP error, rate limit, etc. — no update this
+            // pass, but tell caller why: a permanently broken check (expired proxy,
+            // TLS misconfig) is otherwise indistinguishable from "already up to date"
+            // and would never surface in any log.
             onCheckFailure?.Invoke(ex.Message);
             return null;
         }
@@ -114,7 +86,7 @@ public static class Updater
         return includePrereleases ? NewestOf(json, current.Value) : NewerLatest(json, current.Value);
     }
 
-    /// <summary>Picks the highest-version release (pre-releases included) strictly above current.</summary>
+    /// <summary>Highest-version release (pre-releases included) strictly above current.</summary>
     private static ReleaseInfo? NewestOf(string json, SemVer current)
     {
         ReleaseInfo? best = null;
@@ -134,7 +106,7 @@ public static class Updater
         return best;
     }
 
-    /// <summary>Returns the single "latest" release when it is newer than current.</summary>
+    /// <summary>Single "latest" release when newer than current.</summary>
     private static ReleaseInfo? NewerLatest(string json, SemVer current)
     {
         var release = ReleaseInfo.FromGitHubJson(json);
@@ -146,34 +118,21 @@ public static class Updater
         return latest.Value > current ? release : null;
     }
 
-    /// <summary>
-    /// Default fetcher: issues a GET against <paramref name="url"/> with the
-    /// User-Agent and Accept headers GitHub expects, and returns the response body.
-    /// </summary>
-    /// <param name="url">The URL to fetch.</param>
+    /// <summary>Default fetcher: GET <paramref name="url"/> with the User-Agent + Accept headers GitHub expects, returns response body.</summary>
+    /// <param name="url">URL to fetch.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>The response body as a string.</returns>
-    /// <exception cref="HttpRequestException">The request failed or returned a non-success status.</exception>
-    /// <exception cref="OperationCanceledException">The request was cancelled or timed out.</exception>
+    /// <returns>Response body as a string.</returns>
+    /// <exception cref="HttpRequestException">Request failed or returned a non-success status.</exception>
+    /// <exception cref="OperationCanceledException">Request cancelled or timed out.</exception>
     public static Task<string> HttpFetchAsync(string url, CancellationToken cancellationToken) =>
         SharedClient.GetStringAsync(url, cancellationToken);
 
-    /// <summary>
-    /// Builds a PowerShell script that runs the installer through a detached, one-shot
-    /// SYSTEM scheduled task.
-    /// </summary>
+    /// <summary>Build PowerShell script running the installer through a detached, one-shot SYSTEM scheduled task.</summary>
     /// <param name="installerPath">Full path to the downloaded installer executable.</param>
-    /// <returns>A PowerShell script that creates, runs, and self-deletes the task.</returns>
+    /// <returns>PowerShell script that creates, runs, self-deletes the task.</returns>
     /// <exception cref="ArgumentException"><paramref name="installerPath"/> is null, blank, or contains a quote.</exception>
     /// <remarks>
-    /// Running the install from a detached task lets it survive the calling service
-    /// stopping mid-update (the installer typically stops and restarts that service).
-    /// The task action also deletes the task afterwards so it does not linger and
-    /// re-fire at its scheduled start time. The task is registered through the
-    /// ScheduledTasks cmdlets rather than schtasks.exe: PowerShell rewrites embedded
-    /// <c>\"</c> escapes when spawning native executables, which silently corrupted
-    /// the schtasks <c>/tr</c> argument, whereas a cmdlet receives the action string
-    /// verbatim.
+    /// Detached task lets the install survive the calling service stopping mid-update (installer usually stops + restarts that service). Task action also deletes the task afterwards so it doesn't linger and re-fire. Registered via ScheduledTasks cmdlets not schtasks.exe: PowerShell rewrites embedded <c>\"</c> escapes when spawning native executables, silently corrupting the schtasks <c>/tr</c> argument, whereas a cmdlet receives the action string verbatim.
     /// </remarks>
     public static string BuildScheduledInstallScript(string installerPath)
     {
@@ -182,9 +141,9 @@ public static class Updater
             throw new ArgumentException("Installer path must be provided.", nameof(installerPath));
         }
 
-        // The path is embedded inside a single-quoted PowerShell string and a
-        // cmd.exe command line; a quote of either kind would break that embedding
-        // and cannot be escaped safely here.
+        // path embedded inside a single-quoted PowerShell string + a cmd.exe command
+        // line; a quote of either kind breaks the embedding and can't be escaped
+        // safely here.
         if (installerPath.Contains('"') || installerPath.Contains('\''))
         {
             throw new ArgumentException("Installer path must not contain a quote.", nameof(installerPath));
@@ -192,17 +151,16 @@ public static class Updater
 
         const string taskName = "CurfewAutoUpdate";
 
-        // The task action: run the installer silently, record its exit code beside
-        // it (the task is detached and one-shot, so this marker is the only trace a
-        // failed silent install leaves — the service logs it on its next pass),
-        // then delete the task so it does not persist and re-run. cmd /c strips the
-        // outermost quote pair, so the inner quotes survive for paths with spaces.
-        // /v:on enables delayed expansion and the exit code is read with !ERRORLEVEL!
-        // rather than %ERRORLEVEL%: cmd expands percent-variables once, when it first
-        // parses the whole line, BEFORE the installer runs — so %ERRORLEVEL% would
-        // record the value inherited by this fresh cmd (always 0), never the
-        // installer's result. !ERRORLEVEL! is evaluated when the echo actually
-        // executes, after the installer exits, so it captures the real exit code.
+        // task action: run installer silently, record exit code beside it (detached
+        // one-shot, so this marker is the only trace a failed silent install leaves —
+        // service logs it next pass), then delete the task so it doesn't persist +
+        // re-run. cmd /c strips outermost quote pair, so inner quotes survive for
+        // paths with spaces. /v:on enables delayed expansion; exit code read with
+        // !ERRORLEVEL! not %ERRORLEVEL%: cmd expands percent-vars once when it first
+        // parses the line, BEFORE the installer runs — so %ERRORLEVEL% records the
+        // value this fresh cmd inherited (always 0), never the installer's result.
+        // !ERRORLEVEL! evaluated when the echo runs, after installer exits, so it
+        // captures the real exit code.
         var resultPath = Path.Combine(Path.GetDirectoryName(installerPath) ?? string.Empty, InstallResultFileName);
         var cmdArgument =
             $"/v:on /c \"\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART " +
@@ -214,7 +172,7 @@ public static class Updater
             "$ErrorActionPreference = 'Stop'",
             $"$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '{cmdArgument}'",
             "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
-            // Default task settings refuse to start (and kill) tasks on battery —
+            // default task settings refuse to start (+ kill) tasks on battery —
             // many target devices are laptops, so be explicit about both.
             "$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)",
             $"Register-ScheduledTask -TaskName '{taskName}' -Action $action -Principal $principal -Settings $settings -Force | Out-Null",
@@ -222,10 +180,6 @@ public static class Updater
         });
     }
 
-    /// <summary>
-    /// File the scheduled install writes its exit code to, in the same folder as
-    /// the staged installer. Read and cleared by the service on its next update
-    /// pass so failed silent installs become visible in the service log.
-    /// </summary>
+    /// <summary>File the scheduled install writes its exit code to, beside the staged installer. Read + cleared by service next update pass so failed silent installs show in the service log.</summary>
     public const string InstallResultFileName = "install-result.txt";
 }

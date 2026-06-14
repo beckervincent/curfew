@@ -4,50 +4,26 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Curfew.Core.Security;
 
-/// <summary>
-/// Verifies that a downloaded update installer was signed by Curfew's own
-/// code-signing key before it is ever executed (as SYSTEM by the service, or
-/// elevated by the app). This is the last line of defence against a malicious
-/// update: even if URL pinning and HTTPS were somehow defeated, an installer not
-/// signed by our key is refused.
-/// </summary>
+/// <summary>verify downloaded update installer signed by Curfew's own code-signing key before it runs (SYSTEM via service, or elevated by app). last line of defence vs malicious update: even if URL pinning + HTTPS defeated, installer not signed by our key refused</summary>
 /// <remarks>
-/// <para>
-/// Two independent checks must both pass:
-/// </para>
+/// <para>two checks must both pass:</para>
 /// <list type="number">
-/// <item><b>Integrity</b> — <c>WinVerifyTrust</c> confirms the file carries a
-/// well-formed Authenticode signature whose hash matches the file contents, so a
-/// single tampered byte invalidates it. Our certificate is self-signed (not
-/// chained to a trusted CA), so the only non-fatal trust error we accept is
-/// <c>CERT_E_UNTRUSTEDROOT</c>; every other status (no signature, bad hash,
-/// expired, explicitly distrusted, …) is fatal.</item>
-/// <item><b>Authenticity</b> — the signer certificate's public key
-/// (SubjectPublicKeyInfo) must hash to <see cref="PinnedPublicKeySha256"/>. The
-/// public key is pinned rather than the whole certificate so a renewed
-/// certificate carrying the same key still validates.</item>
+/// <item><b>Integrity</b> — <c>WinVerifyTrust</c> confirms well-formed Authenticode signature whose hash matches file, one tampered byte invalidates. cert self-signed (no trusted CA chain), so only non-fatal trust error we accept is <c>CERT_E_UNTRUSTEDROOT</c>; every other status (no sig, bad hash, expired, distrusted, …) fatal</item>
+/// <item><b>Authenticity</b> — signer cert public key (SubjectPublicKeyInfo) must hash to <see cref="PinnedPublicKeySha256"/>. pin public key not whole cert so a renewed cert with same key still validates</item>
 /// </list>
-/// <para>
-/// Fail closed: any error, any non-Windows host, or any mismatch returns
-/// <see langword="false"/>. Rotating the signing key requires updating
-/// <see cref="PinnedPublicKeySha256"/> and shipping a new app build.
-/// </para>
+/// <para>fail closed: any error, non-Windows host, or mismatch returns <see langword="false"/>. rotating signing key needs updating <see cref="PinnedPublicKeySha256"/> + new app build</para>
 /// </remarks>
 public static class InstallerSignature
 {
-    /// <summary>
-    /// SHA-256 of the signing certificate's SubjectPublicKeyInfo (uppercase hex).
-    /// Pin for the Curfew self-signed code-signing key. Must match the public key
-    /// of the certificate the release workflow signs installers with.
-    /// </summary>
+    /// <summary>SHA-256 of signing cert SubjectPublicKeyInfo (uppercase hex). pin for Curfew self-signed code-signing key. must match public key of cert release workflow signs installers with</summary>
     public const string PinnedPublicKeySha256 =
         "BFE95CE974EB1059325D1504310CA554565DFD4D7393B9CAFB5B74D8FE90909B";
 
-    // WinVerifyTrust status values.
+    // WinVerifyTrust status values
     private const uint TrustSuccess = 0;                 // ERROR_SUCCESS
     private const uint CertUntrustedRoot = 0x800B0109;   // CERT_E_UNTRUSTEDROOT (self-signed: expected)
 
-    // WINTRUST_DATA option values.
+    // WINTRUST_DATA option values
     private const uint WtdUiNone = 2;
     private const uint WtdRevokeNone = 0;
     private const uint WtdChoiceFile = 1;
@@ -57,11 +33,7 @@ public static class InstallerSignature
     private static readonly Guid WinTrustActionGenericVerifyV2 =
         new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 
-    /// <summary>
-    /// Returns whether <paramref name="filePath"/> is an Authenticode-signed
-    /// executable whose signature is valid over its contents and whose signer's
-    /// public key matches <see cref="PinnedPublicKeySha256"/>. Never throws.
-    /// </summary>
+    /// <summary>is <paramref name="filePath"/> an Authenticode-signed exe with valid sig over its contents and signer public key matching <see cref="PinnedPublicKeySha256"/>. never throws</summary>
     public static bool Verify(string filePath)
     {
         if (!OperatingSystem.IsWindows()) return false;
@@ -73,16 +45,12 @@ public static class InstallerSignature
         }
         catch
         {
-            // Any failure to evaluate the signature is treated as untrusted.
+            // any failure to evaluate signature = untrusted
             return false;
         }
     }
 
-    /// <summary>
-    /// Confirms the file has a valid Authenticode signature over its own bytes.
-    /// Accepts only success or the self-signed "untrusted root" status; every
-    /// other WinVerifyTrust result is rejected.
-    /// </summary>
+    /// <summary>confirm file has valid Authenticode signature over its own bytes. accept only success or self-signed "untrusted root"; every other WinVerifyTrust result rejected</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static bool VerifyAuthenticodeIntegrity(string filePath)
     {
@@ -116,7 +84,7 @@ public static class InstallerSignature
                 var action = WinTrustActionGenericVerifyV2;
                 var result = WinVerifyTrust(IntPtr.Zero, action, pData);
 
-                // Release the state handle regardless of the verdict.
+                // release state handle regardless of verdict
                 var closeData = (WINTRUST_DATA)Marshal.PtrToStructure(pData, typeof(WINTRUST_DATA))!;
                 closeData.dwStateAction = WtdStateActionClose;
                 Marshal.StructureToPtr(closeData, pData, true);
@@ -131,21 +99,18 @@ public static class InstallerSignature
         }
         finally
         {
-            // DestroyStructure releases the native copy of the LPWStr path that
-            // StructureToPtr allocated; FreeHGlobal alone would leak it every check.
+            // DestroyStructure frees native LPWStr path copy StructureToPtr made;
+            // FreeHGlobal alone leaks it every check
             Marshal.DestroyStructure<WINTRUST_FILE_INFO>(pFileInfo);
             Marshal.FreeHGlobal(pFileInfo);
         }
     }
 
-    /// <summary>
-    /// Extracts the Authenticode signer certificate and compares the SHA-256 of
-    /// its SubjectPublicKeyInfo against the pin.
-    /// </summary>
+    /// <summary>extract Authenticode signer cert, compare SHA-256 of its SubjectPublicKeyInfo against pin</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static bool SignerKeyMatchesPin(string filePath)
     {
-#pragma warning disable SYSLIB0057 // CreateFromSignedFile is the supported way to read the Authenticode signer.
+#pragma warning disable SYSLIB0057 // CreateFromSignedFile is the supported way to read Authenticode signer
         using var signer = new X509Certificate2(X509Certificate.CreateFromSignedFile(filePath));
 #pragma warning restore SYSLIB0057
         var spki = signer.PublicKey.ExportSubjectPublicKeyInfo();

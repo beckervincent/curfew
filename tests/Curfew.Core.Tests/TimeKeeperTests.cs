@@ -3,20 +3,13 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Behavioural specification for <see cref="TimeKeeper"/>, the pure countdown
-/// state machine that drives the daily screen-time budget. Every member is a
-/// deterministic function of its inputs, so these tests pin down the exact
-/// contract the App, Overlay and Service rely on — including the documented
-/// edge cases: non-positive limits, negative running budgets, the 30-second
-/// persistence cadence, edge-triggered warnings and overflow clamping.
-/// </summary>
+/// <summary>spec for <see cref="TimeKeeper"/> pure countdown state machine driving daily budget; covers non-positive limits, negative budgets, 30s persist cadence, edge-triggered warnings, overflow clamping</summary>
 public class TimeKeeperTests
 {
-    /// <summary>Seconds in one minute, mirroring <see cref="TimeKeeper"/>'s internal conversion.</summary>
+    /// <summary>seconds per minute, mirrors <see cref="TimeKeeper"/> conversion</summary>
     private const int SecondsPerMinute = 60;
 
-    /// <summary>The cadence, in seconds, at which the budget is persisted.</summary>
+    /// <summary>cadence in seconds for persisting budget</summary>
     private const int PersistIntervalSeconds = 30;
 
     // ---- InitialRemaining --------------------------------------------------
@@ -27,8 +20,7 @@ public class TimeKeeperTests
 
     [Fact]
     public void InitialRemaining_prefers_saved_even_when_zero() =>
-        // A saved value of zero means "today's budget is already spent" and must
-        // win over the daily limit; otherwise the limit would be handed back out.
+        // saved 0 means "today spent"; wins over daily limit else limit handed back out
         Assert.Equal(0, TimeKeeper.InitialRemaining(0, 120));
 
     [Fact]
@@ -44,8 +36,7 @@ public class TimeKeeperTests
 
     [Fact]
     public void InitialRemaining_does_not_overflow_on_huge_limit() =>
-        // int.MaxValue minutes * 60 overflows a 32-bit second count; the result
-        // must clamp to int.MaxValue rather than wrap into a negative budget.
+        // int.MaxValue min * 60 overflows 32-bit seconds; clamp to int.MaxValue, no negative wrap
         Assert.Equal(int.MaxValue, TimeKeeper.InitialRemaining(null, int.MaxValue));
 
     // ---- Tick --------------------------------------------------------------
@@ -94,8 +85,7 @@ public class TimeKeeperTests
     [InlineData(-30)]
     [InlineData(-60)]
     public void ShouldPersist_never_on_depleted_or_negative_budget(int remaining) =>
-        // Zero and negatives are multiples of the interval, but the host owns the
-        // depletion write; the cadence must stay silent for non-positive values.
+        // 0 and negatives are interval multiples, but host owns depletion write; cadence silent for non-positive
         Assert.False(TimeKeeper.ShouldPersist(remaining));
 
     [Fact]
@@ -110,7 +100,7 @@ public class TimeKeeperTests
             }
         }
 
-        // Three full intervals counted down to (but not including) zero.
+        // three full intervals down to (not incl) zero
         Assert.Equal(3, hits);
     }
 
@@ -126,8 +116,7 @@ public class TimeKeeperTests
     [InlineData(1200)]
     [InlineData(0)]
     public void WarningFires_only_on_the_threshold_second(int remaining) =>
-        // Edge triggered: anything other than exactly the threshold is silent,
-        // so the host warns once instead of for the whole final stretch.
+        // edge triggered: only exact threshold fires, host warns once not whole final stretch
         Assert.False(TimeKeeper.WarningFires(remaining, 10));
 
     [Theory]
@@ -137,14 +126,13 @@ public class TimeKeeperTests
     public void WarningFires_disabled_for_non_positive_threshold(int warningMinutes)
     {
         Assert.False(TimeKeeper.WarningFires(600, warningMinutes));
-        // A zero threshold must not be interpreted as "warn at zero remaining".
+        // zero threshold is not "warn at zero remaining"
         Assert.False(TimeKeeper.WarningFires(0, warningMinutes));
     }
 
     [Fact]
     public void WarningFires_does_not_overflow_on_huge_threshold() =>
-        // The threshold in seconds saturates at int.MaxValue; a remaining value
-        // below that must never accidentally equal the wrapped result.
+        // threshold seconds saturate at int.MaxValue; lower remaining must never equal wrapped result
         Assert.False(TimeKeeper.WarningFires(600, int.MaxValue));
 
     // ---- IsExhausted -------------------------------------------------------
@@ -178,8 +166,7 @@ public class TimeKeeperTests
     [InlineData(-600)]
     [InlineData(int.MinValue)]
     public void Extend_ignores_existing_debt(int remaining) =>
-        // A negative running value is treated as "no budget", so the extension
-        // starts from zero rather than compounding the debt.
+        // negative running = "no budget"; extension starts from zero, no debt compound
         Assert.Equal(900, TimeKeeper.Extend(remaining, 15));
 
     [Theory]
@@ -191,8 +178,7 @@ public class TimeKeeperTests
 
     [Fact]
     public void Extend_with_non_positive_minutes_normalises_debt_to_zero() =>
-        // Non-positive minutes add nothing, but the negative baseline is still
-        // clamped to a non-negative budget.
+        // non-positive minutes add nothing, but negative baseline clamps to non-negative
         Assert.Equal(0, TimeKeeper.Extend(-100, 0));
 
     [Fact]
@@ -207,10 +193,9 @@ public class TimeKeeperTests
     [Fact]
     public void FullSession_counts_down_warns_extends_and_exhausts()
     {
-        // Drive the machine the way the host does: start from a daily limit,
-        // tick down to the warning, grant an extension, then run dry.
+        // drive like host: start daily limit, tick to warning, extend, run dry
         const int dailyLimitMinutes = 1; // 60 seconds
-        const int warningMinutes = 0;    // warnings disabled in this scenario
+        const int warningMinutes = 0;    // warnings off here
 
         var remaining = TimeKeeper.InitialRemaining(null, dailyLimitMinutes);
         Assert.Equal(60, remaining);
@@ -223,7 +208,7 @@ public class TimeKeeperTests
 
         Assert.True(TimeKeeper.IsExhausted(remaining));
 
-        remaining = TimeKeeper.Extend(remaining, 2); // +120 seconds
+        remaining = TimeKeeper.Extend(remaining, 2); // +120 sec
         Assert.Equal(120, remaining);
         Assert.False(TimeKeeper.IsExhausted(remaining));
     }

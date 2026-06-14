@@ -4,8 +4,7 @@ using Curfew.Core.Localization;
 using Curfew.Overlay;
 using static Curfew.Overlay.Native;
 
-// One overlay per session. "Local\" scopes the mutex to the session, so each
-// logged-in user gets one and the watchdog respawn never stacks duplicates.
+// one overlay per session. "Local\" scopes mutex to session: each user gets one, watchdog respawn never stacks duplicates
 OverlayLog.Write("process start");
 using var instance = new Mutex(true, @"Local\CurfewOverlayInstance", out var createdNew);
 if (!createdNew)
@@ -25,57 +24,46 @@ catch (Exception ex)
 
 namespace Curfew.Overlay
 {
-    /// <summary>
-    /// Win32 mini countdown overlay — a small, always-on-top reminder pill that
-    /// shows the remaining daily budget (or the wall clock in schedule-only mode).
-    /// Plain Win32 so it starts reliably when the service spawns it. The
-    /// full-screen passcode lock lives in <see cref="LockScreen"/>.
-    /// </summary>
+    /// <summary>Win32 mini countdown overlay -- small always-on-top reminder pill showing remaining budget (or wall clock in schedule-only mode). plain Win32 for reliable service-spawn start; full-screen passcode lock in <see cref="LockScreen"/></summary>
     internal static class OverlayApp
     {
         private const string ClassName = "CurfewOverlayClass";
 
-        // Pill geometry. Kept compact so it reads as a gentle reminder rather
-        // than a banner; the accent bar on the left carries the colour state.
+        // pill geometry; compact = gentle reminder not banner. left accent bar carries colour state
         private const int Width = 168;
         private const int Height = 46;
         private const int Margin = 12;
         private const int AccentBarWidth = 5;
         private const int TextInset = 16;
 
-        // Layered-window opacity (0–255). High enough to stay legible over busy
-        // wallpaper, low enough to feel unobtrusive.
+        // layered-window opacity (0-255). legible over busy wallpaper, still unobtrusive
         private const byte Opacity = 225;
 
-        // DrawTextW left-alignment flag. DT_LEFT is 0x0 in Win32 but isn't
-        // exposed by Native, so define it locally for self-documenting calls.
+        // DrawTextW left-align flag. DT_LEFT is 0x0 but not exposed by Native; define locally for readable calls
         private const int DT_LEFT = 0x0;
 
-        // Colours are 0x00BBGGRR (GDI COLORREF order).
+        // colours 0x00BBGGRR (GDI COLORREF order)
         private const uint ColorBg = 0x00222222;       // near-black panel
         private const uint ColorLabel = 0x00A8A29A;    // muted grey caption
         private const uint ColorWhite = 0x00F4F4F4;    // primary text (off-white)
         private const uint ColorAmber = 0x00309CF0;    // warning  (~5 min) BGR
         private const uint ColorRed = 0x004444FF;       // critical (<1 min) BGR
 
-        // Keep the delegate alive for the window's lifetime; if it were a local
-        // it could be collected while Win32 still holds the function pointer.
+        // keep delegate alive for window life; a local could be collected while Win32 holds the function pointer
         private static readonly WndProc Proc = WindowProc;
 
         public static void Run()
         {
-            // Harden the enforcement process (runs in the child's session) against
-            // DLL injection / hijacking before any other DLL loads.
+            // harden enforcement process (child's session) vs DLL injection/hijack before any other DLL loads
             Curfew.Core.Security.ProcessHardening.Apply();
 
             var today = DateOnly.FromDateTime(DateTime.Now);
             OverlayState.Settings = CurfewPaths.OpenSettings(today);
 
-            // Scope all per-user config + counters to this session's user.
+            // scope per-user config + counters to this session's user
             OverlayState.CurrentSid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty;
             OverlayState.Settings.UserSid = OverlayState.CurrentSid;
-            // Grandfather users already using the device, so only genuinely new users
-            // (no usage history and not yet set up) hit the new-user setup lock.
+            // grandfather existing users so only genuinely new (no history, not set up) hit setup lock
             OverlayState.UserHasHistory = OverlayState.Settings.HasUsageHistory(OverlayState.CurrentSid);
 
             int? saved = int.TryParse(OverlayState.Settings.Get(RemainingKey(today)), out var s) ? s : null;
@@ -88,9 +76,7 @@ namespace Curfew.Overlay
             var hInstance = GetModuleHandleW(null);
             OverlayLog.Write($"settings opened, remaining={OverlayState.Remaining}, hInstance={hInstance}");
 
-            // We own all painting (WM_PAINT) and erasing (WM_ERASEBKGND), so the
-            // class needs no background brush — that also avoids leaking one and
-            // prevents a single-colour flash before the first paint.
+            // we own WM_PAINT + WM_ERASEBKGND, so no class bg brush -> no leak, no pre-first-paint flash
             var wc = new WNDCLASSW
             {
                 lpfnWndProc = Proc,
@@ -116,7 +102,7 @@ namespace Curfew.Overlay
             }
             OverlayState.MiniHwnd = hwnd;
 
-            // Semi-transparent so it reads as a gentle reminder, not a wall.
+            // semi-transparent: gentle reminder not a wall
             SetLayeredWindowAttributes(hwnd, 0, Opacity, LWA_ALPHA);
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -124,9 +110,7 @@ namespace Curfew.Overlay
 
             TrayIcon.Add(hwnd, hInstance);
 
-            // Pre-create the lock window; show it immediately if already blocked.
-            // Otherwise clear lock_active so a respawn while unblocked can never leave
-            // the service's Task Manager lockdown stuck on.
+            // pre-create lock window; show now if already blocked. else clear lock_active so respawn-while-unblocked can't leave Task Manager lockdown stuck on
             LockScreen.Register(hInstance);
             if (OverlayState.ShouldBlock) LockScreen.Show();
             else OverlayState.Settings.Set("lock_active", "0");
@@ -146,9 +130,7 @@ namespace Curfew.Overlay
             switch (msg)
             {
                 case WM_ERASEBKGND:
-                    // Suppress the default erase: WM_PAINT repaints the whole
-                    // client area every time, so erasing first only causes
-                    // flicker. Returning non-zero tells Windows it's handled.
+                    // suppress default erase: WM_PAINT repaints whole client area, erasing first only flickers. non-zero = handled
                     return new IntPtr(1);
 
                 case WM_PAINT:
@@ -173,18 +155,14 @@ namespace Curfew.Overlay
             }
         }
 
-        /// <summary>Duration of a parent-granted pause (break), in seconds.</summary>
+        /// <summary>parent-granted pause (break) duration, seconds</summary>
         private const long PauseDurationSeconds = 600; // 10 minutes
 
-        /// <summary>How often the overlay reloads enforcement settings, in seconds (ticks).</summary>
+        /// <summary>overlay enforcement-reload interval, seconds (ticks)</summary>
         private const int ReloadEverySeconds = 30;
         private static int _reloadCounter;
 
-        /// <summary>
-        /// Directories an allow-listed app must run from to be exempt. All are
-        /// admin-writable only, so the child cannot place a renamed executable
-        /// there to stop the budget clock (see <see cref="AppAllowlist.AllowsTrusted"/>).
-        /// </summary>
+        /// <summary>dirs an allow-listed app must run from to be exempt; all admin-writable only so child can't drop a renamed exe there to stop budget clock (see <see cref="AppAllowlist.AllowsTrusted"/>)</summary>
         private static readonly string[] TrustedAppRoots = new[]
         {
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -192,64 +170,52 @@ namespace Curfew.Overlay
             Environment.GetFolderPath(Environment.SpecialFolder.Windows),
         }.Where(p => !string.IsNullOrEmpty(p)).ToArray();
 
-        /// <summary>Whether the foreground app is allow-listed, so this second is exempt from the budget.</summary>
+        /// <summary>foreground app allow-listed -> this second exempt from budget</summary>
         private static bool ForegroundExempt() =>
             OverlayState.AllowedApps.Count > 0
             && AppAllowlist.AllowsTrusted(OverlayState.AllowedApps, ForegroundApp.ProcessImagePath(), TrustedAppRoots);
 
         private static void Tick(IntPtr hwnd)
         {
-            // Apply any parent-approved tray action. The command is written by
-            // Curfew.App only after the parent passcode is verified, so the overlay
-            // itself needs no passcode UI of its own.
+            // apply parent-approved tray action. Curfew.App writes command only after passcode verified, so overlay needs no passcode UI
             ExecutePendingTrayCommand(hwnd);
 
-            // Time is frozen while the lock screen is up — but the lock still needs
-            // its per-second work: apply WinUI lock actions and keep that surface alive.
+            // time frozen while lock up, but lock still needs per-second work: apply WinUI actions + keep surface alive
             if (OverlayState.Locked)
             {
                 LockScreen.WhileLockedTick();
                 return;
             }
 
-            // Pick up parent changes (limits/schedule/allow-list) without a restart,
-            // roughly twice a minute so the SQLite reads stay cheap.
+            // pick up parent changes (limits/schedule/allow-list) without restart, ~twice a minute so SQLite reads stay cheap
             if (++_reloadCounter >= ReloadEverySeconds)
             {
                 _reloadCounter = 0;
                 OverlayState.LoadEnforcement();
             }
 
-            // Count this second of active (unlocked) screen time for usage history.
+            // count this second of active (unlocked) screen time for usage history
             OverlayState.RecordActiveSecond();
 
-            // The budget only ticks down when it is the active control, no
-            // parent-granted pause is in effect, and the foreground app is not on the
-            // allow-list (homework/IDE time is exempt).
+            // budget ticks down only when active control, no pause, foreground not allow-listed (homework/IDE exempt)
             if (OverlayState.LimitEnabled && !OverlayState.IsPaused && !ForegroundExempt())
             {
                 OverlayState.Remaining = TimeKeeper.Tick(OverlayState.Remaining);
                 if (TimeKeeper.ShouldPersist(OverlayState.Remaining)) OverlayState.Persist();
             }
 
-            // A reopened schedule window clears any parent override.
+            // reopened schedule window clears parent override
             if (OverlayState.ScheduleAllows()) OverlayState.ScheduleOverride = false;
 
             UpdateTray();
 
-            // Repaint without erasing (false): WM_PAINT redraws everything and
-            // WM_ERASEBKGND is suppressed, so this stays flicker-free.
+            // repaint without erase (false): WM_PAINT redraws all, WM_ERASEBKGND suppressed -> flicker-free
             InvalidateRect(hwnd, IntPtr.Zero, false);
 
             if (OverlayState.ShouldBlock) LockScreen.Show();
         }
 
-        /// <summary>
-        /// Consumes a one-shot command left by the passcode-gated tray menu in
-        /// Curfew.App and applies it. The command is cleared immediately so it runs
-        /// once, and ignored if it is older than a minute (e.g. written while the
-        /// overlay was not running).
-        /// </summary>
+        /// <summary>consume + apply one-shot command from passcode-gated tray menu in Curfew.App. cleared immediately (runs once), ignored if older than a minute</summary>
         private static void ExecutePendingTrayCommand(IntPtr hwnd)
         {
             var cmd = OverlayState.Settings.Get("tray_command");
@@ -273,25 +239,19 @@ namespace Curfew.Overlay
                     OverlayLog.Write("tray: resumed");
                     break;
                 case "quit":
-                    // Refuse to quit while the lock is up. DestroyWindow here would
-                    // exit the message loop and terminate the process WITHOUT running
-                    // LockScreen.Hide(), leaving lock_active=1 and the WinUI lock app
-                    // orphaned — the session stays locked-down with no live enforcer
-                    // until the watchdog respawns. The command is already consumed
-                    // above, so it is dropped (not replayed): the parent can re-issue
-                    // quit after unlocking, when teardown runs cleanly.
+                    // refuse quit while locked: DestroyWindow exits loop + kills process WITHOUT LockScreen.Hide(), leaving lock_active=1 + WinUI lock orphaned, session locked-down with no enforcer until watchdog respawn. command already consumed -> dropped not replayed; parent re-issues quit after unlock when teardown runs clean
                     if (OverlayState.Locked)
                     {
                         OverlayLog.Write("tray: quit ignored while locked");
                         break;
                     }
                     OverlayLog.Write("tray: quit requested");
-                    DestroyWindow(hwnd); // triggers WM_DESTROY -> tray removal + PostQuitMessage
+                    DestroyWindow(hwnd); // WM_DESTROY -> tray removal + PostQuitMessage
                     break;
             }
         }
 
-        /// <summary>Adds bonus minutes and lifts any schedule block, as the lock-screen extend does.</summary>
+        /// <summary>add bonus minutes + lift schedule block, like lock-screen extend</summary>
         private static void ApplyExtend(int minutes)
         {
             OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
@@ -300,7 +260,7 @@ namespace Curfew.Overlay
             OverlayLog.Write($"tray: extended +{minutes} min");
         }
 
-        /// <summary>Refreshes the tray tooltip and raises a balloon at each warning threshold.</summary>
+        /// <summary>refresh tray tooltip, raise balloon at each warning threshold</summary>
         private static void UpdateTray()
         {
             TrayIcon.UpdateTooltip(
@@ -325,23 +285,18 @@ namespace Curfew.Overlay
             return string.IsNullOrWhiteSpace(message) ? Loc.T("warn.default") : message;
         }
 
-        /// <summary>
-        /// Paints the whole pill in one pass: panel fill, a colour-coded accent
-        /// bar, a small caption and the large remaining-time (or clock) value.
-        /// Every GDI object created here is released before returning, and the
-        /// DC's original objects are restored.
-        /// </summary>
+        /// <summary>paint whole pill in one pass: panel fill, colour-coded accent bar, small caption, large remaining-time (or clock) value. every GDI object released, DC originals restored</summary>
         private static void Paint(IntPtr hwnd)
         {
             var hdc = BeginPaint(hwnd, out var ps);
             GetClientRect(hwnd, out var rect);
 
-            // 1. Solid panel background (single fill = no flicker).
+            // 1. solid panel bg (single fill = no flicker)
             var bgBrush = CreateSolidBrush(ColorBg);
             FillRect(hdc, ref rect, bgBrush);
             DeleteObject(bgBrush);
 
-            // Decide what to show and which accent colour represents its state.
+            // pick what to show + accent colour for its state
             string value;
             string caption;
             uint accent;
@@ -358,7 +313,7 @@ namespace Curfew.Overlay
                 accent = ColorWhite;
             }
 
-            // 2. Accent bar down the left edge — the at-a-glance status colour.
+            // 2. accent bar left edge -- at-a-glance status colour
             var barRect = new RECT
             {
                 left = rect.left,
@@ -372,17 +327,16 @@ namespace Curfew.Overlay
 
             SetBkMode(hdc, TRANSPARENT);
 
-            // Text column: inset from the accent bar, padded on the right.
+            // text column: inset from accent bar, padded right
             var textLeft = rect.left + AccentBarWidth + TextInset;
             var textRight = rect.right - 10;
 
-            // 3. Caption: small, muted label sitting just above the value.
+            // 3. caption: small muted label above value
             DrawText(hdc, caption, textLeft, rect.top + 6, textRight, rect.top + 22,
                 fontSize: 12, weight: 600, color: ColorLabel,
                 format: DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-            // 4. The value itself: large, semibold, status-coloured for urgency
-            //    (critical = red, warning = amber, otherwise off-white).
+            // 4. value: large semibold, status-coloured (red critical, amber warning, else off-white)
             var valueColor = OverlayState.LimitEnabled ? accent : ColorWhite;
             DrawText(hdc, value, textLeft, rect.top + 18, textRight, rect.bottom - 4,
                 fontSize: 26, weight: 700, color: valueColor,
@@ -391,10 +345,7 @@ namespace Curfew.Overlay
             EndPaint(hwnd, ref ps);
         }
 
-        /// <summary>
-        /// Draws a single line of Segoe UI text into the given rectangle,
-        /// creating and releasing the font and restoring the DC's previous font.
-        /// </summary>
+        /// <summary>draw one line of Segoe UI text into rect; create + release font, restore DC's previous font</summary>
         private static void DrawText(
             IntPtr hdc, string text, int left, int top, int right, int bottom,
             int fontSize, int weight, uint color, int format)
@@ -410,8 +361,7 @@ namespace Curfew.Overlay
             DeleteObject(font);
         }
 
-        /// <summary>Accent colour for the remaining budget: white normally,
-        /// amber in the last five minutes, red in the final minute.</summary>
+        /// <summary>accent colour for remaining budget: white normal, amber last 5 min, red final minute</summary>
         private static uint ColorForRemaining(int seconds)
         {
             if (seconds <= 60) return ColorRed;
@@ -419,8 +369,7 @@ namespace Curfew.Overlay
             return ColorWhite;
         }
 
-        // Invariant culture: must match OverlayState's writer and the store's purge
-        // exactly even under a region format with a non-Gregorian calendar.
+        // invariant culture: must match OverlayState writer + store purge exactly, even under non-Gregorian region format
         private static string RemainingKey(DateOnly date) =>
             $"remaining_time_{OverlayState.CurrentSid}_{date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}";
     }

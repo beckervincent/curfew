@@ -1,16 +1,15 @@
-# Curfew uninstall guard. Verifies the parent passcode before an uninstall is
-# allowed to proceed. Invoked by the installer's InitializeUninstall (Inno Setup).
+# Curfew uninstall guard. verify parent passcode before uninstall proceeds.
+# invoked by installer's InitializeUninstall (Inno Setup)
 #
-# Exit codes:
-#   0  allow uninstall  (no passcode configured, or the entered passcode verified)
-#   1  block uninstall  (wrong passcode, cancelled, or a silent uninstall while a
-#                        passcode is set and cannot be prompted for)
+# exit codes:
+#   0  allow uninstall  (no passcode configured, or entered passcode verified)
+#   1  block uninstall  (wrong passcode, cancelled, or silent uninstall while
+#                        passcode set + cant prompt)
 #
-# This script lives in the install dir, which is ACL'd ReadAndExecute for Users,
-# so a standard (child) account cannot modify it to weaken the check. It reads the
-# stored passcode hash from the write-protected config.db (read-only open, so it
-# never contends with the running service) and verifies it the same way the app
-# does: PBKDF2-SHA256, or a legacy plaintext value for older installs.
+# script lives in install dir, ACL'd ReadAndExecute for Users, so standard (child)
+# account cant modify it to weaken check. reads stored passcode hash from
+# write-protected config.db (read-only open, never contends with running service)
+# + verifies same way app does: PBKDF2-SHA256, or legacy plaintext for older installs
 
 param(
     [Parameter(Mandatory = $true)] [string] $AppDir,
@@ -20,7 +19,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Fail-Closed {
-    # Any unexpected error while a passcode might be set must NOT open the gate.
+    # unexpected error while passcode might be set must NOT open the gate
     param([string] $Message)
     exit 1
 }
@@ -31,15 +30,14 @@ $configDb = Join-Path $env:ProgramData 'Curfew\config.db'
 $appBin = Join-Path $AppDir 'app'
 $sqliteDll = Join-Path $appBin 'e_sqlite3.dll'
 
-# Nothing installed/configured to protect: allow. A child cannot reach this state
-# by deleting config.db - it is deny-ACL'd against Users for delete/write.
+# nothing installed/configured to protect: allow. child cant reach this state
+# by deleting config.db - deny-ACL'd against Users for delete/write
 if (-not (Test-Path -LiteralPath $configDb)) { exit 0 }
 if (-not (Test-Path -LiteralPath $sqliteDll)) { Fail-Closed 'sqlite missing' }
 
-# Resolve e_sqlite3 (and its dependencies) by name from the install's app dir,
-# which is ACL'd ReadAndExecute for Users - a child cannot plant a DLL there.
-# Pointing the process current directory at that trusted dir lets the loader find
-# it without copying to (and loading from) a user-writable location.
+# resolve e_sqlite3 (+ deps) by name from install's app dir, ACL'd ReadAndExecute
+# for Users - child cant plant a DLL there. point process current dir at that
+# trusted dir so loader finds it without copying to/loading from user-writable location
 [Environment]::CurrentDirectory = $appBin
 
 $interop = @"
@@ -62,12 +60,12 @@ public static class CurfewUninstallSqlite {
 "@
 Add-Type -TypeDefinition $interop
 
-# Read the stored passcode with a READONLY open (flags = SQLITE_OPEN_READONLY = 1)
-# so the running service's open handle never causes a write-lock conflict.
+# read stored passcode with READONLY open (flags = SQLITE_OPEN_READONLY = 1)
+# so running service's open handle never causes write-lock conflict
 $stored = $null
-# $queryOk distinguishes "the query ran and there is genuinely no passcode" from
-# "the read failed". A failed read must fail closed (a passcode may well be set);
-# only a successful query that returns no row / an empty value means "no passcode".
+# $queryOk distinguishes "query ran + genuinely no passcode" from "read failed".
+# failed read must fail closed (passcode may be set); only successful query
+# returning no row / empty value means "no passcode"
 $queryOk = $false
 $db = [IntPtr]::Zero
 if ([CurfewUninstallSqlite]::sqlite3_open_v2($configDb, [ref] $db, 1, [IntPtr]::Zero) -ne 0) {
@@ -78,13 +76,13 @@ try {
     if ([CurfewUninstallSqlite]::sqlite3_prepare_v2($db, "SELECT value FROM settings WHERE key = 'passcode'", -1, [ref] $stmt, [IntPtr]::Zero) -eq 0) {
         try {
             $step = [CurfewUninstallSqlite]::sqlite3_step($stmt)
-            if ($step -eq 100) {            # SQLITE_ROW: a passcode row exists
+            if ($step -eq 100) {            # SQLITE_ROW: passcode row exists
                 $stored = [Runtime.InteropServices.Marshal]::PtrToStringAnsi([CurfewUninstallSqlite]::sqlite3_column_text($stmt, 0))
                 $queryOk = $true
-            } elseif ($step -eq 101) {      # SQLITE_DONE: no passcode row at all
+            } elseif ($step -eq 101) {      # SQLITE_DONE: no passcode row
                 $queryOk = $true
             }
-            # Any other step result is an error -> $queryOk stays false -> fail closed.
+            # any other step result = error -> $queryOk stays false -> fail closed
         } finally {
             [void][CurfewUninstallSqlite]::sqlite3_finalize($stmt)
         }
@@ -93,20 +91,20 @@ try {
     [void][CurfewUninstallSqlite]::sqlite3_close($db)
 }
 
-# A failed read while a passcode might be set must not open the gate.
+# failed read while passcode might be set must not open the gate
 if (-not $queryOk) { Fail-Closed 'could not read passcode' }
 
-# Query succeeded and there is genuinely no passcode -> nothing to protect, allow.
+# query succeeded + genuinely no passcode -> nothing to protect, allow
 if ([string]::IsNullOrEmpty($stored)) { exit 0 }
 
-# A passcode IS set but this is a silent uninstall: there is no way to prompt, and
-# allowing it would let `unins000.exe /SILENT` bypass the guard. Block it.
+# passcode IS set but silent uninstall: no way to prompt, and allowing it would let
+# `unins000.exe /SILENT` bypass the guard. block it
 if ($Interactive -ne 1) { exit 1 }
 
 function Test-Passcode {
     param([string] $Entered, [string] $Stored)
 
-    # Legacy plaintext (anything without the pbkdf2$ prefix), compared case-sensitively.
+    # legacy plaintext (anything without pbkdf2$ prefix), compared case-sensitively
     if (-not $Stored.StartsWith('pbkdf2$')) {
         return [string]::Equals($Entered, $Stored, [System.StringComparison]::Ordinal)
     }
@@ -123,8 +121,8 @@ function Test-Passcode {
     } catch { return $false }
     if ($expected.Length -eq 0) { return $false }
 
-    # Rfc2898DeriveBytes with HashAlgorithmName.SHA256 is PBKDF2-HMAC-SHA256 - the
-    # same derivation the app's PasscodeHash uses.
+    # Rfc2898DeriveBytes with HashAlgorithmName.SHA256 = PBKDF2-HMAC-SHA256 - same
+    # derivation app's PasscodeHash uses
     $kdf = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
         [System.Text.Encoding]::UTF8.GetBytes($Entered), $salt, $iterations,
         [System.Security.Cryptography.HashAlgorithmName]::SHA256)
@@ -134,7 +132,7 @@ function Test-Passcode {
         $kdf.Dispose()
     }
 
-    # Constant-time comparison.
+    # constant-time comparison
     $diff = 0
     for ($i = 0; $i -lt $expected.Length; $i++) { $diff = $diff -bor ($actual[$i] -bxor $expected[$i]) }
     return ($diff -eq 0)

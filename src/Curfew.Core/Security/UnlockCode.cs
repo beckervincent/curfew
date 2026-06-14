@@ -3,47 +3,31 @@ using System.Security.Cryptography;
 
 namespace Curfew.Core.Security;
 
-/// <summary>
-/// Offline unlock / bonus-time codes implemented as RFC 6238 TOTP (HMAC-SHA1,
-/// 6 digits, 30-second step). The parent keeps the shared secret in a standard
-/// authenticator app (Google Authenticator, etc.); when the child is locked out
-/// and the parent is not present, the parent reads the current 6-digit code over
-/// the phone and the child enters it to grant a bonus extension.
-/// </summary>
+/// <summary>Offline unlock/bonus-time codes = RFC 6238 TOTP (HMAC-SHA1, 6 digits, 30s step); parent reads code from authenticator app over phone, child types it for bonus.</summary>
 /// <remarks>
-/// Verification works entirely offline. It relies on the device clock being
-/// trustworthy, which Time Manipulation Guarding already enforces. A small
-/// validity window absorbs clock skew. Replay is prevented by the caller
-/// recording the last accepted time-step counter (see <see cref="MatchedCounter"/>)
-/// and refusing to reuse it.
+/// Offline. Trust device clock (Time Manipulation Guarding enforces). Small window absorbs skew. Replay blocked: caller records last counter (see <see cref="MatchedCounter"/>), no reuse.
 /// </remarks>
 public static class UnlockCode
 {
-    /// <summary>Number of digits in a code.</summary>
+    /// <summary>Code digit count.</summary>
     public const int Digits = 6;
 
-    /// <summary>Length of the time step, in seconds.</summary>
+    /// <summary>Time step length, seconds.</summary>
     public const int StepSeconds = 30;
 
-    /// <summary>Bytes of entropy in a generated secret (160-bit, SHA-1 block sized).</summary>
+    /// <summary>Secret entropy bytes (160-bit, SHA-1 block sized).</summary>
     private const int SecretBytes = 20;
 
-    /// <summary>Creates a new random base32 secret to enrol in an authenticator app.</summary>
+    /// <summary>New random base32 secret for authenticator app.</summary>
     public static string GenerateSecret() => Base32.Encode(RandomNumberGenerator.GetBytes(SecretBytes));
 
-    /// <summary>The current code for <paramref name="base32Secret"/> at <paramref name="unixSeconds"/>.</summary>
+    /// <summary>Current code for <paramref name="base32Secret"/> at <paramref name="unixSeconds"/>.</summary>
     public static string Generate(string base32Secret, long unixSeconds) =>
         Compute(Base32.Decode(base32Secret), unixSeconds / StepSeconds);
 
-    /// <summary>
-    /// Verifies <paramref name="code"/> against the secret, accepting the current
-    /// step and <paramref name="window"/> steps on either side for clock skew.
-    /// </summary>
-    /// <param name="minCounter">
-    /// Reject any step counter at or below this value (replay protection). Pass
-    /// <c>long.MinValue</c> to disable.
-    /// </param>
-    /// <param name="matchedCounter">The accepted step counter, for the caller to persist.</param>
+    /// <summary>Verify <paramref name="code"/> against secret; accept current step plus <paramref name="window"/> steps either side for skew.</summary>
+    /// <param name="minCounter">Reject any step counter at or below this (replay). <c>long.MinValue</c> disables.</param>
+    /// <param name="matchedCounter">Accepted step counter, caller persists.</param>
     public static bool Verify(
         string base32Secret,
         string? code,
@@ -79,7 +63,7 @@ public static class UnlockCode
         return false;
     }
 
-    /// <summary>Convenience overload without replay protection (e.g. for display checks).</summary>
+    /// <summary>Overload without replay protection (e.g. display checks).</summary>
     public static bool Verify(string base32Secret, string? code, long unixSeconds, int window = 1) =>
         Verify(base32Secret, code, unixSeconds, window, long.MinValue, out _);
 
@@ -91,7 +75,7 @@ public static class UnlockCode
         Span<byte> hash = stackalloc byte[HMACSHA1.HashSizeInBytes];
         HMACSHA1.HashData(key, message, hash);
 
-        // RFC 4226 dynamic truncation.
+        // RFC 4226 dynamic truncation
         var offset = hash[^1] & 0x0F;
         var binary = ((hash[offset] & 0x7F) << 24)
                    | (hash[offset + 1] << 16)

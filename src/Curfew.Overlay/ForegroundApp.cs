@@ -3,10 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Curfew.Overlay;
 
-/// <summary>
-/// Resolves the process behind the current foreground window, so the budget tick
-/// can exempt allow-listed apps (homework/IDE) from consuming screen time.
-/// </summary>
+/// <summary>process behind foreground window; budget tick exempts allow-listed apps</summary>
 internal static class ForegroundApp
 {
     [DllImport("user32.dll")]
@@ -31,16 +28,12 @@ internal static class ForegroundApp
         }
         catch
         {
-            // The process may have exited between the calls — treat as "unknown".
+            // process maybe exited between calls -> "unknown"
             return null;
         }
     }
 
-    /// <summary>
-    /// The foreground window's full executable path, or null when it cannot be
-    /// determined (process exited, or access denied for an elevated process —
-    /// callers must treat unknown as not-allow-listed).
-    /// </summary>
+    /// <summary>foreground window full exe path, or null (exited / access denied -> caller treats unknown as not-allow-listed)</summary>
     public static string? ProcessImagePath()
     {
         try

@@ -2,60 +2,47 @@ using System.Globalization;
 
 namespace Curfew.Core.Localization;
 
-/// <summary>
-/// Lightweight, dependency-free localization used by both the WinUI app and the
-/// Win32 overlay. Strings are looked up by key from a per-language catalog and
-/// fall back to English when a key or language is missing, so a partial
-/// translation never blanks the UI.
-/// </summary>
-/// <remarks>
-/// Adding a language is a single new entry in <see cref="Catalog"/> (e.g. a
-/// machine translation of the English values); no other code changes are needed.
-/// The active language defaults to the current UI culture and can be overridden
-/// at runtime via <see cref="SetLanguage"/>.
-/// </remarks>
+/// <summary>lightweight dependency-free localization for WinUI app + Win32 overlay; key lookup per-language, falls back to English when key/language missing</summary>
+/// <remarks>add language = one new entry in <see cref="Catalog"/>. active language defaults to current UI culture, override at runtime via <see cref="SetLanguage"/></remarks>
 public static class Loc
 {
     private const string Fallback = "en";
 
     private static string _lang = Fallback;
 
-    // Runs after the field initializers (notably Catalog), so Normalize can read it.
+    // runs after field initializers (notably Catalog) so Normalize can read it
     static Loc() => _lang = Normalize(CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
 
-    /// <summary>The active two-letter language code (e.g. "en", "de").</summary>
+    /// <summary>active two-letter language code (e.g. "en", "de")</summary>
     public static string Language => _lang;
 
-    /// <summary>All languages the catalog can render.</summary>
+    /// <summary>all languages catalog can render</summary>
     public static IReadOnlyCollection<string> AvailableLanguages => Catalog.Keys;
 
-    /// <summary>
-    /// Overrides the active language. A null/blank or unknown code resets to the
-    /// current UI culture (still falling back to English per key).
-    /// </summary>
+    /// <summary>override active language; null/blank/unknown resets to current UI culture (still falls back to English per key)</summary>
     public static void SetLanguage(string? twoLetterCode) =>
         _lang = string.IsNullOrWhiteSpace(twoLetterCode)
             ? Normalize(CultureInfo.CurrentUICulture.TwoLetterISOLanguageName)
             : Normalize(twoLetterCode);
 
-    /// <summary>Returns the localized string for <paramref name="key"/>.</summary>
+    /// <summary>localized string for <paramref name="key"/></summary>
     public static string T(string key)
     {
         if (Catalog.TryGetValue(_lang, out var table) && table.TryGetValue(key, out var value))
             return value;
         if (Catalog[Fallback].TryGetValue(key, out var english))
             return english;
-        return key; // Last resort: the key itself, so a missing entry is visible, not blank.
+        return key; // last resort: key itself, so missing entry visible not blank
     }
 
-    /// <summary>Localized, then <see cref="string.Format(string, object[])"/>-formatted.</summary>
+    /// <summary>localized then <see cref="string.Format(string, object[])"/>-formatted</summary>
     public static string T(string key, params object[] args) =>
         string.Format(CultureInfo.CurrentCulture, T(key), args);
 
     private static string Normalize(string code)
     {
         var lang = (code ?? Fallback).Trim().ToLowerInvariant();
-        // Accept full culture tags like "de-DE" by taking the language part.
+        // accept full culture tags like "de-DE" by taking language part
         var dash = lang.IndexOf('-');
         if (dash > 0) lang = lang[..dash];
         return Catalog.ContainsKey(lang) ? lang : Fallback;
@@ -65,7 +52,7 @@ public static class Loc
     {
         [Fallback] = new()
         {
-            // Lock screen (Win32 overlay)
+            // lock screen (Win32 overlay)
             ["lock.title.budget"] = "Time's Up",
             ["lock.title.schedule"] = "Outside Allowed Hours",
             ["lock.extend.caption"] = "EXTEND TIME (REQUIRES PASSCODE)",
@@ -94,7 +81,7 @@ public static class Loc
             ["lock.lockedout"] = "Too many attempts — wait {0}s.",
             ["lock.action.failed"] = "Couldn't apply that — try again.",
 
-            // System tray + warnings
+            // tray + warnings
             ["tray.settings"] = "Settings…",
             ["tray.left"] = "Curfew · {0} left",
             ["tray.idle"] = "Curfew",
@@ -115,7 +102,7 @@ public static class Loc
             ["tray.update.failed"] = "Update check failed.",
             ["warn.default"] = "Screen time is almost up.",
 
-            // Setup wizard
+            // setup wizard
             ["setup.title"] = "Set up Curfew",
             ["setup.subtitle"] = "Create an administrator PIN and choose how screen time is enforced. You can fine-tune everything later in Settings.",
             ["setup.pin.header"] = "Administrator PIN",
@@ -145,12 +132,12 @@ public static class Loc
             ["setup.err.pinlen"] = "PIN or password must be at least {0} characters.",
             ["setup.err.pinmatch"] = "PINs do not match.",
 
-            // Content-filter choices (shared by setup and settings)
+            // content-filter choices (setup + settings)
             ["filter.none"] = "None",
             ["filter.malware"] = "Block malware (Cloudflare 1.1.1.2)",
             ["filter.family"] = "Block malware and adult content (Cloudflare 1.1.1.3)",
 
-            // Weekday names (Monday-first, index 0..6)
+            // weekday names (Monday-first, index 0..6)
             ["day.0"] = "Monday",
             ["day.1"] = "Tuesday",
             ["day.2"] = "Wednesday",
@@ -159,20 +146,20 @@ public static class Loc
             ["day.5"] = "Saturday",
             ["day.6"] = "Sunday",
 
-            // Common
+            // common
             ["common.on"] = "On",
             ["common.off"] = "Off",
             ["common.ok"] = "OK",
             ["common.cancel"] = "Cancel",
             ["common.save"] = "Save",
 
-            // Passcode prompt
+            // passcode prompt
             ["passcode.title"] = "Enter passcode",
             ["passcode.subtitle"] = "Enter your PIN or password to continue.",
             ["passcode.error.title"] = "Incorrect passcode",
             ["passcode.error.msg"] = "Please check the PIN and try again.",
 
-            // Settings
+            // settings
             ["settings.title"] = "Curfew Settings",
             ["settings.subtitle"] = "Configure screen-time limits, schedules, and protection for this device.",
             ["settings.user.picker"] = "Limits & schedule apply to",
@@ -214,7 +201,7 @@ public static class Loc
             ["settings.err.newmatch"] = "New passcode and confirmation do not match.",
             ["settings.err.newlen"] = "Passcode must be at least {0} characters.",
 
-            // Usage history
+            // usage history
             ["settings.history.title"] = "Usage history",
             ["settings.activity.title"] = "Recent activity",
             ["settings.activity.desc"] = "Locks, unlocks, extensions and tamper attempts.",
@@ -231,7 +218,7 @@ public static class Loc
             ["settings.history.minutes"] = "{0} min",
             ["settings.history.hours"] = "{0} h {1} min",
 
-            // Offline unlock codes
+            // offline unlock codes
             ["settings.unlock.title"] = "Offline unlock codes",
             ["settings.unlock.desc"] = "Scan this QR code with an authenticator app. When the device is locked and you are away, read the current code to your child to grant bonus time — no internet needed.",
             ["settings.unlock.secret"] = "Secret key",
@@ -241,7 +228,7 @@ public static class Loc
             ["settings.unlock.configure"] = "Configure",
             ["settings.unlock.close"] = "Done",
             ["settings.unlock.scan"] = "Scan with an authenticator app",
-            // Schedule grid (shared by Setup + Settings)
+            // schedule grid (Setup + Settings)
             ["schedule.tool"] = "Paint tool",
             ["schedule.allow"] = "Allow",
             ["schedule.block"] = "Block",
@@ -253,10 +240,10 @@ public static class Loc
             ["schedule.preset.weeknights"] = "Weeknights 4–8 PM",
             ["schedule.preset.weekends"] = "Weekends only",
             ["schedule.caption"] = "Each cell is a 30-minute slot. Hold and drag across the grid to paint quickly.",
-            // Setup advanced options
+            // setup advanced options
             ["setup.advanced"] = "Advanced",
             ["setup.perday.hint"] = "Set a different limit for each day.",
-            // Manual update check
+            // manual update check
             ["settings.update.check"] = "Check for updates",
             ["settings.update.now"] = "Update now",
             ["settings.update.checking"] = "Checking for updates…",
@@ -434,7 +421,7 @@ public static class Loc
             ["settings.unlock.configure"] = "Einstellen",
             ["settings.unlock.close"] = "Fertig",
             ["settings.unlock.scan"] = "Mit einer Authenticator-App scannen",
-            // Schedule grid (shared by Setup + Settings)
+            // schedule grid (Setup + Settings)
             ["schedule.tool"] = "Malwerkzeug",
             ["schedule.allow"] = "Erlauben",
             ["schedule.block"] = "Blockieren",
@@ -446,10 +433,10 @@ public static class Loc
             ["schedule.preset.weeknights"] = "Wochentags 16–20 Uhr",
             ["schedule.preset.weekends"] = "Nur Wochenende",
             ["schedule.caption"] = "Jede Zelle ist ein 30-Minuten-Block. Zum schnellen Malen über das Raster ziehen.",
-            // Setup advanced options
+            // setup advanced options
             ["setup.advanced"] = "Erweitert",
             ["setup.perday.hint"] = "Lege für jeden Tag ein eigenes Limit fest.",
-            // Manual update check
+            // manual update check
             ["settings.update.check"] = "Nach Updates suchen",
             ["settings.update.now"] = "Jetzt aktualisieren",
             ["settings.update.checking"] = "Suche nach Updates…",

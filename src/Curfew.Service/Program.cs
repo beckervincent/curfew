@@ -2,26 +2,16 @@ using Curfew.Core.Security;
 using Curfew.Service;
 using Microsoft.Extensions.Logging.EventLog;
 
-// Curfew background service entry point.
+// Curfew background service entry point
 //
-// Runs as the SYSTEM account as a native Windows service (registered with
-// sc.exe / New-Service by installer/setup.iss; the SCM integration comes from
-// AddWindowsService() below). Its job is to keep the per-session overlay alive,
-// apply the DNS content filter, run the NTP-based time-manipulation guard and
-// check for updates. All of that lives in CurfewWorker; this file is only the
-// host wiring.
+// Runs as SYSTEM, native Windows service (registered sc.exe / New-Service by installer/setup.iss; SCM via AddWindowsService() below). Keeps per-session overlay alive, applies DNS content filter, runs NTP time-manipulation guard, checks updates. Logic in CurfewWorker; this is just host wiring.
 //
-// Operational logging goes to the Windows Event Log (a tamper-resistant trail
-// for operators). Any failure that escapes Build()/Run() is also appended to
-// the on-device diagnostics file (ServiceLog), which is the most reliable place
-// to look when the process refuses to start.
+// Operational logging to Windows Event Log (tamper-resistant trail). Failures escaping Build()/Run() also appended to on-device ServiceLog, most reliable place when process refuses to start.
 
-// The service name must match the name the installer/uninstaller scripts
-// register ("Curfew"). Do not change this literal without updating
-// installer/setup.iss in lockstep.
+// service name must match installer/uninstaller scripts ("Curfew"). no change without updating installer/setup.iss in lockstep
 const string ServiceName = "Curfew";
 
-// Harden against DLL injection / hijacking before anything else loads.
+// harden against DLL injection / hijacking before anything else loads
 ProcessHardening.Apply();
 
 try
@@ -30,13 +20,10 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
-    // Integrate with the Windows Service Control Manager. Harmless when the
-    // process is launched directly (e.g. for debugging) — it simply no-ops.
+    // integrate with Windows Service Control Manager. harmless when launched directly (debugging) — no-ops
     builder.Services.AddWindowsService(options => options.ServiceName = ServiceName);
 
-    // Surface lifecycle and warning events in the Windows Event Log so a
-    // locked-down machine still has an audit trail even if the redirected
-    // stdout/stderr files are unavailable. Use the service name as the source.
+    // surface lifecycle/warning events in Windows Event Log so locked-down machine has audit trail even if redirected stdout/stderr unavailable. service name as source
     builder.Logging.AddEventLog(new EventLogSettings { SourceName = ServiceName });
 
     builder.Services.AddHostedService<CurfewWorker>();
@@ -49,10 +36,7 @@ try
 }
 catch (Exception ex)
 {
-    // A throw here means the host never reached its run loop (bad config,
-    // missing dependency, etc.). The hosted logger may not be initialised yet,
-    // so record it where we can always read it back and let the SCM observe a
-    // non-zero exit code.
+    // throw here = host never reached run loop (bad config, missing dependency). hosted logger maybe not initialised, so record where we can always read back and let SCM see non-zero exit
     ServiceLog.Write($"service host failed to start: {ex}");
     return 1;
 }

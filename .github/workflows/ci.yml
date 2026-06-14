@@ -6,12 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-# CI only builds and tests; it never needs to write to the repo. Drop the default
-# token down to read-only so a compromised build step can't push or alter releases.
+# CI only build+test, never write repo. read-only token so compromised step cant push or alter releases
 permissions:
   contents: read
 
-# Run JavaScript-based actions on Node.js 24 (Node.js 20 is deprecated).
+# JS actions on Node.js 24 (Node.js 20 deprecated)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -23,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Don't leave the checkout token persisted in .git/config for later steps.
+          # no checkout token left in .git/config for later steps
           persist-credentials: false
 
       - uses: actions/setup-dotnet@v5
@@ -39,8 +38,7 @@ jobs:
       - name: Run unit tests
         run: dotnet test Curfew.sln -c Release --no-build --verbosity normal
 
-      # The WinUI app needs an x64 platform and is built on its own so the
-      # AnyCPU solution build above stays clean.
+      # WinUI app needs x64, built on its own so AnyCPU solution build stays clean
       - name: Build WinUI app (x64)
         run: dotnet build src/Curfew.App/Curfew.App.csproj -c Release -p:Platform=x64
 
@@ -53,9 +51,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Compile setup.iss against stub payload folders. This validates the
-      # Inno Setup directives and the [Code] Pascal section on every push,
-      # so a script error surfaces here instead of breaking a tagged release.
+      # compile setup.iss against stub payload folders. validates Inno Setup directives + [Code] Pascal every push, so script error surfaces here not on tagged release
       - name: Compile setup.iss with stub payload
         shell: pwsh
         run: |

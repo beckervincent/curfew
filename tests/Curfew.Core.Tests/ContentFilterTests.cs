@@ -3,11 +3,7 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Unit tests for <see cref="ContentFilter"/> — the pure, host-agnostic helper
-/// that maps the persisted <c>dns_filter_mode</c> setting onto Cloudflare's
-/// resolvers and emits the PowerShell the service runs as SYSTEM.
-/// </summary>
+/// <summary>Tests for <see cref="ContentFilter"/> — pure host-agnostic helper mapping persisted <c>dns_filter_mode</c> onto Cloudflare resolvers, emitting PowerShell the service runs as SYSTEM.</summary>
 public class ContentFilterTests
 {
     // ---- Parse -------------------------------------------------------------
@@ -29,8 +25,7 @@ public class ContentFilterTests
     [InlineData("\t")]
     public void Parse_treats_blank_input_as_off(string value)
     {
-        // Empty/whitespace is the common "unset" representation and must never
-        // accidentally enable or change a filter mode.
+        // empty/whitespace = common "unset"; must never accidentally enable or change filter mode
         Assert.Equal(FilterMode.Off, ContentFilter.Parse(value));
     }
 
@@ -41,8 +36,7 @@ public class ContentFilterTests
     [InlineData("\tFAMILY \n", FilterMode.Family)]
     public void Parse_is_case_insensitive_and_trims_whitespace(string value, FilterMode expected)
     {
-        // Documented contract: matching is case-insensitive and tolerant of
-        // surrounding whitespace so hand-edited settings still parse correctly.
+        // contract: case-insensitive + tolerant of surrounding whitespace so hand-edited settings still parse
         Assert.Equal(expected, ContentFilter.Parse(value));
     }
 
@@ -54,8 +48,7 @@ public class ContentFilterTests
     [InlineData(FilterMode.Family, "family")]
     public void ToSetting_emits_the_persisted_literal(FilterMode mode, string expected)
     {
-        // These literals are the on-disk contract shared with the WinUI app and
-        // the service; they must stay lower-case and exactly as written.
+        // on-disk contract shared with WinUI app + service; stay lower-case, exactly as written
         Assert.Equal(expected, ContentFilter.ToSetting(mode));
     }
 
@@ -91,7 +84,7 @@ public class ContentFilterTests
     [Fact]
     public void Off_mode_yields_no_servers_and_no_doh_template()
     {
-        // Off means "use the adapter's own DHCP DNS", so there is nothing to pin.
+        // Off = "use adapter's own DHCP DNS", nothing to pin
         var (v4, v6, doh) = ContentFilter.Servers(FilterMode.Off);
         Assert.Empty(v4);
         Assert.Empty(v6);
@@ -103,9 +96,7 @@ public class ContentFilterTests
     [InlineData(FilterMode.Family)]
     public void Servers_returns_defensive_copies(FilterMode mode)
     {
-        // Documented contract: each call hands back fresh arrays so a caller that
-        // sorts or mutates the result cannot corrupt the shared source of truth
-        // observed by every other caller.
+        // contract: each call returns fresh arrays so a caller sorting/mutating result cannot corrupt shared source of truth seen by other callers
         var (firstV4, firstV6, _) = ContentFilter.Servers(mode);
         firstV4[0] = "9.9.9.9";
         firstV6[0] = "::1";
@@ -134,8 +125,7 @@ public class ContentFilterTests
     {
         var script = ContentFilter.BuildApplyScript(FilterMode.Malware);
 
-        // All four configured resolvers must appear in the $servers list so the
-        // adapter is pinned to both the primary and secondary on each protocol.
+        // all four resolvers must appear in $servers so adapter pinned to primary + secondary on each protocol
         var (v4, v6, _) = ContentFilter.Servers(FilterMode.Malware);
         foreach (var server in v4.Concat(v6))
         {
@@ -158,9 +148,7 @@ public class ContentFilterTests
     [Fact]
     public void Apply_script_enforces_encrypted_dns_only()
     {
-        // The DoH bindings must forbid clear-text fallback and auto-upgrade to
-        // encrypted DNS; weakening either flag would let queries leak in plain
-        // text past the filter.
+        // DoH bindings must forbid clear-text fallback + auto-upgrade to encrypted DNS; weakening either flag leaks queries in plain text past filter
         var script = ContentFilter.BuildApplyScript(FilterMode.Family);
         Assert.Contains("-AllowFallbackToUdp $false", script);
         Assert.Contains("-AutoUpgrade $true", script);
@@ -169,8 +157,7 @@ public class ContentFilterTests
     [Fact]
     public void Apply_script_only_touches_active_physical_adapters()
     {
-        // Virtual/loopback adapters and down links are deliberately skipped so we
-        // don't fight Windows over interfaces that aren't carrying traffic.
+        // virtual/loopback adapters + down links skipped so we don't fight Windows over interfaces carrying no traffic
         var script = ContentFilter.BuildApplyScript(FilterMode.Family);
         Assert.Contains("Get-NetAdapter -Physical", script);
         Assert.Contains("$_.Status -eq 'Up'", script);
@@ -179,10 +166,7 @@ public class ContentFilterTests
     [Fact]
     public void Apply_script_fails_closed_on_pin_failure_but_tolerates_benign_steps()
     {
-        // The resolver pin is security-critical and runs under 'Stop', so a failed
-        // Set-DnsClientServerAddress aborts with a non-zero exit the service logs.
-        // The benign DoH registration and cache flush suppress their own errors so
-        // an idempotent re-run (duplicate DoH entry) is not treated as a failure.
+        // resolver pin is security-critical, runs under 'Stop', so failed Set-DnsClientServerAddress aborts non-zero (service logs). benign DoH registration + cache flush suppress own errors so idempotent re-run (duplicate DoH entry) not a failure
         var script = ContentFilter.BuildApplyScript(FilterMode.Family);
         Assert.Contains("$ErrorActionPreference = 'Stop'", script);
         Assert.Contains("Add-DnsClientDohServerAddress", script);
@@ -193,8 +177,7 @@ public class ContentFilterTests
     [Fact]
     public void Apply_script_uses_only_lf_line_endings()
     {
-        // Output must be byte-for-byte deterministic across host OSes (the script
-        // is generated here even on non-Windows CI runners), so no CRLF leaks in.
+        // output byte-for-byte deterministic across host OSes (generated even on non-Windows CI), so no CRLF leaks in
         var script = ContentFilter.BuildApplyScript(FilterMode.Family);
         Assert.DoesNotContain("\r", script);
     }
@@ -204,8 +187,7 @@ public class ContentFilterTests
     [InlineData(FilterMode.Family, "1.0.0.2")]
     public void Apply_script_excludes_other_modes_servers(FilterMode mode, string foreignServer)
     {
-        // A malware-mode script must not leak family-mode addresses and vice
-        // versa; the distinct third octet (.2 vs .3) makes the modes separable.
+        // malware-mode script must not leak family-mode addresses + vice versa; distinct third octet (.2 vs .3) separates modes
         Assert.DoesNotContain(foreignServer, ContentFilter.BuildApplyScript(mode));
     }
 
@@ -222,8 +204,7 @@ public class ContentFilterTests
     [Fact]
     public void Off_script_does_not_pin_or_encrypt_dns()
     {
-        // Clearing the filter must remove the static servers and not register any
-        // DoH bindings — otherwise adapters would stay pinned after disable.
+        // clearing filter must remove static servers + register no DoH bindings — else adapters stay pinned after disable
         var script = ContentFilter.BuildApplyScript(FilterMode.Off);
         Assert.DoesNotContain("-ServerAddresses", script);
         Assert.DoesNotContain("Add-DnsClientDohServerAddress", script);
@@ -233,8 +214,7 @@ public class ContentFilterTests
     [Fact]
     public void Off_script_still_flushes_the_dns_cache()
     {
-        // The resolver cache is flushed in every mode so a stale answer from the
-        // previous configuration is never served after a switch.
+        // resolver cache flushed every mode so stale answer from previous config never served after a switch
         Assert.Contains("Clear-DnsClientCache", ContentFilter.BuildApplyScript(FilterMode.Off));
     }
 
@@ -246,7 +226,7 @@ public class ContentFilterTests
 
     // ---- helpers -----------------------------------------------------------
 
-    /// <summary>Counts non-overlapping occurrences of <paramref name="needle"/> in <paramref name="haystack"/>.</summary>
+    /// <summary>Count non-overlapping occurrences of <paramref name="needle"/> in <paramref name="haystack"/>.</summary>
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

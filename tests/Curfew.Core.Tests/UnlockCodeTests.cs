@@ -3,18 +3,14 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Tests for <see cref="UnlockCode"/> (RFC 6238 TOTP) and <see cref="Base32"/>.
-/// The known-answer cases use the secret from RFC 6238 Appendix B
-/// ("12345678901234567890"), whose base32 form is the value below.
-/// </summary>
+/// <summary>tests for <see cref="UnlockCode"/> (RFC 6238 TOTP) and <see cref="Base32"/>; KAT uses RFC 6238 App B secret ("12345678901234567890"), base32 below</summary>
 public class UnlockCodeTests
 {
     // base32("12345678901234567890")
     private const string RfcSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
     [Theory]
-    [InlineData(59L, "287082")]            // RFC 6238 vector (8-digit 94287082, truncated to 6)
+    [InlineData(59L, "287082")]            // RFC 6238 vector (8-digit 94287082 -> 6)
     [InlineData(1111111109L, "081804")]    // RFC 6238 vector (8-digit 07081804)
     [InlineData(1111111111L, "050471")]
     public void Generate_matches_rfc6238_vectors(long unixSeconds, string expected)
@@ -75,7 +71,7 @@ public class UnlockCodeTests
         Assert.True(UnlockCode.Verify(RfcSecret, code, now, 1, long.MinValue, out var counter));
         Assert.Equal(now / UnlockCode.StepSeconds, counter);
 
-        // Re-using the same code once its counter has been recorded must fail.
+        // reusing code after counter recorded must fail
         Assert.False(UnlockCode.Verify(RfcSecret, code, now, 1, counter, out _));
     }
 

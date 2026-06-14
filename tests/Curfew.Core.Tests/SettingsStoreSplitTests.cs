@@ -30,14 +30,14 @@ public class SettingsStoreSplitTests : IDisposable
             s.Set("lock_active", "1");                       // state
         }
 
-        // The config file holds the policy keys, not the counters.
+        // config file holds policy keys, not counters
         using (var c = SettingsStore.Open(_config, Today))
         {
             Assert.Equal("hash", c.Get("passcode"));
             Assert.Null(c.Get("remaining_time_2026-06-11"));
         }
 
-        // The state file holds the counters, not the policy.
+        // state file holds counters, not policy
         using (var st = SettingsStore.Open(_state, Today))
         {
             Assert.Equal("100", st.Get("remaining_time_2026-06-11"));
@@ -56,7 +56,7 @@ public class SettingsStoreSplitTests : IDisposable
             legacy.Set("used_time_2026-06-11", "60");        // state
         }
 
-        // config/state do not exist yet → migration runs.
+        // config/state don't exist yet → migration runs
         using var s = SettingsStore.OpenSplit(_config, _state, _legacy, Today);
 
         Assert.Equal("H", s.Get("passcode"));                // migrated to config
@@ -69,11 +69,11 @@ public class SettingsStoreSplitTests : IDisposable
     {
         using var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today);
 
-        s.Set("limit_enabled", "1");          // global (no SID set)
+        s.Set("limit_enabled", "1");          // global, no SID set
 
         s.UserSid = "S-1-5-21-1";
         Assert.Equal("1", s.Get("limit_enabled"));   // falls back to global
-        s.Set("limit_enabled", "0");                 // overrides for this user
+        s.Set("limit_enabled", "0");                 // override for this user
         Assert.Equal("0", s.Get("limit_enabled"));
 
         s.UserSid = "S-1-5-21-2";
@@ -82,7 +82,7 @@ public class SettingsStoreSplitTests : IDisposable
         s.UserSid = null;
         Assert.Equal("1", s.Get("limit_enabled"));   // global untouched
 
-        // Device-wide keys are never scoped.
+        // device-wide keys never scoped
         s.UserSid = "S-1-5-21-1";
         s.Set("passcode", "H");
         s.UserSid = "S-1-5-21-2";
@@ -92,7 +92,7 @@ public class SettingsStoreSplitTests : IDisposable
     [Fact]
     public void OpenSplit_does_not_migrate_when_config_already_exists()
     {
-        // Seed config first so migration is skipped on the next open.
+        // seed config first so next open skips migration
         using (var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today))
             s.Set("passcode", "already");
 
@@ -109,17 +109,14 @@ public class SettingsStoreSplitTests : IDisposable
         using (var legacy = SettingsStore.Open(_legacy, Today))
             legacy.Set("passcode", "parents-real-passcode");
 
-        // A non-privileged process (app/overlay) bootstrapped config.db with
-        // defaults before the service's first split open — historically that made
-        // the service skip the migration forever because the file already existed.
+        // non-privileged process (app/overlay) bootstrapped config.db with defaults before service's first split open — historically service skipped migration forever because file already existed
         using (SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today, configWritable: false)) { }
         Assert.True(File.Exists(_config));
 
         using var service = SettingsStore.OpenSplit(_config, _state, _legacy, Today, configWritable: true);
         Assert.Equal("parents-real-passcode", service.Get("passcode"));
 
-        // The marker is consumed: a later service open must NOT re-migrate the
-        // stale legacy file over the parent's current settings.
+        // marker consumed: later service open must NOT re-migrate stale legacy file over parent's current settings
         service.Set("passcode", "rotated");
         service.Dispose();
         using var reopened = SettingsStore.OpenSplit(_config, _state, _legacy, Today, configWritable: true);
@@ -131,10 +128,10 @@ public class SettingsStoreSplitTests : IDisposable
     {
         using var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today);
 
-        // The overlay writes usage as used_time_<sid>_<date> (seconds).
+        // overlay writes usage as used_time_<sid>_<date> (seconds)
         s.Set("used_time_S-1-5-21-1_2026-06-11", "600");
         s.Set("used_time_S-1-5-21-2_2026-06-11", "300");
-        s.Set("used_time_2026-06-11", "60"); // legacy pre-per-user row
+        s.Set("used_time_2026-06-11", "60"); // legacy pre-per-user
 
         s.UserSid = "S-1-5-21-1";
         var one = s.GetUsageHistory(1);

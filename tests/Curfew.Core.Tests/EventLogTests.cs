@@ -41,7 +41,7 @@ public class EventLogTests : IDisposable
             EventLog.Append(_path, CurfewEventKind.Locked, $"#{i}");
 
         Assert.Equal(EventLog.MaxEntries, File.ReadAllLines(_path).Length);
-        // The oldest entries were dropped; the newest survives.
+        // oldest dropped; newest survives
         Assert.Equal($"#{EventLog.MaxEntries + 49}", EventLog.ReadRecent(_path, 1)[0].Detail);
     }
 

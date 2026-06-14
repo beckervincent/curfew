@@ -7,48 +7,38 @@ using Microsoft.UI.Xaml.Media;
 
 namespace Curfew.App;
 
-/// <summary>
-/// First-run setup wizard (Fluent + Mica). The parent always makes explicit
-/// choices here: an administrator PIN, whether a daily hour limit is enforced,
-/// whether a weekly schedule is enforced, the content-filter level, DNS-over-HTTPS
-/// blocking and Time Manipulation Guarding.
-/// </summary>
-/// <remarks>
-/// Pressing <c>Continue</c> validates the PIN, writes every choice to the
-/// <see cref="SettingsStore"/>, marks setup as complete and closes the window.
-/// Nothing is persisted until validation passes, so cancelling (closing the
-/// window) leaves the store untouched.
-/// </remarks>
+/// <summary>first-run setup wizard (Fluent + Mica). parent picks: admin PIN, daily hour limit on/off, weekly schedule on/off, content-filter level, DNS-over-HTTPS blocking, Time Manipulation Guarding</summary>
+/// <remarks><c>Continue</c> validates PIN, writes every choice to <see cref="SettingsStore"/>, marks setup complete, closes. nothing persisted until validation passes, so cancelling leaves store untouched</remarks>
 public sealed partial class SetupWindow : Window
 {
-    /// <summary>Minimum passcode length; any characters (PIN or password) are allowed.</summary>
+    /// <summary>min passcode length; any chars (PIN or password)</summary>
     private const int PinLength = PasscodeHash.MinLength;
 
-    /// <summary>Hours-per-day applied when the <c>NumberBox</c> value is blank/NaN.</summary>
+    /// <summary>hours/day when <c>NumberBox</c> blank/NaN</summary>
     private const double DefaultHoursPerDay = 2.0;
 
-    /// <summary>Inclusive bounds for the daily hour budget (matches the XAML NumberBox).</summary>
+    /// <summary>inclusive bounds for daily hour budget (matches XAML NumberBox)</summary>
     private const double MinHoursPerDay = 0.0;
     private const double MaxHoursPerDay = 24.0;
 
     private const int MinutesPerHour = 60;
 
-    /// <summary>Initial client size of the wizard, in DIPs.</summary>
+    /// <summary>initial wizard client size, in DIPs</summary>
     private static readonly Windows.Graphics.SizeInt32 WindowSize = new(560, 720);
 
-    /// <summary>Number of editable weekdays (Monday … Sunday).</summary>
+    /// <summary>editable weekdays (Mon..Sun)</summary>
     private const int DayCount = 7;
 
     private readonly SettingsStore _settings;
 
-    /// <summary>Per-day hour spinners shown under Advanced; built in <see cref="BuildPerDayLimits"/>.</summary>
+    /// <summary>per-day hour spinners under Advanced; built in <see cref="BuildPerDayLimits"/></summary>
     private readonly NumberBox[] _perDay = new NumberBox[DayCount];
 
-    /// <summary>True once Advanced has been revealed, so per-day values take over from the single figure.</summary>
+    /// <summary>true once Advanced revealed, so per-day values override the single figure</summary>
     private bool _advanced;
 
-    /// <summary>Creates the wizard bound to the store its choices are written to.</summary>
-    /// <param name="settings">Destination for every configured value. Never <c>null</c>.</param>
+    /// <summary>wizard bound to the store its choices write to</summary>
+    /// <param name="settings">destination for every configured value. never <c>null</c></param>
     public SetupWindow(SettingsStore settings)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -58,7 +48,7 @@ public sealed partial class SetupWindow : Window
         BuildPerDayLimits();
     }
 
-    /// <summary>Creates the seven per-day hour spinners shown under Advanced.</summary>
+    /// <summary>build seven per-day hour spinners under Advanced</summary>
     private void BuildPerDayLimits()
     {
         for (var i = 0; i < DayCount; i++)
@@ -77,10 +67,7 @@ public sealed partial class SetupWindow : Window
         }
     }
 
-    /// <summary>
-    /// Reveals (or hides) the advanced options. On first reveal the per-day spinners
-    /// inherit the single hours/day figure so they start from a sensible baseline.
-    /// </summary>
+    /// <summary>toggle advanced options. on first reveal per-day spinners inherit the single hours/day figure for a sane baseline</summary>
     private void OnToggleAdvanced(object sender, RoutedEventArgs e)
     {
         if (!_advanced)
@@ -102,11 +89,7 @@ public sealed partial class SetupWindow : Window
     private void OnPresetChild(object sender, RoutedEventArgs e) => ApplyPreset(1, blockFromHour: 19, blockToHour: 7);
     private void OnPresetTeen(object sender, RoutedEventArgs e) => ApplyPreset(3, blockFromHour: 22, blockToHour: 6);
 
-    /// <summary>
-    /// One-tap preset: enables the daily limit + a bedtime schedule, sets the hours,
-    /// blocks the overnight window [blockFromHour..blockToHour) and reveals the
-    /// advanced panel so the parent can review/tweak the applied schedule.
-    /// </summary>
+    /// <summary>one-tap preset: enable daily limit + bedtime schedule, set hours, block overnight [blockFromHour..blockToHour), reveal advanced panel for review/tweak</summary>
     private void ApplyPreset(double hours, int blockFromHour, int blockToHour)
     {
         LimitEnabled.IsOn = true;
@@ -128,17 +111,14 @@ public sealed partial class SetupWindow : Window
         AdvancedPanel.Visibility = Visibility.Visible;
     }
 
-    /// <summary>Applies the title, Mica backdrop, custom title bar and rounded corners.</summary>
+    /// <summary>apply title, Mica backdrop, custom title bar, rounded corners</summary>
     private void ApplyWindowChrome()
     {
         AppWindow.Resize(WindowSize);
         WindowEffects.Apply(this, Loc.T("setup.title"), TitleBar);
     }
 
-    /// <summary>
-    /// Handles the <c>Continue</c> button: validates input, then commits all
-    /// settings and closes. Bound from XAML (<c>Click="OnContinue"</c>).
-    /// </summary>
+    /// <summary><c>Continue</c> button: validate input, commit all settings, close. bound from XAML (<c>Click="OnContinue"</c>)</summary>
     private void OnContinue(object sender, RoutedEventArgs e)
     {
         if (!TryReadValidatedPin(out var pin))
@@ -148,11 +128,7 @@ public sealed partial class SetupWindow : Window
         ConfigBridge.ResetWriteStatus();
         PersistConfiguration(pin);
 
-        // Every first-run value (the passcode hash and setup_complete included) is
-        // written through the service over the config pipe. If any of those writes
-        // could not reach the service, the device would be left unprotected
-        // (HasPasscode==false) while the wizard claimed success — so keep the window
-        // open and tell the parent to retry once the service is reachable.
+        // every first-run value (passcode hash + setup_complete) written through service over config pipe. if any didn't reach it, device is left unprotected (HasPasscode==false) while wizard claimed success — keep window open, tell parent to retry once service reachable
         if (!ConfigBridge.LastWriteOk)
         {
             ShowError(Loc.T("settings.err.savefailed"));
@@ -162,11 +138,7 @@ public sealed partial class SetupWindow : Window
         Close();
     }
 
-    /// <summary>
-    /// Reads and validates the PIN pair. On failure it surfaces an inline error
-    /// and returns <c>false</c>; on success <paramref name="pin"/> holds the
-    /// confirmed 4-digit value.
-    /// </summary>
+    /// <summary>read + validate PIN pair. on fail surface inline error, return <c>false</c>; on success <paramref name="pin"/> holds confirmed 4-digit value</summary>
     private bool TryReadValidatedPin(out string pin)
     {
         pin = PinBox.Password;
@@ -186,12 +158,10 @@ public sealed partial class SetupWindow : Window
         return true;
     }
 
-    /// <summary>Writes every wizard choice to the store and marks setup complete.</summary>
+    /// <summary>write every wizard choice to store, mark setup complete</summary>
     private void PersistConfiguration(string pin)
     {
-        // First run writes config through the service too (config.db is read-only).
-        // The new PIN authorises the writes; the service lets the very first
-        // passcode through before any passcode exists (bootstrap).
+        // first run writes config through service too (config.db read-only). new PIN authorises writes; service lets the very first passcode through before any exists (bootstrap)
         ConfigBridge.Passcode = pin;
         ConfigBridge.Attach(_settings);
 
@@ -206,18 +176,14 @@ public sealed partial class SetupWindow : Window
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));
         _settings.Set("time_guard_enabled", ToFlag(TimeGuard.IsOn));
 
-        // Seed the offline unlock-code secret so the feature is ready to enrol
-        // in an authenticator app from Settings.
+        // seed offline unlock-code secret so feature is ready to enrol in an authenticator from Settings
         if (string.IsNullOrEmpty(_settings.Get("unlock_secret")))
             _settings.Set("unlock_secret", Curfew.Core.Security.UnlockCode.GenerateSecret());
 
         _settings.Set("setup_complete", "1");
     }
 
-    /// <summary>
-    /// Writes the daily budget. In simple mode the single hours/day figure applies
-    /// to every weekday; once Advanced has been used, each day keeps its own value.
-    /// </summary>
+    /// <summary>write daily budget. simple mode: single hours/day applies to every weekday; once Advanced used, each day keeps its own value</summary>
     private void SaveDailyLimits()
     {
         if (_advanced)
@@ -232,7 +198,7 @@ public sealed partial class SetupWindow : Window
             _settings.Set(key, value);
     }
 
-    /// <summary>A NumberBox hours value clamped to range and rounded to whole minutes.</summary>
+    /// <summary>NumberBox hours clamped to range, rounded to whole minutes</summary>
     private static int HoursToMinutes(double hours)
     {
         if (double.IsNaN(hours))
@@ -241,10 +207,10 @@ public sealed partial class SetupWindow : Window
         return (int)Math.Round(hours * MinutesPerHour);
     }
 
-    /// <summary>The daily budget from the single NumberBox, clamped and rounded to whole minutes.</summary>
+    /// <summary>daily budget from single NumberBox, clamped + rounded to whole minutes</summary>
     private int ChosenDailyMinutes() => HoursToMinutes(HoursPerDay.Value);
 
-    /// <summary>Maps the content-filter radio group to a <see cref="FilterMode"/>.</summary>
+    /// <summary>map content-filter radio group to <see cref="FilterMode"/></summary>
     private FilterMode SelectedFilterMode()
     {
         if (FilterMalware.IsChecked == true) return FilterMode.Malware;
@@ -252,17 +218,17 @@ public sealed partial class SetupWindow : Window
         return FilterMode.Off;
     }
 
-    /// <summary>Renders a boolean as the store's "1"/"0" flag convention.</summary>
+    /// <summary>bool as store's "1"/"0" flag</summary>
     private static string ToFlag(bool on) => on ? "1" : "0";
 
-    /// <summary>Shows an inline validation message beneath the form.</summary>
+    /// <summary>show inline validation message beneath form</summary>
     private void ShowError(string message)
     {
         ErrorText.Text = message;
         ErrorText.Visibility = Visibility.Visible;
     }
 
-    /// <summary>Hides any previously shown validation message.</summary>
+    /// <summary>hide any shown validation message</summary>
     private void ClearError()
     {
         ErrorText.Text = string.Empty;

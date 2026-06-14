@@ -4,28 +4,19 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Unit tests for <see cref="Sntp"/>, the pure (network-free) SNTP packet
-/// builder/parser used by Time Manipulation Guarding. The tests hand-craft byte
-/// buffers so the wire format is exercised without any UDP traffic.
-/// </summary>
+/// <summary>tests for <see cref="Sntp"/> pure SNTP builder/parser; hand-craft bytes, no UDP</summary>
 public class SntpTests
 {
-    /// <summary>Seconds between the NTP epoch (1900-01-01) and the Unix epoch (1970-01-01).</summary>
+    /// <summary>seconds between NTP epoch (1900-01-01) and Unix epoch (1970-01-01)</summary>
     private const long NtpToUnixSeconds = 2_208_988_800L;
 
-    /// <summary>Byte offset of the 64-bit Transmit Timestamp field within the packet.</summary>
+    /// <summary>byte offset of 64-bit Transmit Timestamp field in packet</summary>
     private const int TransmitTimestampOffset = 40;
 
-    /// <summary>First byte of a well-formed client request: LI=0, VN=4, Mode=3.</summary>
+    /// <summary>first byte of good client request: LI=0, VN=4, Mode=3</summary>
     private const byte ClientLeapVersionMode = 0x23;
 
-    /// <summary>
-    /// Builds a 48-byte SNTP reply whose Transmit Timestamp encodes
-    /// <paramref name="instant"/>. The remaining header fields are left zero,
-    /// which is enough for <see cref="Sntp.ParseReply"/> since it only reads the
-    /// transmit timestamp.
-    /// </summary>
+    /// <summary>build 48-byte SNTP reply whose Transmit Timestamp encodes <paramref name="instant"/>; rest zero, enough for <see cref="Sntp.ParseReply"/></summary>
     private static byte[] BuildReplyWithTransmitTime(DateTimeOffset instant)
     {
         var packet = new byte[Sntp.PacketSize];
@@ -34,7 +25,7 @@ public class SntpTests
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset, 4), ntpSeconds);
 
-        // Encode the sub-second part as the 32-bit NTP fraction (denominator 2^32).
+        // sub-second as 32-bit NTP fraction (denom 2^32)
         var subSecond = instant - DateTimeOffset.FromUnixTimeSeconds(instant.ToUnixTimeSeconds());
         var fraction = (uint)(subSecond.TotalSeconds * 4_294_967_296.0);
         BinaryPrimitives.WriteUInt32BigEndian(
@@ -49,8 +40,8 @@ public class SntpTests
         var req = Sntp.BuildRequest();
 
         Assert.Equal(Sntp.PacketSize, req.Length);
-        Assert.Equal(48, req.Length); // Pin the wire size independently of the constant.
-        Assert.Equal(ClientLeapVersionMode, req[0]); // LI=0, VN=4, Mode=3 (client).
+        Assert.Equal(48, req.Length); // pin wire size, not the constant
+        Assert.Equal(ClientLeapVersionMode, req[0]); // LI=0, VN=4, Mode=3 (client)
     }
 
     [Fact]
@@ -58,7 +49,7 @@ public class SntpTests
     {
         var req = Sntp.BuildRequest();
 
-        // Only the first byte carries data in a request; the server fills the rest.
+        // only first byte carries data; server fills rest
         for (var i = 1; i < req.Length; i++)
             Assert.Equal(0, req[i]);
     }
@@ -71,7 +62,7 @@ public class SntpTests
 
         Assert.NotSame(first, second);
 
-        // Mutating one request must not affect a subsequently built one.
+        // mutating one must not affect next built
         first[5] = 0xFF;
         Assert.Equal(0, Sntp.BuildRequest()[5]);
     }
@@ -95,7 +86,7 @@ public class SntpTests
 
         var parsed = Sntp.ParseReply(packet);
 
-        // NTP timestamps are UTC; the parsed value must carry a zero offset.
+        // NTP stamps are UTC; parsed must carry zero offset
         Assert.Equal(TimeSpan.Zero, parsed.Offset);
     }
 
@@ -104,10 +95,10 @@ public class SntpTests
     {
         var instants = new[]
         {
-            new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero),  // Unix epoch.
+            new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero),  // Unix epoch
             new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2036, 2, 7, 6, 28, 15, TimeSpan.Zero), // Near NTP era rollover.
+            new DateTimeOffset(2036, 2, 7, 6, 28, 15, TimeSpan.Zero), // near NTP era rollover
         };
 
         foreach (var instant in instants)
@@ -126,7 +117,7 @@ public class SntpTests
 
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset, 4), seconds);
-        // 0x8000_0000 == exactly half a second (numerator over the implied 2^32).
+        // 0x8000_0000 == exactly half second (over implied 2^32)
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset + 4, 4), 0x8000_0000u);
 
@@ -144,15 +135,13 @@ public class SntpTests
 
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset, 4), seconds);
-        // A fraction of 1 is the smallest representable step (~233 ps); it must
-        // not be silently rounded down to zero whole milliseconds.
+        // fraction 1 is smallest step (~233 ps); must not round down to 0 ms
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset + 4, 4), 1u);
 
         var parsed = Sntp.ParseReply(packet);
 
-        // The fraction is below 1 ms, so the millisecond component stays zero, but
-        // the value is still strictly later than the whole-second boundary.
+        // fraction below 1 ms: ms component stays 0, but still past whole-second boundary
         var wholeSecond = new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero);
         Assert.True(parsed >= wholeSecond);
         Assert.True(parsed - wholeSecond < TimeSpan.FromMilliseconds(1));
@@ -164,8 +153,7 @@ public class SntpTests
         var instant = new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero);
         var packet = BuildReplyWithTransmitTime(instant);
 
-        // Scramble every header field that precedes the transmit timestamp
-        // (LI/VN/Mode, stratum, the originate/receive timestamps, etc.).
+        // scramble every header field before transmit timestamp
         for (var i = 0; i < TransmitTimestampOffset; i++)
             packet[i] = 0xAB;
 
@@ -177,12 +165,11 @@ public class SntpTests
     [Fact]
     public void ParseReply_accepts_packets_longer_than_48_bytes()
     {
-        // Real servers may append a Key Identifier and Message Digest (authentication
-        // trailer) after the 48-byte header; ParseReply must tolerate the extra bytes.
+        // real servers may append auth trailer after 48-byte header; ParseReply must tolerate extra bytes
         var instant = new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero);
-        var packet = new byte[68]; // 48-byte header + 20-byte MD5 authenticator.
+        var packet = new byte[68]; // 48-byte header + 20-byte MD5 authenticator
         BuildReplyWithTransmitTime(instant).CopyTo(packet, 0);
-        // Fill the trailing authenticator with non-zero bytes to prove it is ignored.
+        // fill trailing authenticator non-zero to prove it ignored
         for (var i = Sntp.PacketSize; i < packet.Length; i++)
             packet[i] = 0x5A;
 
@@ -194,8 +181,7 @@ public class SntpTests
     [Fact]
     public void BuildRequest_output_round_trips_through_ParseReply_when_stamped()
     {
-        // A request has a zero transmit timestamp; stamping it makes a valid reply,
-        // which keeps the builder and parser in agreement on field layout.
+        // request has zero transmit timestamp; stamping makes valid reply, keeps builder+parser agreed on layout
         var instant = new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero);
         var packet = Sntp.BuildRequest();
         BinaryPrimitives.WriteUInt32BigEndian(
@@ -210,7 +196,7 @@ public class SntpTests
     [Theory]
     [InlineData(0)]
     [InlineData(10)]
-    [InlineData(47)] // One byte short of the required header size.
+    [InlineData(47)] // one byte short of header size
     public void ParseReply_rejects_short_packets(int length)
     {
         var ex = Assert.Throws<ArgumentException>(() => Sntp.ParseReply(new byte[length]));
@@ -220,8 +206,7 @@ public class SntpTests
     [Fact]
     public void ParseReply_rejects_an_all_zero_transmit_timestamp()
     {
-        // An all-zero transmit timestamp is the NTP "unspecified" value and must be
-        // rejected rather than reported as 1900-01-01.
+        // all-zero transmit timestamp is NTP "unspecified"; reject, not 1900-01-01
         var ex = Assert.Throws<ArgumentException>(() => Sntp.ParseReply(new byte[Sntp.PacketSize]));
         Assert.Equal("reply", ex.ParamName);
     }
@@ -229,10 +214,7 @@ public class SntpTests
     [Fact]
     public void ParseReply_accepts_a_zero_seconds_field_with_a_non_zero_fraction()
     {
-        // Only an entirely zero timestamp is "unspecified"; a non-zero fraction
-        // alone must still be parsed. With era handling, a seconds value below the
-        // 1970 offset is an era-1 timestamp, so 0 seconds means the era-1 epoch
-        // (2036-02-07T06:28:16Z), not 1900.
+        // only all-zero stamp is "unspecified"; non-zero fraction alone still parses. seconds below 1970 offset = era-1, so 0 seconds = era-1 epoch (2036-02-07T06:28:16Z), not 1900
         var packet = new byte[Sntp.PacketSize];
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset + 4, 4), 0x8000_0000u);
@@ -246,10 +228,7 @@ public class SntpTests
     [Fact]
     public void ParseReply_handles_the_2036_era_rollover()
     {
-        // After 2036-02-07 the 32-bit seconds field wraps to small values. Without
-        // the era pivot every server would "agree" on ~1900 and the time guard
-        // would force the clock 136 years back. One day into era 1 must parse as
-        // 2036-02-08, not 1900-01-02.
+        // after 2036-02-07 the 32-bit seconds wraps to small values. without era pivot all servers "agree" on ~1900 and guard forces clock 136 years back. one day into era 1 must parse as 2036-02-08, not 1900-01-02
         var packet = new byte[Sntp.PacketSize];
         BinaryPrimitives.WriteUInt32BigEndian(
             packet.AsSpan(TransmitTimestampOffset, 4), 86_400u);
@@ -265,7 +244,7 @@ public class SntpTests
     [Fact]
     public void ParseReply_keeps_era_0_timestamps_unchanged()
     {
-        // A current-era timestamp (high bit set, e.g. 2026) must not be shifted.
+        // current-era stamp (high bit set, e.g. 2026) must not shift
         var nowNtpSeconds = 2_208_988_800u + 1_780_000_000u; // ≈ 2026 in Unix time
         var packet = new byte[Sntp.PacketSize];
         BinaryPrimitives.WriteUInt32BigEndian(

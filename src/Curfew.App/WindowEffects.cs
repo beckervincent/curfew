@@ -9,21 +9,10 @@ using Windows.UI;
 
 namespace Curfew.App;
 
-/// <summary>
-/// Applies consistent Windows 11 window chrome to every Curfew dialog: a real
-/// title (instead of the default "WinUI Desktop"), a Mica backdrop, a custom
-/// drag-region title bar so the caption area is no longer a flat white strip,
-/// theme-aware caption buttons that follow the Windows light/dark setting, and
-/// rounded corners.
-/// </summary>
+/// <summary>consistent Windows 11 chrome for every Curfew dialog: real title (not "WinUI Desktop"), Mica backdrop, custom drag-region title bar, theme-aware caption buttons, rounded corners</summary>
 internal static class WindowEffects
 {
-    /// <summary>
-    /// Sets the title, applies a Mica (or Acrylic) backdrop, extends the content
-    /// into the title bar using <paramref name="titleBar"/> as the drag region,
-    /// keeps the caption buttons in sync with the current theme, and rounds the
-    /// corners.
-    /// </summary>
+    /// <summary>set title, apply Mica (or Acrylic) backdrop, extend content into title bar using <paramref name="titleBar"/> as drag region, sync caption buttons to theme, round corners</summary>
     public static void Apply(Window window, string title, UIElement? titleBar)
     {
         if (window is null) return;
@@ -40,7 +29,7 @@ internal static class WindowEffects
         if (window.Content is FrameworkElement root)
         {
             UpdateCaptionColors(window, root.ActualTheme);
-            // Re-tint the caption glyphs whenever Windows switches light/dark.
+            // re-tint caption glyphs whenever Windows switches light/dark
             root.ActualThemeChanged += (sender, _) => UpdateCaptionColors(window, sender.ActualTheme);
         }
 
@@ -48,11 +37,7 @@ internal static class WindowEffects
         CenterOnScreen(window);
     }
 
-    /// <summary>
-    /// Centres the window on the work area of the display it currently sits on, so
-    /// dialogs open in the middle of the screen instead of the top-left corner.
-    /// Assumes the window has already been sized (callers Resize before Apply).
-    /// </summary>
+    /// <summary>centre window on its current display's work area (middle, not top-left). assumes already sized (callers Resize before Apply)</summary>
     public static void CenterOnScreen(Window? window)
     {
         if (window is null) return;
@@ -71,11 +56,11 @@ internal static class WindowEffects
         }
         catch
         {
-            // Positioning is cosmetic; a failure just leaves the default placement.
+            // positioning is cosmetic; failure leaves default placement
         }
     }
 
-    /// <summary>Prefer Mica; fall back to Acrylic; otherwise leave the default.</summary>
+    /// <summary>prefer Mica; fall back to Acrylic; else leave default</summary>
     private static void TrySetBackdrop(Window window)
     {
         if (MicaController.IsSupported())
@@ -84,10 +69,7 @@ internal static class WindowEffects
             window.SystemBackdrop = new DesktopAcrylicBackdrop();
     }
 
-    /// <summary>
-    /// Makes the caption-button backgrounds transparent (so Mica shows through)
-    /// and tints the min/restore/close glyphs to contrast with the active theme.
-    /// </summary>
+    /// <summary>transparent caption-button backgrounds (Mica shows through), tint min/restore/close glyphs to contrast active theme</summary>
     private static void UpdateCaptionColors(Window window, ElementTheme theme)
     {
         var bar = window.AppWindow.TitleBar;
@@ -110,10 +92,7 @@ internal static class WindowEffects
             : Color.FromArgb(0x28, 0x00, 0x00, 0x00);
     }
 
-    /// <summary>
-    /// Requests Windows 11 rounded corners. Failures are swallowed: rounding is
-    /// cosmetic and unsupported on Windows 10, where the DWM call simply fails.
-    /// </summary>
+    /// <summary>request Windows 11 rounded corners. failures swallowed: cosmetic, unsupported on Windows 10 where the DWM call fails</summary>
     public static void RoundCorners(Window? window)
     {
         if (window is null) return;
@@ -128,7 +107,7 @@ internal static class WindowEffects
         }
         catch
         {
-            // Older Windows or an unresolvable handle — square corners are fine.
+            // older Windows or unresolvable handle — square corners fine
         }
     }
 

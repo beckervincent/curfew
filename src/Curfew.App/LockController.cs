@@ -6,23 +6,12 @@ using Windows.Graphics;
 
 namespace Curfew.App;
 
-/// <summary>
-/// Drives the WinUI lock surface for the <c>--lock</c> activation: a full-screen
-/// interactive card on the primary monitor and a cover on every other monitor.
-/// </summary>
+/// <summary>drive WinUI lock surface for <c>--lock</c> activation: full-screen interactive card on primary monitor + cover on every other monitor</summary>
 /// <remarks>
-/// <para>
-/// This is only the visual + input layer. The robust enforcement (the instant
-/// black cover, the low-level keyboard hook, the watchdog) lives in the Win32
-/// overlay, which launches this app while a session is blocked and relaunches it
-/// if it is killed. The two coordinate through settings keys:
-/// </para>
+/// only visual + input layer. robust enforcement (instant black cover, low-level keyboard hook, watchdog) lives in Win32 overlay, which launches this app while session blocked + relaunches if killed. the two coordinate through settings keys:
 /// <list type="bullet">
-/// <item>read: <c>lock_reason</c> (budget|schedule), <c>lock_deadline_unix</c>
-/// (logoff countdown), <c>lock_active</c> (1 while the overlay still wants the
-/// lock up — this app exits when it clears).</item>
-/// <item>write: <c>lock_action</c> + <c>lock_action_at</c> (+ <c>lock_code</c> for
-/// an unlock-code redemption), which the overlay consumes and applies.</item>
+/// <item>read: <c>lock_reason</c> (budget|schedule), <c>lock_deadline_unix</c> (logoff countdown), <c>lock_active</c> (1 while overlay still wants lock up — this app exits when it clears)</item>
+/// <item>write: <c>lock_action</c> + <c>lock_action_at</c> (+ <c>lock_code</c> for unlock-code redemption), which overlay consumes + applies</item>
 /// </list>
 /// </remarks>
 internal sealed class LockController
@@ -35,7 +24,7 @@ internal sealed class LockController
 
     public LockController(SettingsStore settings) => _settings = settings;
 
-    /// <summary>Builds and shows the lock windows; returns the primary window.</summary>
+    /// <summary>build + show lock windows; returns primary window</summary>
     public LockWindow Start()
     {
         var reason = _settings.Get("lock_reason") ?? "budget";
@@ -45,9 +34,7 @@ internal sealed class LockController
         var displays = AllDisplays();
         var primaryArea = PrimaryDisplay(displays);
 
-        // Activate first so the content composes, THEN switch to the full-screen
-        // presenter. Going full-screen before the first Activate() can leave a
-        // WinUI 3 window showing an uncomposed (black) surface.
+        // Activate first so content composes, THEN switch to full-screen presenter. full-screen before first Activate() can leave WinUI 3 window showing uncomposed (black) surface
         _primary.Activate();
         if (primaryArea is not null) PlaceFullScreen(_primary, primaryArea);
         _primary.FocusInput();
@@ -79,16 +66,7 @@ internal sealed class LockController
         return displays.Count > 0 ? displays[0] : null;
     }
 
-    /// <summary>
-    /// Copies <see cref="DisplayArea.FindAll"/> into a plain list element by element.
-    /// FindAll returns a projected WinRT <c>IReadOnlyList</c> whose enumerator
-    /// interface CsWinRT cannot resolve: <c>foreach</c>/LINQ over it throws
-    /// <see cref="InvalidCastException"/> ("interface not supported"). That crash
-    /// previously killed the whole lock surface on launch and left the overlay
-    /// showing only its black cover (the "inescapable black screen"). Indexer access
-    /// (<c>Count</c> + <c>this[i]</c>) maps to <c>IVectorView.Size</c>/<c>GetAt</c>,
-    /// which IS supported, so we read it positionally instead of enumerating.
-    /// </summary>
+    /// <summary>copy <see cref="DisplayArea.FindAll"/> into plain list element by element. FindAll returns projected WinRT <c>IReadOnlyList</c> whose enumerator interface CsWinRT cant resolve: <c>foreach</c>/LINQ over it throws <see cref="InvalidCastException"/> ("interface not supported"). that crash killed whole lock surface on launch + left overlay showing only its black cover (the "inescapable black screen"). indexer access (<c>Count</c> + <c>this[i]</c>) maps to <c>IVectorView.Size</c>/<c>GetAt</c>, which IS supported, so read positionally instead of enumerating</summary>
     private static List<DisplayArea> AllDisplays()
     {
         var found = DisplayArea.FindAll();
@@ -101,9 +79,7 @@ internal sealed class LockController
     {
         var appWindow = window.AppWindow;
         var bounds = area.OuterBounds;
-        // Move onto the target monitor first, then go full-screen so the presenter
-        // fills that monitor. Hide from Alt+Tab / the taskbar so the lock cannot be
-        // switched away from.
+        // move onto target monitor first, then full-screen so presenter fills it. hide from Alt+Tab / taskbar so lock cant be switched away from
         appWindow.Move(new PointInt32(bounds.X, bounds.Y));
         appWindow.IsShownInSwitchers = false;
         appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
@@ -119,12 +95,7 @@ internal sealed class LockController
 
     private void OnTick(object? sender, object e)
     {
-        // The overlay clears lock_active when it decides the session is no longer
-        // blocked; exit so it can drop its black cover. The read hits state.db,
-        // which the child can hold locked: a transient SqliteException here must
-        // not kill the tick (that would freeze the lock and stop us ever noticing
-        // lock_active clearing). Treat a failed read as "still active" and retry
-        // next tick — the overlay's GDI cover stays up regardless.
+        // overlay clears lock_active when session no longer blocked; exit so it can drop black cover. read hits state.db, child can hold locked: transient SqliteException must not kill tick (would freeze lock + stop us noticing lock_active clearing). treat failed read as "still active" + retry next tick — overlay GDI cover stays up regardless
         string? active;
         try { active = _settings.Get("lock_active"); }
         catch { return; }
@@ -135,8 +106,7 @@ internal sealed class LockController
             return;
         }
 
-        // Keep every lock window pinned to the top so nothing can cover it (the
-        // overlay's black cover deliberately does NOT fight us for the top spot).
+        // keep every lock window pinned to top so nothing covers it (overlay black cover deliberately does NOT fight us for top spot)
         ReassertTopmost(_primary);
         foreach (var cover in _covers) ReassertTopmost(cover);
 
@@ -149,12 +119,12 @@ internal sealed class LockController
         try
         {
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
-            // SWP_NOACTIVATE so reasserting never steals focus from the passcode field.
+            // SWP_NOACTIVATE so reasserting never steals focus from passcode field
             SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
         }
         catch
         {
-            // Best effort: the FullScreen presenter already keeps the window topmost.
+            // best effort: FullScreen presenter already keeps window topmost
         }
     }
 
@@ -172,8 +142,7 @@ internal sealed class LockController
     {
         if (_primary is null) return;
 
-        // The deadline read also hits state.db; a transient lock must not throw out
-        // of the tick. Leave the last-shown countdown in place and refresh next tick.
+        // deadline read also hits state.db; transient lock must not throw out of tick. leave last-shown countdown in place + refresh next tick
         string? rawDeadline;
         try { rawDeadline = _settings.Get("lock_deadline_unix"); }
         catch { return; }
@@ -199,28 +168,19 @@ internal sealed class LockController
     private void OnAction(string action, string? code)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        // These writes land in state.db, which the child can hold locked: a write
-        // throwing SqliteException here would otherwise escape the ActionConfirmed
-        // handler unhandled (crashing the lock process) AND silently discard the
-        // parent's authenticated unlock/extend/redeem. Catch it, keep the lock
-        // window up, and surface a retry prompt instead of acting on a half-written
-        // handshake. lock_action is still written last, so a failure before it is
-        // set leaves the overlay nothing to consume (no fresh action paired with a
-        // stale timestamp).
+        // writes land in state.db, child can hold locked: write throwing SqliteException would escape ActionConfirmed handler unhandled (crashing lock process) AND silently discard parent's authenticated unlock/extend/redeem. catch it, keep lock window up, surface retry prompt instead of acting on half-written handshake. lock_action still written last, so failure before it leaves overlay nothing to consume (no fresh action paired with stale timestamp)
         try
         {
             _settings.Set("lock_action_at", now.ToString());
-            // redeem carries the unlock code; provision carries the parent PIN (so the
-            // service can re-verify) plus the chosen per-user daily limit.
+            // redeem carries unlock code; provision carries parent PIN (so service can re-verify) plus chosen per-user daily limit
             if (code is not null && action is "redeem" or "provision") _settings.Set("lock_code", code);
             if (action == "provision" && _primary is not null)
                 _settings.Set("lock_setup_limit", _primary.SetupLimitMinutes.ToString());
-            _settings.Set("lock_action", action);   // written last: the overlay polls this, then reads the rest
+            _settings.Set("lock_action", action);   // written last: overlay polls this, then reads the rest
         }
         catch
         {
-            // A momentary state.db lock (typically the child contending for it) must
-            // not drop the action — let the parent retry on the still-open window.
+            // momentary state.db lock (typically child contending for it) must not drop action — let parent retry on still-open window
             _primary?.ShowActionError(Loc.T("lock.action.failed"));
             return;
         }

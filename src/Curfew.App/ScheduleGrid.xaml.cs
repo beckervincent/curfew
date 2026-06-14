@@ -9,32 +9,24 @@ using Windows.UI;
 
 namespace Curfew.App;
 
-/// <summary>
-/// Interactive weekly allowed-time grid. The user paints in 30-minute cells
-/// (7 days × 48 cells), but the schedule is stored at the underlying 15-minute
-/// resolution; each painted cell sets the two 15-minute slots it covers.
-/// Click and drag with the mouse to paint using the currently selected tool:
-/// <c>Allow</c> (blue) or <c>Block</c> (grey). Days run Monday (top) to Sunday
-/// (bottom); within each row time runs midnight (left) to midnight (right).
-/// Quick-fill preset buttons set common patterns in one click.
-/// </summary>
+/// <summary>weekly allowed-time grid. paint 30-min cells (7 days × 48), store at 15-min slots (2 per cell). drag to paint <c>Allow</c>/<c>Block</c>; rows Mon..Sun; presets fill common patterns</summary>
 public sealed partial class ScheduleGrid : UserControl
 {
     private const int DayCount = 7;
-    private const int SlotsPerHour = 4; // 60 min / 15 min
+    private const int SlotsPerHour = 4; // 60min / 15min
 
-    /// <summary>15-minute storage slots covered by one paintable 30-minute cell.</summary>
+    /// <summary>15-min storage slots per paintable 30-min cell</summary>
     private const int SlotsPerCell = 2;
 
-    /// <summary>Paintable cells per day (48 thirty-minute cells over a 24-hour day).</summary>
+    /// <summary>paintable cells per day (48 thirty-min cells over 24h)</summary>
     private static readonly int CellsPerDay = Schedule.SlotsPerDay / SlotsPerCell;
 
     private static readonly string[] Days = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
-    /// <summary><c>_slots[day][slot]</c> — <c>true</c> means usage is allowed.</summary>
+    /// <summary><c>_slots[day][slot]</c> — <c>true</c> = usage allowed</summary>
     private readonly bool[][] _slots = NewGrid();
 
-    /// <summary>True while a press-drag paint gesture is in progress.</summary>
+    /// <summary>true during a press-drag paint gesture</summary>
     private bool _painting;
 
     private static readonly Brush AllowedBrush = new SolidColorBrush(Color.FromArgb(255, 0x4C, 0xA0, 0xF0));
@@ -49,7 +41,7 @@ public sealed partial class ScheduleGrid : UserControl
         Loaded += (_, _) => Render();
     }
 
-    /// <summary>Creates a fresh, fully-allowed backing grid.</summary>
+    /// <summary>fresh fully-allowed backing grid</summary>
     private static bool[][] NewGrid()
     {
         var grid = new bool[DayCount][];
@@ -61,8 +53,8 @@ public sealed partial class ScheduleGrid : UserControl
         return grid;
     }
 
-    /// <summary>Loads an existing schedule into the grid and redraws.</summary>
-    /// <param name="schedule">The schedule to display. Null is treated as fully allowed.</param>
+    /// <summary>load schedule into grid and redraw</summary>
+    /// <param name="schedule">schedule to display; null = fully allowed</param>
     public void Load(Schedule? schedule)
     {
         for (var d = 0; d < DayCount; d++)
@@ -71,7 +63,7 @@ public sealed partial class ScheduleGrid : UserControl
         Render();
     }
 
-    /// <summary>Captures the current grid state as a new <see cref="Schedule"/>.</summary>
+    /// <summary>snapshot grid state as new <see cref="Schedule"/></summary>
     public Schedule ToSchedule()
     {
         var clone = new bool[DayCount][];
@@ -80,7 +72,7 @@ public sealed partial class ScheduleGrid : UserControl
         return new Schedule(clone);
     }
 
-    // ---- Quick-fill presets ------------------------------------------------
+    // ---- presets -----------------------------------------------------------
 
     private void FillAll(bool allowed)
     {
@@ -89,10 +81,10 @@ public sealed partial class ScheduleGrid : UserControl
         Render();
     }
 
-    /// <summary>Sets every slot of the given day to <paramref name="allowed"/>.</summary>
+    /// <summary>set every slot of day to <paramref name="allowed"/></summary>
     private void SetDay(int day, bool allowed) => Array.Fill(_slots[day], allowed);
 
-    /// <summary>Allows a contiguous hour window [fromHour, toHour) on the given day.</summary>
+    /// <summary>allow contiguous hour window [fromHour, toHour) on day</summary>
     private void AllowWindow(int day, int fromHour, int toHour)
     {
         for (var s = fromHour * SlotsPerHour; s < toHour * SlotsPerHour && s < Schedule.SlotsPerDay; s++)
@@ -108,7 +100,7 @@ public sealed partial class ScheduleGrid : UserControl
         for (var d = 0; d < DayCount; d++)
         {
             SetDay(d, false);
-            if (d <= 4) AllowWindow(d, 16, 20); // Mon–Fri 4 PM–8 PM
+            if (d <= 4) AllowWindow(d, 16, 20); // Mon-Fri 4pm-8pm
         }
         Render();
     }
@@ -116,13 +108,13 @@ public sealed partial class ScheduleGrid : UserControl
     private void OnPresetWeekends(object sender, RoutedEventArgs e)
     {
         for (var d = 0; d < DayCount; d++)
-            SetDay(d, d >= 5); // Sat/Sun allowed, weekdays blocked
+            SetDay(d, d >= 5); // Sat/Sun allow, weekdays block
         Render();
     }
 
-    // ---- Rendering ---------------------------------------------------------
+    // ---- render ------------------------------------------------------------
 
-    /// <summary>Redraws the day rows, allowed-time blocks, labels and gridlines.</summary>
+    /// <summary>redraw day rows, allowed blocks, labels, gridlines</summary>
     private void Render()
     {
         GridCanvas.Children.Clear();
@@ -145,10 +137,7 @@ public sealed partial class ScheduleGrid : UserControl
         RenderGridlines(slotW, rowH, h);
     }
 
-    /// <summary>
-    /// Draws the allowed (blue) blocks for one day, coalescing contiguous allowed
-    /// slots into a single rounded rectangle so the visual tree stays small.
-    /// </summary>
+    /// <summary>draw allowed (blue) blocks for one day, coalescing contiguous slots into one rounded rect (small visual tree)</summary>
     private void RenderAllowedRuns(int day, double y, double rowH, double slotW)
     {
         var row = _slots[day];
@@ -159,16 +148,13 @@ public sealed partial class ScheduleGrid : UserControl
 
             var end = start;
             while (end < Schedule.SlotsPerDay && row[end]) end++;
-            // Inset within the row so day rows read as distinct bands.
+            // inset so day rows read as distinct bands
             AddRect(start * slotW, y + 1, (end - start) * slotW, rowH - 2, AllowedBrush, 3);
             start = end;
         }
     }
 
-    /// <summary>
-    /// Faint vertical lines every hour, stronger lines every six hours, plus a
-    /// separator between day rows.
-    /// </summary>
+    /// <summary>faint vertical line each hour, stronger every 6h, plus day-row separators</summary>
     private void RenderGridlines(double slotW, double rowH, double h)
     {
         for (var hour = 0; hour <= 24; hour++)
@@ -219,13 +205,9 @@ public sealed partial class ScheduleGrid : UserControl
         LabelCanvas.Children.Add(label);
     }
 
-    // ---- Paint gestures ----------------------------------------------------
+    // ---- paint gestures ----------------------------------------------------
 
-    /// <summary>
-    /// Maps a pointer position to a (day, 30-minute cell), applies the active tool
-    /// to both 15-minute slots the cell covers, and redraws only when something
-    /// actually changes — keeping drag-paint cheap.
-    /// </summary>
+    /// <summary>map pointer to (day, 30-min cell), apply active tool to both 15-min slots, redraw only on change (cheap drag)</summary>
     private void PaintAt(Point p)
     {
         double w = GridCanvas.ActualWidth, h = GridCanvas.ActualHeight;
@@ -258,8 +240,7 @@ public sealed partial class ScheduleGrid : UserControl
     {
         if (!_painting) return;
 
-        // If the primary button was released while we missed the event (e.g. capture
-        // was stolen), stop painting rather than smearing the grid on a hover.
+        // button released but we missed the event (capture stolen) — stop, don't smear on hover
         if (!e.GetCurrentPoint(GridCanvas).Properties.IsLeftButtonPressed)
         {
             _painting = false;
@@ -275,11 +256,7 @@ public sealed partial class ScheduleGrid : UserControl
         GridCanvas.ReleasePointerCapture(e.Pointer);
     }
 
-    /// <summary>
-    /// Pointer capture can be lost without a Released event (window deactivation, a
-    /// system gesture, a touch being cancelled). Without resetting state the grid
-    /// would keep painting on the next hover. Stop painting when capture is lost.
-    /// </summary>
+    /// <summary>capture lost without Released (deactivation, system gesture, touch cancel) — stop, else grid keeps painting on next hover</summary>
     private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e) =>
         _painting = false;
 }

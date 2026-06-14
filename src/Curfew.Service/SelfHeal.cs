@@ -1,24 +1,13 @@
 namespace Curfew.Service;
 
-/// <summary>
-/// Boot-time self-healing: re-registers the overlay's logon scheduled task if it
-/// has been removed, or repairs it if an older install left it with the wrong
-/// multiple-instances policy. The SYSTEM service itself survives a missing task
-/// (it keeps running), and full removal still needs admin — but a child deleting
-/// the logon task should not permanently stop the overlay from spawning.
-/// </summary>
+/// <summary>Boot-time self-heal: re-register overlay logon scheduled task if removed, or repair wrong multiple-instances policy from old install. Child deleting logon task no permanently stop overlay spawning.</summary>
 internal static class SelfHeal
 {
     public static void EnsureOverlayTask()
     {
         try
         {
-            // Present AND already using the Parallel multiple-instances policy —
-            // nothing to do. Older installs registered the task IgnoreNew, which left
-            // every session after the first without an overlay: the first session's
-            // overlay never exits its message loop, so that single running instance
-            // suppressed every later logon trigger and on-demand run. Re-register such
-            // tasks (and missing ones) so each interactive session is covered.
+            // present AND already Parallel — nothing to do. old installs registered IgnoreNew, leaving every session after first without overlay: first overlay never exits message loop, suppressing later logon triggers and on-demand runs. re-register such (and missing) so each interactive session covered
             if (PowerShellRunner.Run(
                     $"$t = Get-ScheduledTask -TaskName '{SessionManager.TaskName}' -ErrorAction SilentlyContinue; " +
                     "if ($t -and \"$($t.Settings.MultipleInstances)\" -eq 'Parallel') { exit 0 }; exit 1") == 0)
@@ -32,9 +21,7 @@ internal static class SelfHeal
             var overlay = Path.Combine(installRoot, "overlay", "Curfew.Overlay.exe");
             if (!File.Exists(overlay)) return;
 
-            // Mirror the installer's registration (at-logon, limited Users principal,
-            // auto-restart). The path comes from our own process path, so it is
-            // trusted; single-quote it to tolerate spaces (Program Files).
+            // mirror installer registration (at-logon, limited Users principal, auto-restart). path from own process path, so trusted; single-quote for spaces (Program Files)
             var script =
                 $"$act = New-ScheduledTaskAction -Execute '{overlay}'\n" +
                 "$trg = New-ScheduledTaskTrigger -AtLogOn\n" +

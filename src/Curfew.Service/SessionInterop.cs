@@ -2,21 +2,11 @@ using System.Runtime.InteropServices;
 
 namespace Curfew.Service;
 
-/// <summary>
-/// Win32 interop for enumerating interactive Windows Terminal Services (WTS)
-/// sessions. The overlay is launched into each session by a logon scheduled task
-/// (a WinUI app fails to start under <c>CreateProcessAsUser</c>), so this only
-/// needs to report which sessions are interactive.
-/// </summary>
-/// <remarks>
-/// Best-effort and self-contained: failure is reported through the return value
-/// (and the on-device <see cref="ServiceLog"/>) rather than thrown, because this
-/// runs inside the service loop where an unhandled exception would take down the
-/// whole worker. Native memory is always released.
-/// </remarks>
+/// <summary>Win32 interop to enumerate interactive WTS sessions. Overlay launched per session by logon task (WinUI app fails to start under <c>CreateProcessAsUser</c>), so this only reports which sessions interactive.</summary>
+/// <remarks>Best-effort, self-contained: failure via return value (and <see cref="ServiceLog"/>) not thrown, since runs in service loop where unhandled exception takes down worker. Native memory always released.</remarks>
 internal static class SessionInterop
 {
-    /// <summary>WTS connection states (the <c>WTS_CONNECTSTATE_CLASS</c> enum).</summary>
+    /// <summary>WTS connection states (<c>WTS_CONNECTSTATE_CLASS</c> enum).</summary>
     public enum WtsConnectState
     {
         Active = 0,
@@ -39,17 +29,13 @@ internal static class SessionInterop
         public WtsConnectState State;
     }
 
-    // WTSEnumerateSessions interface version; must be 1 per the API contract.
+    // WTSEnumerateSessions interface version; must be 1 per API contract
     private const int WTS_CURRENT_SERVER_VERSION = 1;
 
-    // The console/services session. Never interactive for a real user, so it is
-    // excluded from the overlay-launch logic.
+    // console/services session. never interactive for real user, excluded from overlay-launch
     private const uint ServicesSessionId = 0;
 
-    /// <summary>
-    /// Returns the ids of interactive user sessions, excluding the services
-    /// session (0). Never throws; returns an empty list if enumeration fails.
-    /// </summary>
+    /// <summary>Return ids of interactive user sessions, excluding services session (0). Never throws; empty list if enumeration fails.</summary>
     public static List<uint> ActiveSessions()
     {
         var result = new List<uint>();
@@ -61,8 +47,7 @@ internal static class SessionInterop
             return result;
         }
 
-        // A success return with a null buffer would otherwise lead to invalid
-        // pointer arithmetic below; guard defensively.
+        // success with null buffer = invalid pointer arithmetic below; guard defensively
         if (buffer == IntPtr.Zero)
             return result;
 
@@ -74,10 +59,7 @@ internal static class SessionInterop
                 var ptr = buffer + i * size;
                 var info = Marshal.PtrToStructure<WTS_SESSION_INFO>(ptr);
 
-                // Active      = the user is at the screen.
-                // Disconnected = logged in but not currently viewing
-                //                (workstation locked, or RDP session switched out).
-                // Both states need the overlay/lock running, so treat them alike.
+                // Active = user at screen. Disconnected = logged in not viewing (locked, or RDP switched out). both need overlay/lock running, treat alike
                 var interactive = info.State is WtsConnectState.Active or WtsConnectState.Disconnected;
                 if (interactive && info.SessionId != ServicesSessionId)
                     result.Add(info.SessionId);

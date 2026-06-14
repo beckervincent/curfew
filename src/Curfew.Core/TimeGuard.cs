@@ -3,52 +3,28 @@ namespace Curfew.Core;
 /// <summary>
 /// Time-Manipulation Guarding.
 /// <para>
-/// The daily allowance resets at midnight, so pushing the clock forward is the
-/// easiest way for a user to farm extra screen time (and rolling it backward can
-/// be used to dodge a curfew window). The service fetches trusted time over NTP
-/// and compares it to the local clock; if they disagree by more than
-/// <see cref="Tolerance"/> the local clock is treated as tampered.
+/// Daily allowance resets at midnight, so pushing the clock forward farms extra screen time (and rolling back dodges a curfew window). Service fetches trusted time over NTP, compares to local clock; disagreement past <see cref="Tolerance"/> = tampered.
 /// </para>
 /// <para>
-/// This type is pure: it makes the tampering decision from two timestamps and
-/// has no side effects. Acquiring trusted time and correcting the system clock
-/// live in the privileged service layer.
+/// Pure: tampering decision from two timestamps, no side effects. Acquiring trusted time + correcting the system clock live in the privileged service layer.
 /// </para>
 /// </summary>
 public static class TimeGuard
 {
-    /// <summary>
-    /// Maximum clock disagreement, in either direction, that is tolerated before
-    /// the local clock is considered tampered. Sized to absorb ordinary drift and
-    /// NTP round-trip jitter without flagging an honest machine.
-    /// </summary>
+    /// <summary>Max clock disagreement, either direction, tolerated before local clock = tampered. Sized to absorb ordinary drift + NTP round-trip jitter without flagging an honest machine.</summary>
     public static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(2);
 
-    /// <summary>
-    /// How close two independent time sources must be to count as agreeing. Sized
-    /// to absorb NTP jitter and the small delay of querying servers in sequence.
-    /// </summary>
+    /// <summary>How close two independent time sources must be to agree. Sized to absorb NTP jitter + small delay of querying servers in sequence.</summary>
     public static readonly TimeSpan AgreementWindow = TimeSpan.FromSeconds(30);
 
-    /// <summary>
-    /// Minimum number of independent sources that must agree before their time is
-    /// trusted. Two means a single spoofed/redirected server cannot move the clock.
-    /// </summary>
+    /// <summary>Min independent sources that must agree before trust. Two = a single spoofed/redirected server can't move the clock.</summary>
     public const int MinAgreeingSources = 2;
 
-    /// <summary>
-    /// Reduces several independent time samples to a single trusted instant, or
-    /// <see langword="null"/> when too few agree. A time is trusted only if at
-    /// least <paramref name="minAgree"/> samples fall within
-    /// <paramref name="window"/> of each other; the median of the largest such
-    /// cluster is returned. This is the fail-closed core of the multi-source guard:
-    /// with one forged source among honest ones, the forged outlier never forms a
-    /// cluster, and with only one source reachable nothing is trusted at all.
-    /// </summary>
-    /// <param name="samples">Times collected from the queried sources (nulls already removed).</param>
-    /// <param name="window">Maximum spread within an agreeing cluster; defaults to <see cref="AgreementWindow"/>.</param>
-    /// <param name="minAgree">Minimum cluster size to trust; defaults to <see cref="MinAgreeingSources"/>.</param>
-    /// <returns>The corroborated time, or <see langword="null"/> if no cluster is large enough.</returns>
+    /// <summary>Reduce several independent time samples to one trusted instant, or <see langword="null"/> when too few agree. Trusted only if at least <paramref name="minAgree"/> samples fall within <paramref name="window"/> of each other; returns median of largest such cluster. Fail-closed core of the multi-source guard: one forged source among honest ones never forms a cluster; one reachable source trusts nothing.</summary>
+    /// <param name="samples">Times from queried sources (nulls already removed).</param>
+    /// <param name="window">Max spread within an agreeing cluster; defaults to <see cref="AgreementWindow"/>.</param>
+    /// <param name="minAgree">Min cluster size to trust; defaults to <see cref="MinAgreeingSources"/>.</param>
+    /// <returns>Corroborated time, or <see langword="null"/> if no cluster large enough.</returns>
     public static DateTimeOffset? Corroborate(
         IReadOnlyList<DateTimeOffset> samples, TimeSpan? window = null, int minAgree = MinAgreeingSources)
     {
@@ -60,8 +36,8 @@ public static class TimeGuard
         DateTimeOffset? best = null;
         var bestCount = 0;
 
-        // Slide a window over the sorted samples; the widest cluster of size
-        // >= minAgree wins, and its median is the trusted instant.
+        // slide window over sorted samples; widest cluster of size >= minAgree
+        // wins, its median is the trusted instant.
         for (var i = 0; i < ordered.Count; i++)
         {
             var j = i;
@@ -77,33 +53,25 @@ public static class TimeGuard
         return best;
     }
 
-    /// <summary>The outcome of comparing the local clock against trusted time.</summary>
+    /// <summary>Outcome of comparing local clock against trusted time.</summary>
     public enum Verdict
     {
         /// <summary>Local clock agrees with trusted time within <see cref="Tolerance"/>.</summary>
         Ok,
 
-        /// <summary>Local clock is set ahead of trusted time — the time-farming case.</summary>
+        /// <summary>Local clock set ahead of trusted time — the time-farming case.</summary>
         AheadTampered,
 
-        /// <summary>Local clock is set behind trusted time.</summary>
+        /// <summary>Local clock set behind trusted time.</summary>
         BehindTampered,
     }
 
-    /// <summary>
-    /// Classifies the local clock against trusted (NTP) time.
-    /// </summary>
-    /// <param name="local">The current local-clock reading.</param>
-    /// <param name="trusted">The reference time obtained from a trusted source.</param>
-    /// <returns>
-    /// <see cref="Verdict.Ok"/> when the two agree within <see cref="Tolerance"/>;
-    /// otherwise the direction in which the local clock has been moved.
-    /// </returns>
+    /// <summary>Classify local clock against trusted (NTP) time.</summary>
+    /// <param name="local">Current local-clock reading.</param>
+    /// <param name="trusted">Reference time from a trusted source.</param>
+    /// <returns><see cref="Verdict.Ok"/> when the two agree within <see cref="Tolerance"/>; else the direction local clock moved.</returns>
     /// <remarks>
-    /// The comparison is made on the absolute instants (<see cref="DateTimeOffset"/>
-    /// is offset-aware), so the result is independent of the time zones the two
-    /// readings happen to carry. A drift exactly equal to <see cref="Tolerance"/>
-    /// is treated as acceptable.
+    /// Compared on absolute instants (<see cref="DateTimeOffset"/> is offset-aware), so result is time-zone-independent. Drift exactly equal to <see cref="Tolerance"/> is acceptable.
     /// </remarks>
     public static Verdict Evaluate(DateTimeOffset local, DateTimeOffset trusted)
     {
@@ -113,42 +81,28 @@ public static class TimeGuard
         return Verdict.Ok;
     }
 
-    /// <summary>
-    /// Indicates whether the verdict warrants force-correcting the system clock to
-    /// trusted time. True for any tampered verdict, false for <see cref="Verdict.Ok"/>.
-    /// </summary>
+    /// <summary>Whether verdict warrants force-correcting system clock to trusted time. True for any tampered verdict, false for <see cref="Verdict.Ok"/>.</summary>
     public static bool ShouldCorrect(Verdict verdict) => verdict != Verdict.Ok;
 
     /// <summary>
-    /// Computes the date whose daily allowance should apply.
+    /// Date whose daily allowance applies.
     /// <para>
-    /// When the local clock is trustworthy the local date is used; when it is
-    /// tampered the trusted date is used instead, so a forward jump cannot unlock a
-    /// fresh day's allowance and a backward jump cannot replay an already-spent one.
+    /// Trustworthy local clock = local date; tampered = trusted date, so a forward jump can't unlock a fresh day's allowance and a backward jump can't replay an already-spent one.
     /// </para>
     /// </summary>
-    /// <param name="local">The current local-clock reading.</param>
-    /// <param name="trusted">The reference time obtained from a trusted source.</param>
-    /// <returns>The calendar date the allowance should be charged against.</returns>
+    /// <param name="local">Current local-clock reading.</param>
+    /// <param name="trusted">Reference time from a trusted source.</param>
+    /// <returns>Calendar date the allowance is charged against.</returns>
     public static DateOnly EffectiveDate(DateTimeOffset local, DateTimeOffset trusted) =>
         EffectiveDate(local, trusted, Evaluate(local, trusted));
 
-    /// <summary>
-    /// Computes the effective allowance date from a verdict that has already been
-    /// determined, avoiding a redundant call to <see cref="Evaluate"/> when the
-    /// caller has one in hand.
-    /// </summary>
-    /// <param name="local">The current local-clock reading.</param>
-    /// <param name="trusted">The reference time obtained from a trusted source.</param>
-    /// <param name="verdict">
-    /// The verdict for <paramref name="local"/> against <paramref name="trusted"/>,
-    /// typically from <see cref="Evaluate"/>.
-    /// </param>
-    /// <returns>The calendar date the allowance should be charged against.</returns>
+    /// <summary>Effective allowance date from an already-determined verdict, skipping a redundant <see cref="Evaluate"/> call.</summary>
+    /// <param name="local">Current local-clock reading.</param>
+    /// <param name="trusted">Reference time from a trusted source.</param>
+    /// <param name="verdict">Verdict for <paramref name="local"/> against <paramref name="trusted"/>, typically from <see cref="Evaluate"/>.</param>
+    /// <returns>Calendar date the allowance is charged against.</returns>
     /// <remarks>
-    /// The chosen timestamp is projected onto the machine's local wall-clock date
-    /// (<see cref="DateTimeOffset.LocalDateTime"/>) so the allowance day boundary
-    /// matches the user's local midnight even when the trusted reading is in UTC.
+    /// Chosen timestamp projected onto machine's local wall-clock date (<see cref="DateTimeOffset.LocalDateTime"/>) so the day boundary matches user's local midnight even when the trusted reading is UTC.
     /// </remarks>
     public static DateOnly EffectiveDate(DateTimeOffset local, DateTimeOffset trusted, Verdict verdict)
     {

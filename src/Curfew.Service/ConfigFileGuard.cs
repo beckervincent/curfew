@@ -3,18 +3,8 @@ using System.Security.Principal;
 
 namespace Curfew.Service;
 
-/// <summary>
-/// Locks down config.db so ordinary users can read it but cannot write or delete
-/// it, while state.db (and the data directory) stay writable for the child-side
-/// counters. Applied by the SYSTEM service after it creates config.db on boot.
-/// </summary>
-/// <remarks>
-/// Uses an explicit <see cref="AccessControlType.Deny"/> rule for the Users group
-/// rather than relying on the directory ACL, so a child cannot rewrite the file or
-/// delete-and-recreate it even though the directory itself permits writes (which
-/// state.db and SQLite's sidecar files need). SYSTEM and Administrators keep full
-/// control. Best-effort and Windows-only; a failure is logged, not thrown.
-/// </remarks>
+/// <summary>lock down config.db: users read but can't write/delete; state.db + data dir stay writable for child counters. applied by SYSTEM service after creating config.db on boot</summary>
+/// <remarks>explicit <see cref="AccessControlType.Deny"/> for Users group, not just dir ACL, so child can't rewrite or delete-and-recreate even though dir permits writes (state.db + SQLite sidecars need it). SYSTEM + Administrators keep full control. best-effort + Windows-only; failure logged not thrown</remarks>
 internal static class ConfigFileGuard
 {
     public static void Protect(string configPath)
@@ -22,14 +12,7 @@ internal static class ConfigFileGuard
         if (!OperatingSystem.IsWindows() || string.IsNullOrEmpty(configPath) || !File.Exists(configPath))
             return;
 
-        // SQLite keeps recently-committed data in the rollback journal sidecar,
-        // which inherits the directory's Users-write ACE; left unprotected it would
-        // hand the child a writable copy of config data the main file's ACL guards.
-        // It is pre-created empty (a zero-length journal is "not hot" to SQLite) so
-        // the deny is in place before the service's first write. -wal/-shm are NOT
-        // touched: they only exist until the store's WAL→PERSIST conversion lands,
-        // and ACL'ing -shm would break the child processes' read-only opens in the
-        // meantime (WAL readers must write the shared-memory index).
+        // rollback journal sidecar holds recently-committed data + inherits dir's Users-write ACE; unprotected = child gets writable copy of config the main ACL guards. pre-create empty (zero-length journal "not hot" to SQLite) so deny lands before first write. -wal/-shm NOT touched: only exist until WAL→PERSIST conversion, and ACL'ing -shm breaks child read-only opens meanwhile (WAL readers write shared-memory index)
         try
         {
             if (!File.Exists(configPath + "-journal"))
@@ -55,14 +38,14 @@ internal static class ConfigFileGuard
             var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
 
             var security = new FileSecurity();
-            // Drop inheritance so the directory's Users-write ACE does not apply here.
+            // drop inheritance so dir's Users-write ACE doesn't apply here
             security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
             security.SetOwner(system);
 
             security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
             security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
             security.AddAccessRule(new FileSystemAccessRule(users, FileSystemRights.Read, AccessControlType.Allow));
-            // Deny wins over allow: users can read, never write or delete.
+            // deny wins over allow: users read, never write/delete
             security.AddAccessRule(new FileSystemAccessRule(
                 users,
                 FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,

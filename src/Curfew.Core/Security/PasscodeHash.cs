@@ -3,18 +3,8 @@ using System.Text;
 
 namespace Curfew.Core.Security;
 
-/// <summary>
-/// Hashing and verification for the parental passcode, which may now be any
-/// string (a numeric PIN or a full password) rather than a fixed 4-digit PIN.
-/// Stored as a salted PBKDF2-SHA256 hash so the plaintext never touches disk.
-/// </summary>
-/// <remarks>
-/// The stored form is <c>pbkdf2$&lt;iterations&gt;$&lt;base64 salt&gt;$&lt;base64 hash&gt;</c>.
-/// For backward compatibility, <see cref="Verify"/> also accepts a legacy
-/// plaintext value (anything without the <c>pbkdf2$</c> prefix), so existing
-/// installs keep working until the parent next sets the passcode, at which point
-/// it is rewritten as a hash.
-/// </remarks>
+/// <summary>hash + verify parental passcode (any string: numeric PIN or full password, not fixed 4-digit). stored as salted PBKDF2-SHA256 so plaintext never hits disk</summary>
+/// <remarks>stored form <c>pbkdf2$&lt;iterations&gt;$&lt;base64 salt&gt;$&lt;base64 hash&gt;</c>. for back-compat <see cref="Verify"/> also accepts legacy plaintext (anything without <c>pbkdf2$</c> prefix), so existing installs work until parent next sets passcode, then rewritten as hash</remarks>
 public static class PasscodeHash
 {
     private const string Prefix = "pbkdf2$";
@@ -22,16 +12,10 @@ public static class PasscodeHash
     private const int HashBytes = 32;
     private const int Iterations = 100_000;
 
-    /// <summary>
-    /// Minimum length of a passcode (any characters are allowed). Set to 8 so a
-    /// numeric PIN spans at least a 10^8 keyspace: the PBKDF2 hash is stored in a
-    /// child-readable database, so a short PIN is crackable offline in seconds
-    /// regardless of the iteration count. Longer or alphanumeric passcodes are
-    /// always accepted (up to the 64-char UI cap).
-    /// </summary>
+    /// <summary>min passcode length (any chars). 8 so numeric PIN spans at least 10^8 keyspace: PBKDF2 hash stored in child-readable db, short PIN crackable offline in seconds regardless of iterations. longer/alphanumeric always accepted (up to 64-char UI cap)</summary>
     public const int MinLength = 8;
 
-    /// <summary>Produces a salted PBKDF2 hash string for <paramref name="passcode"/>.</summary>
+    /// <summary>salted PBKDF2 hash string for <paramref name="passcode"/></summary>
     public static string Hash(string passcode)
     {
         ArgumentNullException.ThrowIfNull(passcode);
@@ -40,14 +24,11 @@ public static class PasscodeHash
         return $"{Prefix}{Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 
-    /// <summary>Whether <paramref name="stored"/> is a PBKDF2 hash (vs legacy plaintext).</summary>
+    /// <summary>is <paramref name="stored"/> a PBKDF2 hash (vs legacy plaintext)</summary>
     public static bool IsHashed(string? stored) =>
         stored is not null && stored.StartsWith(Prefix, StringComparison.Ordinal);
 
-    /// <summary>
-    /// Verifies <paramref name="passcode"/> against the stored value, supporting
-    /// both the PBKDF2 hash form and legacy plaintext.
-    /// </summary>
+    /// <summary>verify <paramref name="passcode"/> against stored value; PBKDF2 hash + legacy plaintext</summary>
     public static bool Verify(string? passcode, string? stored)
     {
         if (passcode is null || string.IsNullOrEmpty(stored)) return false;

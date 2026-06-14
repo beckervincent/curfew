@@ -2,15 +2,8 @@ using System.Text;
 
 namespace Curfew.Overlay;
 
-/// <summary>
-/// Diagnostic file log under <c>%ProgramData%\Curfew\overlay.log</c>.
-/// <para>
-/// The overlay process is usually spawned by the Windows service and has no
-/// console, so this is the only window into why it starts, draws, or exits.
-/// The log is therefore deliberately defensive: every write is serialized,
-/// exceptions are swallowed, and the file is size-capped with a single rolled
-/// backup so it can never grow without bound on a machine that runs for months.
-/// </para>
+/// <summary>diagnostic file log under <c>%ProgramData%\Curfew\overlay.log</c>.
+/// <para>overlay spawned by service, no console -> only window into start/draw/exit. defensive: writes serialized, exceptions swallowed, size-capped w/ single rolled backup so it can't grow unbounded over months</para>
 /// </summary>
 internal static class OverlayLog
 {
@@ -30,7 +23,7 @@ internal static class OverlayLog
     /// <param name="message">Free-form diagnostic text. Never thrown on.</param>
     public static void Write(string message)
     {
-        // Diagnostics must never break the overlay, so nothing here may throw.
+        // diagnostics must never break overlay; nothing throws
         try
         {
             var line =
@@ -47,16 +40,11 @@ internal static class OverlayLog
         }
         catch
         {
-            // Disk full, permissions, antivirus lock — none of these may surface.
+            // disk full / permissions / AV lock -- none surface
         }
     }
 
-    /// <summary>
-    /// When the active log grows past <see cref="MaxBytes"/>, move it aside to
-    /// <c>overlay.log.1</c> (replacing any previous backup) so the live file
-    /// stays small and the most recent history is still preserved. Caller holds
-    /// <see cref="Gate"/>.
-    /// </summary>
+    /// <summary>active log past <see cref="MaxBytes"/> -> move aside to <c>overlay.log.1</c> (replace old backup); live file stays small, recent history kept. caller holds <see cref="Gate"/></summary>
     private static void RollIfTooLarge()
     {
         try
@@ -67,20 +55,17 @@ internal static class OverlayLog
                 return;
             }
 
-            // File.Move with overwrite is atomic enough for a single-backup roll.
+            // File.Move overwrite atomic enough for single-backup roll
             File.Delete(RolledPath);
             File.Move(LogPath, RolledPath);
         }
         catch
         {
-            // If rolling fails we simply keep appending to the existing file.
+            // roll fails -> keep appending to existing file
         }
     }
 
-    /// <summary>
-    /// Resolves and creates the log directory, falling back to the system
-    /// temp path if ProgramData is unavailable so logging still works.
-    /// </summary>
+    /// <summary>resolve + create log dir; fall back to temp path if ProgramData unavailable</summary>
     private static string ResolveLogDirectory()
     {
         try
@@ -102,8 +87,7 @@ internal static class OverlayLog
             }
             catch
             {
-                // Last resort: the current directory. Write() still swallows
-                // any failure that results from an unwritable path here.
+                // last resort: current dir. Write() swallows failures from unwritable path
                 return ".";
             }
         }

@@ -3,64 +3,27 @@ using System.Text;
 
 namespace Curfew.Core;
 
-/// <summary>
-/// Optional hardening: block well-known third-party DNS-over-HTTPS (DoH) and
-/// DNS-over-TLS (DoT) resolver IPs at the firewall so browsers fall back to the
-/// filtered system DNS instead of bypassing it over their own encrypted DNS.
-/// </summary>
+/// <summary>optional hardening: block well-known third-party DoH/DoT resolver IPs at firewall so browsers fall back to filtered system DNS instead of bypassing over their own encrypted DNS</summary>
 /// <remarks>
-/// <para>
-/// Modern browsers ship their own encrypted DNS clients that resolve names
-/// directly against a hard-coded list of public resolvers, ignoring the DNS
-/// servers Curfew pins on the network adapters. Blocking outbound traffic to
-/// those resolvers on the encrypted-DNS ports forces the browser to fall back
-/// to the operating system resolver, which Curfew controls.
-/// </para>
-/// <para>
-/// Cloudflare's own ranges are deliberately never blocked — that is the resolver
-/// Curfew relies on for content filtering, so blocking it would defeat the whole
-/// feature. All script generation here is pure and testable; the service
-/// executes the result as SYSTEM via PowerShell.
-/// </para>
+/// <para>browsers ship encrypted DNS clients resolving against a hard-coded list of public resolvers, ignoring DNS Curfew pins on adapters. blocking outbound traffic on encrypted-DNS ports forces fall back to the OS resolver Curfew controls</para>
+/// <para>Cloudflare's own ranges never blocked — that's the resolver Curfew uses for filtering, blocking it defeats the feature. script gen pure + testable; service runs result as SYSTEM via PowerShell</para>
 /// </remarks>
 public static class DohGuard
 {
-    /// <summary>
-    /// Display-name prefix shared by every firewall rule this guard creates.
-    /// Used both to add new rules and to find/remove previously added ones, so
-    /// it must stay stable across releases.
-    /// </summary>
+    /// <summary>display-name prefix on every firewall rule this guard creates. used to add + find/remove rules, so must stay stable across releases</summary>
     public const string RulePrefix = "Curfew-Block-DoH";
 
-    /// <summary>
-    /// Encrypted-DNS ports blocked for the listed resolvers: 443 (DoH, which
-    /// rides on standard HTTPS) and 853 (DoT). Plain UDP/TCP port 53 is left
-    /// open so the OS resolver Curfew controls keeps working.
-    /// </summary>
+    /// <summary>encrypted-DNS ports blocked for listed resolvers: 443 (DoH, rides on HTTPS) + 853 (DoT). plain port 53 left open so OS resolver Curfew controls keeps working</summary>
     public const string BlockedPorts = "443,853";
 
-    /// <summary>
-    /// Common public DoH/DoT resolvers to block, as a mix of single IPv4/IPv6
-    /// addresses and CIDR ranges.
-    /// </summary>
+    /// <summary>common public DoH/DoT resolvers to block — single IPv4/IPv6 addresses + CIDR ranges</summary>
     /// <remarks>
-    /// <para>
-    /// IPv6 entries are included alongside IPv4 because the encrypted-DNS clients
-    /// will happily use either family; blocking only IPv4 would leave an obvious
-    /// bypass on dual-stack networks.
-    /// </para>
-    /// <para>
-    /// Cloudflare's <em>unfiltered</em> endpoints (1.1.1.1 / 1.0.0.1 and their IPv6
-    /// twins) ARE blocked here: a child could otherwise point a browser at
-    /// Cloudflare's unfiltered DoH and bypass the content filter entirely. The
-    /// <em>filtered</em> family resolvers Curfew actually pins (1.1.1.2/1.1.1.3 and
-    /// 1.0.0.2/1.0.0.3, reached via security/family.cloudflare-dns.com) are NOT in
-    /// this list, so content filtering keeps working.
-    /// </para>
+    /// <para>IPv6 included alongside IPv4 because encrypted-DNS clients use either family; IPv4-only would leave an obvious bypass on dual-stack nets</para>
+    /// <para>Cloudflare's <em>unfiltered</em> endpoints (1.1.1.1 / 1.0.0.1 + IPv6 twins) ARE blocked: else a child points a browser at unfiltered DoH and bypasses the filter. the <em>filtered</em> family resolvers Curfew pins (1.1.1.2/1.1.1.3, 1.0.0.2/1.0.0.3 via security/family.cloudflare-dns.com) are NOT here, so filtering keeps working</para>
     /// </remarks>
     public static readonly string[] BlockedResolvers =
     {
-        // Cloudflare — unfiltered only (the filtered 1.1.1.2/1.1.1.3 family is kept usable)
+        // Cloudflare — unfiltered only (filtered 1.1.1.2/1.1.1.3 family kept usable)
         "1.1.1.1", "1.0.0.1",
         "2606:4700:4700::1111", "2606:4700:4700::1001",
         // Google Public DNS
@@ -82,29 +45,14 @@ public static class DohGuard
         "2a0d:2a00:1::2", "2a0d:2a00:2::2",
     };
 
-    /// <summary>
-    /// Builds the PowerShell that blocks outbound traffic to every
-    /// <see cref="BlockedResolvers"/> address on the encrypted-DNS ports.
-    /// </summary>
-    /// <remarks>
-    /// The rules carry a content stamp (a hash of the resolver list and ports) in
-    /// their Description. When rules with the current stamp already exist the
-    /// script exits without touching them: tearing down and recreating working
-    /// rules on every reconcile would open a brief allow window each time, and a
-    /// transient creation failure after the removal would leave encrypted DNS
-    /// wide open until the next pass. Rules are only removed and rebuilt when the
-    /// stamp differs (a release changed the resolver list) or a rule is missing.
-    /// Separate TCP and UDP rules are created because <c>New-NetFirewallRule</c>
-    /// does not accept multiple protocols in a single rule.
-    /// </remarks>
+    /// <summary>build PowerShell blocking outbound traffic to every <see cref="BlockedResolvers"/> address on encrypted-DNS ports</summary>
+    /// <remarks>rules carry a content stamp (hash of resolver list + ports) in Description. if rules with current stamp exist, script exits untouched: tear-down + recreate every reconcile opens a brief allow window, and a transient create failure after removal leaves encrypted DNS wide open until next pass. only removed + rebuilt when stamp differs (release changed resolver list) or a rule is missing. separate TCP + UDP rules because <c>New-NetFirewallRule</c> takes one protocol per rule</remarks>
     public static string BuildBlockScript()
     {
         var addresses = string.Join(",", BlockedResolvers.Select(Quote));
         var stamp = RuleStamp;
         var sb = new StringBuilder();
-        // Fail closed: a failure to (re)create the block rules must surface as a
-        // non-zero exit, not be silently swallowed. Only the removal — which may
-        // legitimately find no existing rules — is allowed to continue on error.
+        // fail closed: failure to (re)create block rules must surface as non-zero exit, not be swallowed. only removal — which may find no rules — continues on error
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine($"$out = Get-NetFirewallRule -DisplayName '{RulePrefix}-out' -ErrorAction SilentlyContinue");
         sb.AppendLine($"$udp = Get-NetFirewallRule -DisplayName '{RulePrefix}-udp' -ErrorAction SilentlyContinue");
@@ -118,20 +66,14 @@ public static class DohGuard
         sb.AppendLine(
             $"New-NetFirewallRule -DisplayName '{RulePrefix}-udp' -Description '{stamp}' -Direction Outbound -Action Block " +
             $"-Protocol UDP -RemoteAddress $ips -RemotePort {BlockedPorts} -Profile Any | Out-Null");
-        // Verify both rules exist; if the removal above tore down enforcement and a
-        // re-add silently failed to take, exit non-zero so the service logs it and
-        // the next reconcile pass retries rather than leaving DNS wide open.
+        // verify both rules exist; if removal tore down enforcement and re-add silently failed, exit non-zero so service logs it and next reconcile retries instead of leaving DNS wide open
         sb.AppendLine(
             $"if (-not (Get-NetFirewallRule -DisplayName '{RulePrefix}-out' -ErrorAction SilentlyContinue) -or " +
             $"-not (Get-NetFirewallRule -DisplayName '{RulePrefix}-udp' -ErrorAction SilentlyContinue)) {{ exit 1 }}");
         return sb.ToString().TrimEnd('\n', '\r');
     }
 
-    /// <summary>
-    /// Stable fingerprint of the blocked-resolver list and ports, stored in the
-    /// rules' Description so a reconcile pass can tell "rules are current" apart
-    /// from "rules predate a resolver-list change" without rebuilding them.
-    /// </summary>
+    /// <summary>stable fingerprint of blocked-resolver list + ports, stored in rules' Description so a reconcile pass tells "current" from "predates a resolver-list change" without rebuilding</summary>
     public static string RuleStamp
     {
         get
@@ -142,35 +84,22 @@ public static class DohGuard
         }
     }
 
-    /// <summary>
-    /// Builds the PowerShell that removes every firewall rule this guard added,
-    /// restoring normal access to the third-party resolvers.
-    /// </summary>
+    /// <summary>build PowerShell removing every firewall rule this guard added, restoring access to third-party resolvers</summary>
     public static string BuildClearScript()
     {
         var sb = new StringBuilder();
-        // Clearing is best-effort: removing rules that may not exist must not fail.
+        // clearing best-effort: removing rules that may not exist must not fail
         sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
         sb.AppendLine(RemoveRulesCommand);
         return sb.ToString().TrimEnd('\n', '\r');
     }
 
-    /// <summary>
-    /// PowerShell that finds and removes every rule whose display name starts
-    /// with <see cref="RulePrefix"/>. Shared by the block (for idempotency) and
-    /// clear scripts. Both cmdlets suppress their own errors so a missing rule is
-    /// not treated as a failure even when the surrounding script uses
-    /// <c>$ErrorActionPreference = 'Stop'</c>.
-    /// </summary>
+    /// <summary>PowerShell removing every rule whose display name starts with <see cref="RulePrefix"/>. shared by block (idempotency) + clear scripts. both cmdlets suppress errors so a missing rule isn't a failure even under <c>$ErrorActionPreference = 'Stop'</c></summary>
     private static readonly string RemoveRulesCommand =
         $"Get-NetFirewallRule -DisplayName '{RulePrefix}*' -ErrorAction SilentlyContinue | " +
         "Remove-NetFirewallRule -ErrorAction SilentlyContinue";
 
-    /// <summary>
-    /// Wraps a value in a PowerShell single-quoted string, doubling any embedded
-    /// single quote so the literal cannot break out of the quoting. The resolver
-    /// list is hard-coded, but quoting defensively keeps the scripts injection-safe.
-    /// </summary>
+    /// <summary>wrap in PowerShell single-quoted string, doubling embedded quote so literal can't break out. resolver list is hard-coded, but defensive quoting keeps scripts injection-safe</summary>
     private static string Quote(string value) =>
         "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
 }

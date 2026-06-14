@@ -3,32 +3,17 @@ using Xunit;
 
 namespace Curfew.Core.Tests;
 
-/// <summary>
-/// Unit tests for <see cref="TimeGuard"/>, the pure clock-tampering classifier.
-/// <para>
-/// All assertions are built relative to <see cref="Tolerance"/> rather than
-/// hard-coded magnitudes, so the suite keeps pinning the documented contract even
-/// if the tolerance is later retuned. The trusted reference is anchored at a fixed
-/// UTC instant; expected effective dates are derived by projecting the chosen
-/// instant through <see cref="DateTimeOffset.LocalDateTime"/> exactly as the
-/// production code does, which keeps the tests deterministic regardless of the
-/// machine's local time zone.
-/// </para>
-/// </summary>
+/// <summary>tests for <see cref="TimeGuard"/> pure clock-tamper classifier; asserts relative to <see cref="Tolerance"/>, dates via <see cref="DateTimeOffset.LocalDateTime"/> like prod, time-zone independent</summary>
 public class TimeGuardTests
 {
-    /// <summary>A fixed, trusted reference instant (noon UTC) used as NTP time.</summary>
+    /// <summary>fixed trusted reference instant (noon UTC) as NTP time</summary>
     private static readonly DateTimeOffset Trusted =
         new(2026, 6, 10, 12, 0, 0, TimeSpan.Zero);
 
-    /// <summary>Convenience alias for the guard's configured tolerance window.</summary>
+    /// <summary>alias for guard's tolerance window</summary>
     private static readonly TimeSpan Tolerance = TimeGuard.Tolerance;
 
-    /// <summary>
-    /// Projects an instant onto the local wall-clock date the same way
-    /// <see cref="TimeGuard.EffectiveDate(DateTimeOffset, DateTimeOffset)"/> does,
-    /// so expectations stay correct on any machine time zone.
-    /// </summary>
+    /// <summary>project instant to local wall-clock date like <see cref="TimeGuard.EffectiveDate(DateTimeOffset, DateTimeOffset)"/>; correct on any time zone</summary>
     private static DateOnly LocalDateOf(DateTimeOffset instant) =>
         DateOnly.FromDateTime(instant.LocalDateTime);
 
@@ -42,7 +27,7 @@ public class TimeGuardTests
 
     [Theory]
     [InlineData(30)]    // small forward drift
-    [InlineData(-30)]   // small backward drift
+    [InlineData(-30)]   // small back drift
     public void Evaluate_returns_ok_for_drift_within_tolerance(int driftSeconds)
     {
         var local = Trusted.AddSeconds(driftSeconds);
@@ -52,7 +37,7 @@ public class TimeGuardTests
     [Fact]
     public void Evaluate_treats_drift_exactly_at_tolerance_as_ok()
     {
-        // The contract documents the boundary as inclusive in both directions.
+        // boundary inclusive both directions
         Assert.Equal(TimeGuard.Verdict.Ok, TimeGuard.Evaluate(Trusted + Tolerance, Trusted));
         Assert.Equal(TimeGuard.Verdict.Ok, TimeGuard.Evaluate(Trusted - Tolerance, Trusted));
     }
@@ -60,12 +45,12 @@ public class TimeGuardTests
     [Fact]
     public void Evaluate_is_independent_of_time_zone_offset()
     {
-        // Same absolute instant, expressed in a different offset, is still in sync.
+        // same instant, different offset, still in sync
         var sameInstantOtherZone = Trusted.ToOffset(TimeSpan.FromHours(5));
         Assert.Equal(TimeGuard.Verdict.Ok, TimeGuard.Evaluate(sameInstantOtherZone, Trusted));
     }
 
-    // ---- Evaluate: ahead (the time-farming case) --------------------------
+    // ---- Evaluate: ahead (time-farming) --------------------------
 
     [Fact]
     public void Evaluate_flags_ahead_just_past_tolerance()
@@ -81,7 +66,7 @@ public class TimeGuardTests
         Assert.Equal(TimeGuard.Verdict.AheadTampered, TimeGuard.Evaluate(local, Trusted));
     }
 
-    // ---- Evaluate: behind (curfew-dodging case) ---------------------------
+    // ---- Evaluate: behind (curfew-dodging) ---------------------------
 
     [Fact]
     public void Evaluate_flags_behind_just_past_tolerance()
@@ -134,7 +119,7 @@ public class TimeGuardTests
     [Fact]
     public void EffectiveDate_ignores_forward_jump_into_tomorrow()
     {
-        // A forward jump must not unlock a fresh day's allowance: the trusted day wins.
+        // forward jump must not unlock fresh day; trusted day wins
         var local = Trusted.AddDays(1);
         Assert.Equal(LocalDateOf(Trusted), TimeGuard.EffectiveDate(local, Trusted));
     }
@@ -142,7 +127,7 @@ public class TimeGuardTests
     [Fact]
     public void EffectiveDate_ignores_backward_jump_into_yesterday()
     {
-        // A backward jump must not replay an already-spent day: the trusted day wins.
+        // back jump must not replay spent day; trusted day wins
         var local = Trusted.AddDays(-1);
         Assert.Equal(LocalDateOf(Trusted), TimeGuard.EffectiveDate(local, Trusted));
     }
@@ -150,10 +135,9 @@ public class TimeGuardTests
     [Fact]
     public void EffectiveDate_uses_local_day_even_when_local_is_a_different_date_but_in_sync()
     {
-        // Across local midnight the two instants can carry different calendar dates
-        // while still agreeing within tolerance; the local date is then authoritative.
+        // across local midnight instants carry different dates yet agree within tolerance; local date wins
         var nearMidnightTrusted = new DateTimeOffset(2026, 6, 10, 23, 59, 30, TimeSpan.Zero);
-        var local = nearMidnightTrusted + TimeSpan.FromSeconds(45); // rolls past midnight
+        var local = nearMidnightTrusted + TimeSpan.FromSeconds(45); // past midnight
 
         Assert.Equal(TimeGuard.Verdict.Ok, TimeGuard.Evaluate(local, nearMidnightTrusted));
         Assert.Equal(LocalDateOf(local), TimeGuard.EffectiveDate(local, nearMidnightTrusted));
@@ -184,7 +168,7 @@ public class TimeGuardTests
     [Fact]
     public void EffectiveDate_overload_honors_an_ok_verdict_by_trusting_local()
     {
-        // Even if the local clock is far ahead, an explicit Ok verdict trusts local.
+        // even if local far ahead, explicit Ok verdict trusts local
         var local = Trusted.AddDays(1);
         Assert.Equal(
             LocalDateOf(local),
@@ -196,11 +180,11 @@ public class TimeGuardTests
     [InlineData(TimeGuard.Verdict.BehindTampered)]
     public void EffectiveDate_overload_uses_trusted_date_for_any_tampered_verdict(TimeGuard.Verdict verdict)
     {
-        // The supplied verdict, not the actual drift, drives the choice of source date.
+        // supplied verdict, not actual drift, picks source date
         var local = Trusted.AddSeconds(10); // genuinely in sync...
         Assert.Equal(
             LocalDateOf(Trusted),
-            TimeGuard.EffectiveDate(local, Trusted, verdict)); // ...but told it is tampered.
+            TimeGuard.EffectiveDate(local, Trusted, verdict)); // ...but told tampered
     }
 
     // ----- Multi-source corroboration ---------------------------------------
@@ -218,14 +202,14 @@ public class TimeGuardTests
         var samples = new[] { Trusted, Trusted.AddSeconds(5) };
         var result = TimeGuard.Corroborate(samples);
         Assert.NotNull(result);
-        // Median of the two-element cluster is the earlier (lower-median) sample.
+        // median of two-element cluster is earlier (lower-median) sample
         Assert.Equal(Trusted, result);
     }
 
     [Fact]
     public void Corroborate_ignores_a_single_spoofed_outlier()
     {
-        // Two honest sources agree; one forged source is hours off and must not win.
+        // two honest sources agree; one forged hours off must not win
         var samples = new[] { Trusted, Trusted.AddSeconds(8), Trusted.AddHours(6) };
         var result = TimeGuard.Corroborate(samples);
         Assert.NotNull(result);
@@ -235,7 +219,7 @@ public class TimeGuardTests
     [Fact]
     public void Corroborate_returns_null_when_no_cluster_agrees()
     {
-        // Three sources, all far apart: nothing corroborates, so fail closed.
+        // three sources far apart: nothing corroborates, fail closed
         var samples = new[] { Trusted, Trusted.AddMinutes(10), Trusted.AddMinutes(20) };
         Assert.Null(TimeGuard.Corroborate(samples));
     }
@@ -243,7 +227,7 @@ public class TimeGuardTests
     [Fact]
     public void Corroborate_picks_the_largest_agreeing_cluster()
     {
-        // A lone early sample, then a tight cluster of three: the cluster wins.
+        // lone early sample, then tight cluster of three: cluster wins
         var samples = new[]
         {
             Trusted.AddHours(-3),

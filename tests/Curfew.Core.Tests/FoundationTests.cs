@@ -23,8 +23,7 @@ public class SettingsPartitionTests
     [InlineData("provisioned_users", SettingsStoreKind.Config)]
     [InlineData("schedule", SettingsStoreKind.Config)]
     [InlineData("limit_enabled", SettingsStoreKind.Config)]
-    // Policy, NOT runtime handshake: a broad "lock_" prefix once routed this into
-    // the child-writable state store, letting the child set their own logoff delay.
+    // policy, NOT runtime handshake: broad "lock_" prefix once routed this to child-writable state store, letting child set own logoff delay
     [InlineData("lock_screen_timeout", SettingsStoreKind.Config)]
     public void StoreFor_routes_counters_to_state_and_policy_to_config(string key, SettingsStoreKind expected) =>
         Assert.Equal(expected, SettingsPartition.StoreFor(key));
@@ -72,7 +71,7 @@ public class UserProvisioningTests
         var list = UserProvisioning.Add(null, "S-1-5-21-1");
         Assert.Equal("S-1-5-21-1", list);
 
-        // Adding null or empty should not modify the list
+        // adding null/empty must not modify list
         Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, null!));
         Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, ""));
         Assert.Equal("S-1-5-21-1", UserProvisioning.Add(list, "   "));
@@ -109,7 +108,7 @@ public class LockoutPolicyTests
     public void Backwards_clock_keeps_blocking()
     {
         var state = new LockoutState(LockoutPolicy.FreeAttempts + 3, 10_000);
-        // Clock rolled back to before the attempt — must still be locked (fail closed).
+        // clock rolled back before attempt — still locked (fail closed)
         Assert.True(LockoutPolicy.IsLockedOut(state, 9_000, out _));
     }
 }
@@ -151,24 +150,19 @@ public class AppAllowlistTests
         var sep = System.IO.Path.DirectorySeparatorChar;
         var roots = new[] { $"{sep}trusted{sep}Program Files", $"{sep}trusted{sep}Windows" };
 
-        // Allow-listed name in a trusted root: exempt.
+        // allow-listed name in trusted root: exempt
         Assert.True(AppAllowlist.AllowsTrusted(set, $"{sep}trusted{sep}Program Files{sep}VSCode{sep}code.exe", roots));
 
-        // Same name copied to a child-writable location: NOT exempt — otherwise
-        // renaming any exe to an allow-listed name stops the budget clock forever.
+        // same name copied to child-writable location: NOT exempt — else renaming any exe to allow-listed name stops budget clock forever
         Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}users{sep}kid{sep}code.exe", roots));
 
-        // Sibling directory whose name merely *starts with* the trusted root's text:
-        // NOT exempt. AllowsTrusted appends a separator to each root before StartsWith
-        // precisely so "Program FilesEvil" (a folder the child could create) is not
-        // treated as inside "Program Files". Drop that separator-append and this path
-        // wrongly becomes exempt, stopping the budget clock forever.
+        // sibling dir whose name merely *starts with* trusted root text: NOT exempt. AllowsTrusted appends separator to each root before StartsWith so "Program FilesEvil" (child-creatable folder) is not inside "Program Files". drop that separator-append and this path wrongly becomes exempt, stopping budget clock forever
         Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}trusted{sep}Program FilesEvil{sep}code.exe", roots));
 
-        // Non-listed name in a trusted root: not exempt either.
+        // non-listed name in trusted root: not exempt either
         Assert.False(AppAllowlist.AllowsTrusted(set, $"{sep}trusted{sep}Program Files{sep}chrome.exe", roots));
 
-        // Unknown path (elevated process, exited process): fail closed.
+        // unknown path (elevated process, exited process): fail closed
         Assert.False(AppAllowlist.AllowsTrusted(set, null, roots));
         Assert.False(AppAllowlist.AllowsTrusted(set, "", roots));
     }
