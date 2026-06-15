@@ -129,6 +129,7 @@ public sealed class CurfewWorker : BackgroundService
             try
             {
                 await CheckForUpdatesAsync(ct).ConfigureAwait(false);
+                await RefreshBlocklistAsync(ct).ConfigureAwait(false);
             }
             finally
             {
@@ -232,13 +233,21 @@ public sealed class CurfewWorker : BackgroundService
         "block_private_browsing",
     };
 
+    /// <summary>Config keys whose change should re-download the public blocklists (then re-apply hosts).</summary>
+    private static readonly HashSet<string> BlocklistKeys = new(StringComparer.Ordinal)
+    {
+        "blocklist_enabled", "blocklist_sources", "blocklist_max_domains",
+    };
+
     /// <summary>Called when a config key is written via the pipe (parent saved a setting). Re-applies the
     /// content filter immediately for the relevant keys so SafeSearch / blocklists / DNS mode take effect on
     /// save, not at the next reboot or network change. Dispatched off the pipe thread; ApplyContentFilter is
     /// self-guarded. Other keys are picked up by the overlay's own 30s reload.</summary>
     private void OnConfigKeyChanged(string key)
     {
-        if (ContentFilterKeys.Contains(key))
+        if (BlocklistKeys.Contains(key))
+            _ = Task.Run(() => RefreshBlocklistAsync(CancellationToken.None));
+        else if (ContentFilterKeys.Contains(key))
             _ = Task.Run(ApplyContentFilter);
     }
 
@@ -279,6 +288,27 @@ public sealed class CurfewWorker : BackgroundService
         {
             _logger.LogWarning(ex, "Time guard enforcement failed");
             ServiceLog.Write($"time guard failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Re-download the enabled public blocklists and re-apply the hosts filter so new domains take
+    /// effect. Best-effort: failure keeps the last cached list (see <see cref="BlocklistUpdater"/>).</summary>
+    private async Task RefreshBlocklistAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var settings = OpenSettings();
+            await BlocklistUpdater.RefreshAsync(settings, ct).ConfigureAwait(false);
+            ApplyContentFilter();
+        }
+        catch (OperationCanceledException)
+        {
+            // stopping mid-refresh expected
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Blocklist refresh failed");
+            ServiceLog.Write($"blocklist refresh failed: {ex.Message}");
         }
     }
 

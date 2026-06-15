@@ -368,6 +368,15 @@
                                  PlaceholderText="{local:Loc Key=settings.blocked.placeholder}"
                                  TextWrapping="Wrap" AcceptsReturn="True" Height="96"
                                  ToolTipService.ToolTip="One domain per line; blocked machine-wide via the hosts file" />
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="BlocklistEnabled" Header="{local:Loc Key=settings.blocklist.toggle}"
+                                          OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                            <TextBlock Text="{local:Loc Key=settings.blocklist.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <CheckBox x:Name="BlocklistAdult" Content="{local:Loc Key=settings.blocklist.adult}" />
+                            <CheckBox x:Name="BlocklistAds" Content="{local:Loc Key=settings.blocklist.ads}" />
+                            <CheckBox x:Name="BlocklistFakeNews" Content="{local:Loc Key=settings.blocklist.fakenews}" />
+                        </StackPanel>
                     </StackPanel>
                 </Expander>
 

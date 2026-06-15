@@ -54,6 +54,8 @@ public static class SettingsPartition
         "block_private_browsing",
         // one-tap "block VPN apps" toggle (overlay folds VpnApps.Names into the blocklist)
         "block_vpn_apps",
+        // downloadable public blocklists (Pi-hole/StevenBlack model): fetched + applied machine-wide
+        "blocklist_enabled", "blocklist_sources", "blocklist_max_domains",
     };
 
     /// <summary>Store a (fully-formed) key belongs to.</summary>

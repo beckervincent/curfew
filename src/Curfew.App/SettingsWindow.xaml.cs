@@ -532,6 +532,12 @@ public sealed partial class SettingsWindow : Window
         CatStreaming.IsChecked = cats.Contains(BlockCategories.Streaming);
         CatAdult.IsChecked = cats.Contains(BlockCategories.Adult);
         CatProxy.IsChecked = cats.Contains(BlockCategories.Proxy);
+
+        BlocklistEnabled.IsOn = _settings.GetBool("blocklist_enabled", false);
+        var sources = BlocklistSources.Parse(_settings.Get("blocklist_sources"));
+        BlocklistAdult.IsChecked = sources.Contains(BlocklistSources.Adult);
+        BlocklistAds.IsChecked = sources.Contains(BlocklistSources.Ads);
+        BlocklistFakeNews.IsChecked = sources.Contains(BlocklistSources.FakeNews);
         BlockedDomains.Text = _settings.Get("blocked_domains") ?? string.Empty;
     }
 
@@ -797,6 +803,14 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("blocked_categories", string.Join(',', cats));
         // normalize to a clean newline-joined list so the stored value round-trips predictably
         _settings.Set("blocked_domains", string.Join('\n', HostsBlocklist.Parse(BlockedDomains.Text)));
+
+        // downloadable public blocklists (Pi-hole/StevenBlack); service fetches + caches the selected sources
+        var sources = new List<string>();
+        if (BlocklistAdult.IsChecked == true) sources.Add(BlocklistSources.Adult);
+        if (BlocklistAds.IsChecked == true) sources.Add(BlocklistSources.Ads);
+        if (BlocklistFakeNews.IsChecked == true) sources.Add(BlocklistSources.FakeNews);
+        _settings.Set("blocklist_sources", string.Join(',', sources));
+        _settings.Set("blocklist_enabled", ToFlag(BlocklistEnabled.IsOn));
     }
 
     private void SaveProtection()

@@ -37,7 +37,15 @@ internal static class HostsFileApplier
             foreach (var d in BlockCategories.DomainsFor(BlockCategories.Parse(settings.Get(CategoriesKey))))
                 if (seen.Add(d)) domains.Add(d);
 
-            var extra = settings.GetBool(SafeSearchKey, false) ? SafeSearch.HostsLines() : Array.Empty<string>();
+            // extra verbatim "ip host" lines in the same section: SafeSearch VIPs + the downloaded
+            // blocklist (sunk one line each — those lists already include the subdomains they need, so
+            // we must NOT apex+www-double them like the curated domains above)
+            var extra = new List<string>();
+            if (settings.GetBool(SafeSearchKey, false)) extra.AddRange(SafeSearch.HostsLines());
+            if (settings.GetBool("blocklist_enabled", false))
+                foreach (var d in BlocklistUpdater.LoadCachedDomains())
+                    extra.Add($"0.0.0.0 {d}");
+
             var path = HostsPath;
             var existing = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
             var merged = HostsBlocklist.Merge(existing, domains, extra);
