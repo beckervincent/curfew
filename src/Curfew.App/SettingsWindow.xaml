@@ -155,6 +155,13 @@
                             <TextBox x:Name="BlockedAppsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
                                      PlaceholderText="steam.exe&#x0A;roblox.exe" />
                         </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.apptime.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.apptime.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <TextBox x:Name="AppTimeLimitsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
+                                     PlaceholderText="minecraft.exe=60&#x0A;roblox.exe=30" />
+                        </StackPanel>
                     </StackPanel>
                 </Expander>
 

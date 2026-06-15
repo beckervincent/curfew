@@ -37,6 +37,9 @@ public enum CurfewEventKind
 
     /// <summary>a blocked app was closed</summary>
     AppBlocked,
+
+    /// <summary>an app reached its per-app daily time limit and was closed</summary>
+    AppTimeLimitReached,
 }
 
 /// <summary>one event: when, what kind, short detail</summary>

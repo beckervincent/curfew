@@ -68,6 +68,10 @@ internal static class OverlayState
     /// <summary>process names the parent blocks outright; the overlay terminates them when foreground. loaded in <see cref="LoadEnforcement"/></summary>
     public static IReadOnlySet<string> BlockedApps = new HashSet<string>();
 
+    /// <summary>per-app daily time limits (normalized name -> minutes). once an app's tracked foreground
+    /// time today reaches its limit the overlay blocks it like <see cref="BlockedApps"/>. loaded in <see cref="LoadEnforcement"/></summary>
+    public static IReadOnlyDictionary<string, int> AppLimits = new Dictionary<string, int>();
+
     /// <summary>parent unlocked during blocked schedule window; cleared once allowed window reached so next blocked window re-locks</summary>
     public static bool ScheduleOverride;
 
@@ -94,6 +98,7 @@ internal static class OverlayState
         Schedule = Schedule.Parse(Settings.Get(KeySchedule));
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
         BlockedApps = AppAllowlist.Parse(Settings.Get("blocked_apps"));
+        AppLimits = AppTimeLimits.Parse(Settings.Get("app_time_limits"));
         WeeklyLimitEnabled = Settings.GetBool("weekly_limit_enabled", false);
         WeeklyLimitMinutes = Settings.GetInt("weekly_limit_minutes", 0);
         WeeklyUsedMinutes = Settings.UsedThisWeekMinutes(DateOnly.FromDateTime(DateTime.Now));
@@ -225,6 +230,64 @@ internal static class OverlayState
 
     private static string UsageKey(DateOnly date) =>
         $"{SettingsStore.UsagePrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+    // ---- Per-app daily time limits -----------------------------------------
+    // Track each app's foreground seconds for the day so an app with its own limit
+    // (AppLimits) can be blocked once it reaches that limit, independent of the global
+    // budget. Persisted as one serialized state.db row per day so the count survives an
+    // overlay restart; midnight rollover flushes the finished day and resets.
+
+    private static Dictionary<string, int> _appUsed = new(StringComparer.OrdinalIgnoreCase);
+    private static DateOnly _appUsageDate;
+
+    /// <summary>load today's accumulated per-app usage so a respawn continues the counts</summary>
+    public static void LoadAppUsage()
+    {
+        _appUsageDate = DateOnly.FromDateTime(DateTime.Now);
+        _appUsed = AppUsageMap.Parse(Settings.Get(AppUsageKey(_appUsageDate)));
+    }
+
+    /// <summary>count one second of foreground use against <paramref name="appName"/>'s daily total. midnight
+    /// rollover flushes the finished day + resets; persists ~twice a minute to bound writes. no-op for a blank
+    /// name or when the app has no configured limit (nothing reads the count otherwise)</summary>
+    public static void RecordAppSecond(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return;
+        var name = AppAllowlist.Normalize(appName);
+        if (name.Length == 0 || AppTimeLimits.LimitMinutesFor(AppLimits, name) < 0) return;
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today != _appUsageDate)
+        {
+            PersistAppUsage();
+            _appUsageDate = today;
+            _appUsed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        _appUsed.TryGetValue(name, out var seconds);
+        _appUsed[name] = seconds + 1;
+        if ((seconds + 1) % 30 == 0) PersistAppUsage();
+    }
+
+    /// <summary>true when <paramref name="appName"/> has a per-app limit and today's tracked foreground time
+    /// has reached it; the overlay then terminates the app's foreground (like the blocklist)</summary>
+    public static bool IsAppOverLimit(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return false;
+        var name = AppAllowlist.Normalize(appName);
+        var limitMinutes = AppTimeLimits.LimitMinutesFor(AppLimits, name);
+        if (limitMinutes < 0) return false;
+
+        _appUsed.TryGetValue(name, out var seconds);
+        return seconds >= limitMinutes * 60;
+    }
+
+    /// <summary>write the running per-app usage totals for the current day</summary>
+    public static void PersistAppUsage() =>
+        Settings.Set(AppUsageKey(_appUsageDate), AppUsageMap.Serialize(_appUsed));
+
+    private static string AppUsageKey(DateOnly date) =>
+        $"app_usage_{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
 
     // ---- Child-initiated breaks (pause) ------------------------------------
     // A child can take a short break that freezes the budget, rate-limited by the

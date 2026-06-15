@@ -434,6 +434,7 @@ public sealed partial class SettingsWindow : Window
 
         AppAllowlistBox.Text = _settings.Get("app_allowlist") ?? string.Empty;
         BlockedAppsBox.Text = _settings.Get("blocked_apps") ?? string.Empty;
+        AppTimeLimitsBox.Text = _settings.Get("app_time_limits") ?? string.Empty;
 
         // weekly cap: stored in minutes, edited in hours
         WeeklyLimitEnabled.IsOn = _settings.GetBool("weekly_limit_enabled", false);
@@ -687,6 +688,8 @@ public sealed partial class SettingsWindow : Window
         // apps whose foreground time is exempt from budget. stored raw; overlay parses (AppAllowlist.Parse) when enforcing
         _settings.Set("app_allowlist", AppAllowlistBox.Text ?? string.Empty);
         _settings.Set("blocked_apps", BlockedAppsBox.Text ?? string.Empty);
+        // per-app daily limits ("name=minutes" lines); overlay parses (AppTimeLimits.Parse) when enforcing
+        _settings.Set("app_time_limits", AppTimeLimitsBox.Text ?? string.Empty);
 
         // weekly cap: edited in hours, stored in minutes
         _settings.Set("weekly_limit_enabled", ToFlag(WeeklyLimitEnabled.IsOn));

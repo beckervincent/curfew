@@ -76,6 +76,7 @@ namespace Curfew.Overlay
                 TimeKeeper.InitialRemaining(saved, OverlayState.Settings.GetDailyLimit(weekday));
             OverlayState.LoadEnforcement();
             OverlayState.LoadUsage();
+            OverlayState.LoadAppUsage();
             OverlayState.LoadPause();
 
             var hInstance = GetModuleHandleW(null);
@@ -213,6 +214,35 @@ namespace Curfew.Overlay
             }
         }
 
+        /// <summary>last app we ballooned a time-up notice for, so it fires once per app rather than every tick</summary>
+        private static string? _lastTimeUpAppName;
+
+        /// <summary>Charge the foreground app's per-app daily time and, once it reaches its configured limit,
+        /// terminate it and notify the child once. <paramref name="active"/> is false while idle or paused, so
+        /// time isn't charged when the child is away. Never touches Curfew's own windows. No-op when no
+        /// per-app limits are configured.</summary>
+        private static void EnforceAppTimeLimits(bool active)
+        {
+            if (OverlayState.AppLimits.Count == 0) { _lastTimeUpAppName = null; return; }
+
+            var (pid, name) = ForegroundApp.Foreground();
+            if (pid == 0 || string.IsNullOrEmpty(name)) { _lastTimeUpAppName = null; return; }
+            if (name.StartsWith("Curfew", StringComparison.OrdinalIgnoreCase)) return; // never touch our own UI
+
+            if (active) OverlayState.RecordAppSecond(name);
+
+            if (!OverlayState.IsAppOverLimit(name)) { _lastTimeUpAppName = null; return; }
+
+            ForegroundApp.Terminate(pid);
+            if (!string.Equals(_lastTimeUpAppName, name, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastTimeUpAppName = name;
+                OverlayLog.Write($"app time limit reached: {name}");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.AppTimeLimitReached, name);
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.apptimeup", name));
+            }
+        }
+
         /// <summary>foreground app allow-listed -> this second exempt from budget</summary>
         private static bool ForegroundExempt() =>
             OverlayState.AllowedApps.Count > 0
@@ -271,6 +301,11 @@ namespace Curfew.Overlay
 
             // terminate any parent-blocked app that is in the foreground
             EnforceBlockedApps();
+
+            // charge the foreground app's per-app daily time (active seconds only) and close it once it
+            // reaches its own limit. independent of the global budget — a game can be capped at 1h/day
+            // even when general screen time is still available
+            EnforceAppTimeLimits(active: !idle && !OverlayState.IsPaused);
 
             // budget ticks down only when active control, not idle, no pause, foreground not allow-listed (homework/IDE exempt)
             if (OverlayState.LimitEnabled && !idle && !OverlayState.IsPaused && !ForegroundExempt())

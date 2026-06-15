@@ -45,8 +45,9 @@ public static class AppAllowlist
         return false;
     }
 
-    /// <summary>lower-case, strip directory and trailing <c>.exe</c>, trim</summary>
-    private static string Normalize(string value)
+    /// <summary>lower-case, strip directory and trailing <c>.exe</c>, trim. shared so other app-name
+    /// features (per-app time limits, usage stats) normalize identically and match the same process</summary>
+    public static string Normalize(string value)
     {
         var name = value.Trim();
         var slash = name.LastIndexOfAny(new[] { '\\', '/' });
