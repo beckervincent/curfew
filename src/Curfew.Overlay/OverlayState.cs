@@ -120,6 +120,8 @@ internal static class OverlayState
         var blocked = new HashSet<string>(AppAllowlist.Parse(Settings.Get("blocked_apps")), StringComparer.OrdinalIgnoreCase);
         // one-tap anti-circumvention: fold the bundled VPN/Tor client names into the blocklist
         if (Settings.GetBool("block_vpn_apps", false)) blocked.UnionWith(VpnApps.Names);
+        // one-tap safety: fold the bundled remote-access client names in (anti-scam/stranger-control)
+        if (Settings.GetBool("block_remote_access_apps", false)) blocked.UnionWith(RemoteAccessApps.Names);
         BlockedApps = blocked;
         AppLimits = AppTimeLimits.Parse(Settings.Get("app_time_limits"));
         AppWeeklyLimits = AppTimeLimits.Parse(Settings.Get("app_weekly_limits"));

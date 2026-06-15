@@ -59,4 +59,13 @@ public class BlockCategoriesTests
         Assert.True(AppAllowlist.Allows(VpnApps.Names, "ProtonVPN.exe"));
         Assert.False(AppAllowlist.Allows(VpnApps.Names, "chrome.exe"));
     }
+
+    [Fact]
+    public void RemoteAccessApps_match_real_process_paths()
+    {
+        Assert.True(AppAllowlist.Allows(RemoteAccessApps.Names, @"C:\Program Files\TeamViewer\TeamViewer.exe"));
+        Assert.True(AppAllowlist.Allows(RemoteAccessApps.Names, "AnyDesk.exe"));
+        Assert.True(AppAllowlist.Allows(RemoteAccessApps.Names, "quickassist.exe")); // Windows Quick Assist
+        Assert.False(AppAllowlist.Allows(RemoteAccessApps.Names, "notepad.exe"));
+    }
 }

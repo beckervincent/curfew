@@ -178,6 +178,9 @@
                         <ToggleSwitch x:Name="BlockVpnApps" Header="{local:Loc Key=settings.blockvpnapps}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
                                       ToolTipService.ToolTip="Also close known VPN / Tor apps (NordVPN, ProtonVPN, Tor, etc.)" />
+                        <ToggleSwitch x:Name="BlockRemoteAccessApps" Header="{local:Loc Key=settings.blockremoteapps}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Close remote-control apps (TeamViewer, AnyDesk, Quick Assist, VNC, etc.) — anti-scam" />
                     </StackPanel>
                 </Expander>
 
