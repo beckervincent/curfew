@@ -521,6 +521,7 @@ public sealed partial class SettingsWindow : Window
         {
             case FilterMode.Malware: FilterMalware.IsChecked = true; break;
             case FilterMode.Family: FilterFamily.IsChecked = true; break;
+            case FilterMode.FamilyOpenDns: FilterFamilyOpenDns.IsChecked = true; break;
             default: FilterOff.IsChecked = true; break;
         }
         BlockDoh.IsOn = _settings.GetBool("block_doh_bypass", true);
@@ -793,6 +794,7 @@ public sealed partial class SettingsWindow : Window
     {
         var mode = FilterMalware.IsChecked == true ? FilterMode.Malware
                  : FilterFamily.IsChecked == true ? FilterMode.Family
+                 : FilterFamilyOpenDns.IsChecked == true ? FilterMode.FamilyOpenDns
                  : FilterMode.Off;
         _settings.Set("dns_filter_mode", ContentFilter.ToSetting(mode));
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));

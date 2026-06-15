@@ -11,6 +11,10 @@ public enum FilterMode
 
     /// <summary>Cloudflare "1.1.1.3" — block malware + adult content</summary>
     Family,
+
+    /// <summary>OpenDNS FamilyShield (208.67.222.123 / .220.123) — block adult content. Alternative
+    /// provider for networks where Cloudflare's resolvers are unreachable.</summary>
+    FamilyOpenDns,
 }
 
 /// <summary>build PowerShell to apply or clear Cloudflare content filter on every active adapter. script gen lives here (pure, testable); service runs it as SYSTEM</summary>
@@ -25,16 +29,21 @@ public static class ContentFilter
     private static readonly string[] FamilyV6 = { "2606:4700:4700::1113", "2606:4700:4700::1003" };
     private const string FamilyDoh = "https://family.cloudflare-dns.com/dns-query";
 
+    // OpenDNS FamilyShield: IPv4 only (no documented FamilyShield IPv6 / DoH), so DoH is left empty
+    private static readonly string[] OpenDnsV4 = { "208.67.222.123", "208.67.220.123" };
+
     /// <summary>setting string ("off"/"malware"/"family") used by <see cref="ToSetting"/></summary>
     private const string OffSetting = "off";
     private const string MalwareSetting = "malware";
     private const string FamilySetting = "family";
+    private const string FamilyOpenDnsSetting = "family-opendns";
 
     /// <summary>parse persisted <c>dns_filter_mode</c> into <see cref="FilterMode"/>. case-insensitive, whitespace-tolerant; unrecognized/null/empty falls back to <see cref="FilterMode.Off"/></summary>
     public static FilterMode Parse(string? value) => Normalize(value) switch
     {
         MalwareSetting => FilterMode.Malware,
         FamilySetting => FilterMode.Family,
+        FamilyOpenDnsSetting => FilterMode.FamilyOpenDns,
         _ => FilterMode.Off,
     };
 
@@ -43,6 +52,7 @@ public static class ContentFilter
     {
         FilterMode.Malware => MalwareSetting,
         FilterMode.Family => FamilySetting,
+        FilterMode.FamilyOpenDns => FamilyOpenDnsSetting,
         _ => OffSetting,
     };
 
@@ -51,6 +61,7 @@ public static class ContentFilter
     {
         FilterMode.Malware => ((string[])MalwareV4.Clone(), (string[])MalwareV6.Clone(), MalwareDoh),
         FilterMode.Family => ((string[])FamilyV4.Clone(), (string[])FamilyV6.Clone(), FamilyDoh),
+        FilterMode.FamilyOpenDns => ((string[])OpenDnsV4.Clone(), Array.Empty<string>(), string.Empty),
         _ => (Array.Empty<string>(), Array.Empty<string>(), string.Empty),
     };
 
@@ -82,14 +93,17 @@ public static class ContentFilter
             "}",
         };
 
-        // encrypt each pinned resolver with matching Cloudflare DoH endpoint. existing DoH entry throws under 'Stop', benign here (resolver still pinned), so suppress its errors
-        foreach (var server in servers)
-        {
-            lines.Add(
-                $"Add-DnsClientDohServerAddress -ServerAddress {Quote(server)} " +
-                $"-DohTemplate {Quote(doh)} -AllowFallbackToUdp $false -AutoUpgrade $true " +
-                "-ErrorAction SilentlyContinue");
-        }
+        // encrypt each pinned resolver with its matching DoH endpoint. existing DoH entry throws under 'Stop',
+        // benign here (resolver still pinned), so suppress its errors. skipped when the provider has no DoH
+        // template (e.g. OpenDNS FamilyShield) — the resolver is still pinned over plain DNS.
+        if (!string.IsNullOrEmpty(doh))
+            foreach (var server in servers)
+            {
+                lines.Add(
+                    $"Add-DnsClientDohServerAddress -ServerAddress {Quote(server)} " +
+                    $"-DohTemplate {Quote(doh)} -AllowFallbackToUdp $false -AutoUpgrade $true " +
+                    "-ErrorAction SilentlyContinue");
+            }
 
         lines.Add("Clear-DnsClientCache -ErrorAction SilentlyContinue");
         return Join(lines.ToArray());

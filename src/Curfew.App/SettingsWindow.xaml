@@ -343,6 +343,7 @@
                             <RadioButton x:Name="FilterOff" Content="{local:Loc Key=filter.none}" GroupName="filter" />
                             <RadioButton x:Name="FilterMalware" Content="{local:Loc Key=filter.malware}" GroupName="filter" />
                             <RadioButton x:Name="FilterFamily" Content="{local:Loc Key=filter.family}" GroupName="filter" />
+                            <RadioButton x:Name="FilterFamilyOpenDns" Content="{local:Loc Key=filter.family.opendns}" GroupName="filter" />
                         </StackPanel>
                         <ToggleSwitch x:Name="BlockDoh" Header="{local:Loc Key=settings.doh}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"

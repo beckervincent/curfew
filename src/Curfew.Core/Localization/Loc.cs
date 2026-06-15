@@ -150,6 +150,7 @@ public static class Loc
             ["filter.none"] = "None",
             ["filter.malware"] = "Block malware (Cloudflare 1.1.1.2)",
             ["filter.family"] = "Block malware and adult content (Cloudflare 1.1.1.3)",
+            ["filter.family.opendns"] = "Block adult content (OpenDNS FamilyShield)",
 
             // weekday names (Monday-first, index 0..6)
             ["day.0"] = "Monday",
@@ -409,6 +410,7 @@ public static class Loc
             ["filter.none"] = "Keiner",
             ["filter.malware"] = "Schadsoftware blockieren (Cloudflare 1.1.1.2)",
             ["filter.family"] = "Schadsoftware und Inhalte für Erwachsene blockieren (Cloudflare 1.1.1.3)",
+            ["filter.family.opendns"] = "Inhalte für Erwachsene blockieren (OpenDNS FamilyShield)",
 
             ["day.0"] = "Montag",
             ["day.1"] = "Dienstag",
