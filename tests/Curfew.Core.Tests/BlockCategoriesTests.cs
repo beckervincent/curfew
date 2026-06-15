@@ -1,0 +1,32 @@
+using System.Linq;
+using Curfew.Core;
+using Xunit;
+
+namespace Curfew.Core.Tests;
+
+public class BlockCategoriesTests
+{
+    [Fact]
+    public void Parse_keeps_known_keys_and_drops_unknown()
+    {
+        var keys = BlockCategories.Parse("social, nonsense ; GAMING social");
+        Assert.Equal(new[] { "social", "gaming" }, keys); // de-duped, known-only, lower-cased
+    }
+
+    [Fact]
+    public void Parse_empty_is_empty() => Assert.Empty(BlockCategories.Parse(""));
+
+    [Fact]
+    public void DomainsFor_expands_and_dedupes()
+    {
+        var domains = BlockCategories.DomainsFor(new[] { BlockCategories.Social, BlockCategories.Gaming });
+        Assert.Contains("tiktok.com", domains);
+        Assert.Contains("roblox.com", domains);
+        Assert.DoesNotContain("netflix.com", domains); // streaming not enabled
+        Assert.Equal(domains.Count, domains.Distinct(System.StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void DomainsFor_none_is_empty() =>
+        Assert.Empty(BlockCategories.DomainsFor(System.Array.Empty<string>()));
+}

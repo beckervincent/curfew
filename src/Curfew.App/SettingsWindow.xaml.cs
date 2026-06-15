@@ -478,6 +478,10 @@ public sealed partial class SettingsWindow : Window
         }
         BlockDoh.IsOn = _settings.GetBool("block_doh_bypass", true);
         SafeSearch.IsOn = _settings.GetBool("safesearch_enabled", false);
+        var cats = BlockCategories.Parse(_settings.Get("blocked_categories"));
+        CatSocial.IsChecked = cats.Contains(BlockCategories.Social);
+        CatGaming.IsChecked = cats.Contains(BlockCategories.Gaming);
+        CatStreaming.IsChecked = cats.Contains(BlockCategories.Streaming);
         BlockedDomains.Text = _settings.Get("blocked_domains") ?? string.Empty;
     }
 
@@ -725,6 +729,11 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("dns_filter_mode", ContentFilter.ToSetting(mode));
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));
         _settings.Set("safesearch_enabled", ToFlag(SafeSearch.IsOn));
+        var cats = new List<string>();
+        if (CatSocial.IsChecked == true) cats.Add(BlockCategories.Social);
+        if (CatGaming.IsChecked == true) cats.Add(BlockCategories.Gaming);
+        if (CatStreaming.IsChecked == true) cats.Add(BlockCategories.Streaming);
+        _settings.Set("blocked_categories", string.Join(',', cats));
         // normalize to a clean newline-joined list so the stored value round-trips predictably
         _settings.Set("blocked_domains", string.Join('\n', HostsBlocklist.Parse(BlockedDomains.Text)));
     }

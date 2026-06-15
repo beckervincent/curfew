@@ -49,7 +49,7 @@ public static class SettingsPartition
         "dns_filter_mode", "block_doh_bypass", "time_guard_enabled",
         "unlock_secret", "unlock_bonus_minutes",
         // custom hosts-file blocklist + enforced SafeSearch: applied machine-wide by the SYSTEM service
-        "blocked_domains", "safesearch_enabled",
+        "blocked_domains", "safesearch_enabled", "blocked_categories",
     };
 
     /// <summary>Store a (fully-formed) key belongs to.</summary>

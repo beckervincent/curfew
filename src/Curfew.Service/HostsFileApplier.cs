@@ -18,6 +18,9 @@ internal static class HostsFileApplier
     /// <summary>Config key toggling enforced SafeSearch (Google/Bing/YouTube via hosts).</summary>
     private const string SafeSearchKey = "safesearch_enabled";
 
+    /// <summary>Config key holding enabled one-tap block categories (comma-separated).</summary>
+    private const string CategoriesKey = "blocked_categories";
+
     private static string HostsPath =>
         System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System), "drivers", "etc", "hosts");
@@ -28,7 +31,12 @@ internal static class HostsFileApplier
         ArgumentNullException.ThrowIfNull(settings);
         try
         {
-            var domains = HostsBlocklist.Parse(settings.Get(BlockedDomainsKey));
+            // custom blocked domains + any enabled one-tap category bundles, de-duped
+            var domains = new List<string>(HostsBlocklist.Parse(settings.Get(BlockedDomainsKey)));
+            var seen = new HashSet<string>(domains, StringComparer.OrdinalIgnoreCase);
+            foreach (var d in BlockCategories.DomainsFor(BlockCategories.Parse(settings.Get(CategoriesKey))))
+                if (seen.Add(d)) domains.Add(d);
+
             var extra = settings.GetBool(SafeSearchKey, false) ? SafeSearch.HostsLines() : Array.Empty<string>();
             var path = HostsPath;
             var existing = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
