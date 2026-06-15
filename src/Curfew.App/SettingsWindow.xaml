@@ -353,6 +353,9 @@
                         <ToggleSwitch x:Name="BlockPrivateBrowsing" Header="{local:Loc Key=settings.privatebrowsing}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
                                       ToolTipService.ToolTip="Disable incognito / private windows in Chrome, Edge and Firefox" />
+                        <Button x:Name="StrictModeButton" Click="OnApplyStrict"
+                                Content="{local:Loc Key=settings.strict.button}"
+                                ToolTipService.ToolTip="Turn on family DNS, SafeSearch, DoH block, adult+VPN/proxy blocking and private-browsing block in one tap" />
                         <StackPanel Spacing="4">
                             <TextBlock Text="{local:Loc Key=settings.categories.title}" Style="{StaticResource BodyTextBlockStyle}" />
                             <CheckBox x:Name="CatSocial" Content="{local:Loc Key=settings.categories.social}" />

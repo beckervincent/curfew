@@ -421,6 +421,19 @@ public sealed partial class SettingsWindow : Window
             show ? "AccentButtonStyle" : "DefaultButtonStyle"];
     }
 
+    /// <summary>one-tap strict protection: flip the safety controls to the <see cref="StrictPreset"/> values.
+    /// Persisted when the parent presses Save (single persistence path), so they can review first.</summary>
+    private void OnApplyStrict(object sender, RoutedEventArgs e)
+    {
+        FilterFamily.IsChecked = true;
+        BlockDoh.IsOn = true;
+        SafeSearch.IsOn = true;
+        BlockPrivateBrowsing.IsOn = true;
+        BlockVpnApps.IsOn = true;
+        CatAdult.IsChecked = true;
+        CatProxy.IsChecked = true;
+    }
+
     /// <summary>issue fresh secret, reset replay counter so old codes stop working</summary>
     private void OnRegenerateUnlock(object sender, RoutedEventArgs e)
     {
