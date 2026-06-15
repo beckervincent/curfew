@@ -16,6 +16,7 @@ public static class BlockCategories
     public const string Gaming = "gaming";
     public const string Streaming = "streaming";
     public const string Adult = "adult";
+    public const string Proxy = "proxy";
 
     private static readonly IReadOnlyDictionary<string, string[]> Catalog =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
@@ -41,10 +42,19 @@ public static class BlockCategories
                 "pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com", "redtube.com",
                 "youporn.com", "onlyfans.com", "chaturbate.com", "stripchat.com", "spankbang.com",
             },
+            // Anti-circumvention: VPN providers and web proxies a child would use to download a tunnel
+            // or relay through to defeat the content filter. Blocks the sites (download/discovery + web
+            // proxies); pair with the app blocklist for already-installed VPN clients.
+            [Proxy] = new[]
+            {
+                "nordvpn.com", "expressvpn.com", "protonvpn.com", "surfshark.com", "tunnelbear.com",
+                "windscribe.com", "hide.me", "hidemyass.com", "proxysite.com", "croxyproxy.com",
+                "kproxy.com", "hidester.com", "4everproxy.com", "ultrasurf.us",
+            },
         };
 
     /// <summary>All category keys, for building the settings UI.</summary>
-    public static IReadOnlyList<string> AllKeys => new[] { Social, Gaming, Streaming, Adult };
+    public static IReadOnlyList<string> AllKeys => new[] { Social, Gaming, Streaming, Adult, Proxy };
 
     /// <summary>Parse the stored comma/space/semicolon-separated category list into known keys (lower-case, de-duped).</summary>
     public static IReadOnlyList<string> Parse(string? stored)

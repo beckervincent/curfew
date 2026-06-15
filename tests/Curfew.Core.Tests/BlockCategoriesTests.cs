@@ -39,4 +39,13 @@ public class BlockCategoriesTests
         Assert.Contains("pornhub.com", domains);
         Assert.DoesNotContain("tiktok.com", domains);
     }
+
+    [Fact]
+    public void Proxy_category_blocks_vpn_and_proxy_sites()
+    {
+        Assert.Contains(BlockCategories.Proxy, BlockCategories.AllKeys);
+        var domains = BlockCategories.DomainsFor(new[] { BlockCategories.Proxy });
+        Assert.Contains("nordvpn.com", domains);
+        Assert.Contains("croxyproxy.com", domains);
+    }
 }
