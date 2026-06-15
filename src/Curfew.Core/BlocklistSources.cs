@@ -17,16 +17,24 @@ public static class BlocklistSources
     /// <summary>StevenBlack "fakenews" alternate — known fake-news / misinformation sites.</summary>
     public const string FakeNews = "fakenews";
 
+    /// <summary>StevenBlack "gambling" alternate — online casinos / betting sites.</summary>
+    public const string Gambling = "gambling";
+
+    /// <summary>StevenBlack "social" alternate — social-media domains (broad).</summary>
+    public const string Social = "social";
+
     private static readonly IReadOnlyDictionary<string, string> Catalog =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             [Adult] = "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn/hosts",
             [Ads] = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
             [FakeNews] = "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews/hosts",
+            [Gambling] = "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/gambling/hosts",
+            [Social] = "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/social/hosts",
         };
 
     /// <summary>All source keys, for building the settings UI.</summary>
-    public static IReadOnlyList<string> AllKeys => new[] { Adult, Ads, FakeNews };
+    public static IReadOnlyList<string> AllKeys => new[] { Adult, Ads, FakeNews, Gambling, Social };
 
     /// <summary>Parse the stored comma/space/semicolon-separated source list into known keys (lower-case, de-duped).</summary>
     public static IReadOnlyList<string> Parse(string? stored)
