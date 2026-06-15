@@ -53,6 +53,8 @@ public static class AppAllowlist
         var slash = name.LastIndexOfAny(new[] { '\\', '/' });
         if (slash >= 0) name = name[(slash + 1)..];
         if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
-        return name.Trim();
+        // lower-case so matching never depends on the dictionary/set comparer alone:
+        // serialized keys (per-app usage, limits) compare consistently regardless of source casing
+        return name.Trim().ToLowerInvariant();
     }
 }
