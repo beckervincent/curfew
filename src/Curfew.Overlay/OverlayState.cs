@@ -72,6 +72,13 @@ internal static class OverlayState
     /// time today reaches its limit the overlay blocks it like <see cref="BlockedApps"/>. loaded in <see cref="LoadEnforcement"/></summary>
     public static IReadOnlyDictionary<string, int> AppLimits = new Dictionary<string, int>();
 
+    /// <summary>20-20-20 eye-strain reminder enabled: after this many minutes of continuous active screen
+    /// use the overlay nudges the child to look away. loaded in <see cref="LoadEnforcement"/></summary>
+    public static bool EyeStrainEnabled;
+
+    /// <summary>minutes of continuous active use between eye-strain reminders (default 20)</summary>
+    public static int EyeStrainIntervalMinutes = 20;
+
     /// <summary>parent unlocked during blocked schedule window; cleared once allowed window reached so next blocked window re-locks</summary>
     public static bool ScheduleOverride;
 
@@ -99,6 +106,8 @@ internal static class OverlayState
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
         BlockedApps = AppAllowlist.Parse(Settings.Get("blocked_apps"));
         AppLimits = AppTimeLimits.Parse(Settings.Get("app_time_limits"));
+        EyeStrainEnabled = Settings.GetBool("eyestrain_enabled", false);
+        EyeStrainIntervalMinutes = Settings.GetInt("eyestrain_interval_minutes", 20);
         WeeklyLimitEnabled = Settings.GetBool("weekly_limit_enabled", false);
         WeeklyLimitMinutes = Settings.GetInt("weekly_limit_minutes", 0);
         WeeklyUsedMinutes = Settings.UsedThisWeekMinutes(DateOnly.FromDateTime(DateTime.Now));

@@ -243,6 +243,28 @@ namespace Curfew.Overlay
             }
         }
 
+        /// <summary>seconds of continuous active screen use since the last eye-strain reminder (or last rest)</summary>
+        private static int _eyeStrainActiveSeconds;
+
+        /// <summary>20-20-20 rule nudge: after <see cref="OverlayState.EyeStrainIntervalMinutes"/> of continuous
+        /// active use, balloon the child to look ~20 ft away for 20 s, then reset the streak. A rest (idle or a
+        /// pause) also resets it, since the eyes have already had a break. No-op when disabled or the interval
+        /// is non-positive.</summary>
+        private static void EyeStrainReminder(bool active)
+        {
+            if (!OverlayState.EyeStrainEnabled || OverlayState.EyeStrainIntervalMinutes <= 0 || !active)
+            {
+                _eyeStrainActiveSeconds = 0;
+                return;
+            }
+
+            if (++_eyeStrainActiveSeconds < OverlayState.EyeStrainIntervalMinutes * 60) return;
+
+            _eyeStrainActiveSeconds = 0;
+            OverlayLog.Write("eye-strain reminder fired");
+            TrayIcon.ShowBalloon(Loc.T("tray.eyestrain.title"), Loc.T("tray.eyestrain.body"));
+        }
+
         /// <summary>foreground app allow-listed -> this second exempt from budget</summary>
         private static bool ForegroundExempt() =>
             OverlayState.AllowedApps.Count > 0
@@ -306,6 +328,10 @@ namespace Curfew.Overlay
             // reaches its own limit. independent of the global budget — a game can be capped at 1h/day
             // even when general screen time is still available
             EnforceAppTimeLimits(active: !idle && !OverlayState.IsPaused);
+
+            // 20-20-20 eye-strain nudge: after enough continuous active use, remind the child to look away.
+            // idle or a pause counts as rest and resets the streak
+            EyeStrainReminder(active: !idle && !OverlayState.IsPaused);
 
             // budget ticks down only when active control, not idle, no pause, foreground not allow-listed (homework/IDE exempt)
             if (OverlayState.LimitEnabled && !idle && !OverlayState.IsPaused && !ForegroundExempt())

@@ -270,6 +270,12 @@
                                    Minimum="0" Maximum="120" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
                                    ToolTipService.ToolTip="Warn this many minutes before a schedule (bedtime) block; 0 = off" />
+                        <ToggleSwitch x:Name="EyeStrainEnabled" Header="{local:Loc Key=settings.eyestrain.toggle}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                        <NumberBox x:Name="EyeStrainInterval" Header="{local:Loc Key=settings.eyestrain.interval}"
+                                   Minimum="5" Maximum="120" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Minutes of continuous use between eye-rest reminders (20-20-20 rule)" />
                     </StackPanel>
                 </Expander>
 
