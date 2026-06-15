@@ -145,7 +145,14 @@ public sealed class CurfewWorker : BackgroundService
         _timeGuardRunning = true;
         _timeGuardCycle = Task.Run(() =>
         {
-            try { EnforceTimeGuard(); }
+            try
+            {
+                EnforceTimeGuard();
+                // defense-in-depth: re-pin the content filter so any drift (e.g. an adapter's DNS reset,
+                // a cleared hosts section) is corrected within this cadence, not only at startup / network
+                // change / settings save. Idempotent — hosts/DoH only rewrite on change.
+                ApplyContentFilter();
+            }
             finally { _timeGuardRunning = false; }
         }, CancellationToken.None);
     }
