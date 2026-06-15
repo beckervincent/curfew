@@ -264,7 +264,12 @@ internal static class LockScreen
         OverlayState.Settings.Set("unlock_last_counter", matched.ToString());
         var bonus = OverlayState.Settings.GetInt("unlock_bonus_minutes", 30);
         OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), bonus);
+        // lift every session-scoped block the granted time should bypass, exactly like ExtendApply and the
+        // passcode "unlock": schedule (bedtime) AND the weekly cap. Without WeeklyOverride a redeemed code
+        // while weekly-capped added minutes but left WeeklyBlocked true, so the lock never came down and the
+        // ticket looked dead whenever a weekly limit was set.
         OverlayState.ScheduleOverride = true;
+        OverlayState.WeeklyOverride = true;
         OverlayState.Persist();
         OverlayLog.Write($"unlock code redeemed (+{bonus} min)");
         return true;

@@ -442,11 +442,12 @@ namespace Curfew.Overlay
             }
         }
 
-        /// <summary>add bonus minutes + lift schedule block, like lock-screen extend</summary>
+        /// <summary>add bonus minutes + lift the schedule and weekly-cap blocks, like lock-screen extend</summary>
         private static void ApplyExtend(int minutes)
         {
             OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
             OverlayState.ScheduleOverride = true;
+            OverlayState.WeeklyOverride = true; // granted minutes must be usable past the weekly cap too
             OverlayState.Persist();
             OverlayLog.Write($"tray: extended +{minutes} min");
         }
