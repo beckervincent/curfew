@@ -15,6 +15,9 @@ internal static class HostsFileApplier
     /// <summary>Config key holding the newline/comma-separated blocked domains.</summary>
     private const string BlockedDomainsKey = "blocked_domains";
 
+    /// <summary>Config key toggling enforced SafeSearch (Google/Bing/YouTube via hosts).</summary>
+    private const string SafeSearchKey = "safesearch_enabled";
+
     private static string HostsPath =>
         System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System), "drivers", "etc", "hosts");
@@ -26,9 +29,10 @@ internal static class HostsFileApplier
         try
         {
             var domains = HostsBlocklist.Parse(settings.Get(BlockedDomainsKey));
+            var extra = settings.GetBool(SafeSearchKey, false) ? SafeSearch.HostsLines() : Array.Empty<string>();
             var path = HostsPath;
             var existing = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-            var merged = HostsBlocklist.Merge(existing, domains);
+            var merged = HostsBlocklist.Merge(existing, domains, extra);
 
             // compare ignoring newline style so we don't rewrite purely over CRLF/LF
             if (Normalize(existing) == Normalize(merged)) return;

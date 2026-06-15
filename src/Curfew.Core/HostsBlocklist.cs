@@ -79,9 +79,16 @@ public static class HostsBlocklist
     /// each), or an empty string when there is nothing to block (so no marker block
     /// is written). Lines are <c>\n</c>-joined for deterministic output.
     /// </summary>
-    public static string RenderSection(IReadOnlyList<string> domains)
+    public static string RenderSection(IReadOnlyList<string> domains) => RenderSection(domains, Array.Empty<string>());
+
+    /// <summary>
+    /// As <see cref="RenderSection(IReadOnlyList{string})"/> but also appends arbitrary verbatim
+    /// <paramref name="extraLines"/> (e.g. SafeSearch "ip host" entries) inside the same Curfew section.
+    /// Empty when there is nothing to block and no extra lines.
+    /// </summary>
+    public static string RenderSection(IReadOnlyList<string> domains, IReadOnlyList<string> extraLines)
     {
-        if (domains.Count == 0) return string.Empty;
+        if (domains.Count == 0 && extraLines.Count == 0) return string.Empty;
 
         var lines = new List<string> { BeginMarker };
         foreach (var d in domains)
@@ -89,6 +96,7 @@ public static class HostsBlocklist
             lines.Add($"{Sink} {d}");
             lines.Add($"{Sink} www.{d}");
         }
+        lines.AddRange(extraLines);
         lines.Add(EndMarker);
         return string.Join('\n', lines);
     }
@@ -126,10 +134,15 @@ public static class HostsBlocklist
     /// Curfew section, then append a fresh one for <paramref name="domains"/> (nothing
     /// appended when the list is empty). Idempotent. Output uses <c>\n</c> newlines.
     /// </summary>
-    public static string Merge(string? existingHosts, IReadOnlyList<string> domains)
+    public static string Merge(string? existingHosts, IReadOnlyList<string> domains) =>
+        Merge(existingHosts, domains, Array.Empty<string>());
+
+    /// <summary>As <see cref="Merge(string, IReadOnlyList{string})"/> but also writes verbatim
+    /// <paramref name="extraLines"/> (e.g. SafeSearch entries) into the Curfew section.</summary>
+    public static string Merge(string? existingHosts, IReadOnlyList<string> domains, IReadOnlyList<string> extraLines)
     {
         var basePart = StripSection(existingHosts);
-        var section = RenderSection(domains);
+        var section = RenderSection(domains, extraLines);
         if (section.Length == 0) return basePart;
         return basePart.Length == 0 ? section : basePart + "\n\n" + section;
     }

@@ -75,6 +75,26 @@ public class HostsBlocklistTests
     }
 
     [Fact]
+    public void Merge_includes_extra_lines_in_the_section()
+    {
+        var merged = HostsBlocklist.Merge("127.0.0.1 localhost",
+            HostsBlocklist.Parse("x.com"), new[] { "1.2.3.4 example.org" });
+        Assert.Contains("0.0.0.0 x.com", merged);
+        Assert.Contains("1.2.3.4 example.org", merged);
+        Assert.Contains(HostsBlocklist.BeginMarker, merged);
+    }
+
+    [Fact]
+    public void SafeSearch_lines_cover_google_bing_youtube()
+    {
+        var lines = SafeSearch.HostsLines();
+        Assert.Contains(lines, l => l.EndsWith(" google.com"));
+        Assert.Contains(lines, l => l.EndsWith(" bing.com"));
+        Assert.Contains(lines, l => l.EndsWith(" youtube.com"));
+        Assert.All(lines, l => Assert.Matches(@"^\d+\.\d+\.\d+\.\d+ \S+$", l));
+    }
+
+    [Fact]
     public void StripSection_handles_crlf_and_keeps_other_lines()
     {
         var hosts = "127.0.0.1 localhost\r\n" + HostsBlocklist.BeginMarker + "\r\n0.0.0.0 x.com\r\n" +

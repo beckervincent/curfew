@@ -315,6 +315,9 @@
                         <ToggleSwitch x:Name="BlockDoh" Header="{local:Loc Key=settings.doh}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
                                       ToolTipService.ToolTip="Prevent apps from bypassing the DNS filter with encrypted DNS" />
+                        <ToggleSwitch x:Name="SafeSearch" Header="{local:Loc Key=settings.safesearch}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Force SafeSearch on Google, Bing and YouTube" />
                         <TextBox x:Name="BlockedDomains" Header="{local:Loc Key=settings.blocked.header}"
                                  PlaceholderText="{local:Loc Key=settings.blocked.placeholder}"
                                  TextWrapping="Wrap" AcceptsReturn="True" Height="96"
