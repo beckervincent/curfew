@@ -178,7 +178,7 @@ public sealed class SettingsStore : IDisposable
         // either way (migrated, or no legacy data to migrate).
         if (configWritable)
         {
-            try { Execute(config, $"DELETE FROM settings WHERE key = '{BootstrapMarkerKey}'"); }
+            try { Execute(config, "DELETE FROM settings WHERE key = $k", ("$k", BootstrapMarkerKey)); }
             catch (SqliteException) { /* best effort */ }
         }
 
@@ -302,7 +302,7 @@ public sealed class SettingsStore : IDisposable
         return OpenResilient(path, c =>
         {
             Prepare(c, seedDefaults: true, today, purge: false);
-            Execute(c, $"INSERT OR REPLACE INTO settings (key, value) VALUES ('{BootstrapMarkerKey}', '1')");
+            Execute(c, "INSERT OR REPLACE INTO settings (key, value) VALUES ($k, '1')", ("$k", BootstrapMarkerKey));
         }, ConfigJournalMode, eventLogPath);
     }
 
@@ -409,10 +409,11 @@ public sealed class SettingsStore : IDisposable
         }
     }
 
-    private static void Execute(SqliteConnection connection, string sql)
+    private static void Execute(SqliteConnection connection, string sql, params (string Name, object Value)[] parameters)
     {
         using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
+        foreach (var (name, value) in parameters) cmd.Parameters.AddWithValue(name, value);
         cmd.ExecuteNonQuery();
     }
 
@@ -529,6 +530,73 @@ public sealed class SettingsStore : IDisposable
             // read failure reports zero for the day; chart is advisory
         }
         return total;
+    }
+
+    /// <summary>
+    /// Total recorded screen time (minutes) from Monday through <paramref name="today"/> inclusive — the
+    /// running weekly total for the weekly budget. Scoped to <see cref="UserSid"/> when set, else summed
+    /// across all users per day (like <see cref="GetUsageHistory"/>). Takes <paramref name="today"/> as a
+    /// parameter rather than using the open-date so a long-running overlay computes the right week across a
+    /// day/week boundary without reopening the store.
+    /// </summary>
+    public int UsedThisWeekMinutes(DateOnly today)
+    {
+        var weekday = TimeMath.MondayBasedWeekday(today); // 0 = Monday … 6 = Sunday
+        var totalSeconds = 0;
+        for (var i = 0; i <= weekday; i++)
+        {
+            var suffix = today.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            totalSeconds += UserSid is { Length: > 0 } sid
+                ? GetInt($"{UsagePrefix}{sid}_{suffix}", 0)
+                : SumUsageForDate(suffix);
+        }
+        return Math.Max(0, totalSeconds) / 60;
+    }
+
+    /// <summary>Per-app usage prefix in state.db: <c>app_usage_&lt;sid&gt;_&lt;date&gt;</c> holds one day's serialized <see cref="AppUsageMap"/>.</summary>
+    public const string AppUsagePrefix = "app_usage_";
+
+    /// <summary>
+    /// Per-app screen time (<c>name -> minutes</c>) from Monday through <paramref name="today"/> inclusive,
+    /// for the parent's "where did the time go" view. Scoped to <see cref="UserSid"/> (per-user rows only);
+    /// returns empty when no SID is set. Merges each day's serialized row via <see cref="AppUsageStats"/>.
+    /// </summary>
+    public IReadOnlyList<(string Name, int Minutes)> AppUsageThisWeek(DateOnly today)
+    {
+        if (UserSid is not { Length: > 0 } sid) return Array.Empty<(string, int)>();
+
+        var weekday = TimeMath.MondayBasedWeekday(today); // 0 = Monday … 6 = Sunday
+        var rows = new List<string?>(weekday + 1);
+        for (var i = 0; i <= weekday; i++)
+        {
+            var suffix = today.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            rows.Add(Get($"{AppUsagePrefix}{sid}_{suffix}"));
+        }
+
+        // rank by seconds (stable), then surface minutes; drop apps under a minute
+        return AppUsageStats.Top(AppUsageStats.Merge(rows), int.MaxValue)
+            .Select(a => (a.Name, Minutes: a.Seconds / 60))
+            .Where(a => a.Minutes > 0)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Per-app screen time in <em>seconds</em> from Monday through the day <em>before</em> <paramref name="today"/>,
+    /// scoped to <see cref="UserSid"/> (empty when no SID). The overlay adds today's in-memory count to this
+    /// base to enforce a weekly per-app limit without re-reading today's still-being-written row every tick.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> AppUsageWeekBeforeToday(DateOnly today)
+    {
+        if (UserSid is not { Length: > 0 } sid) return new Dictionary<string, int>();
+
+        var weekday = TimeMath.MondayBasedWeekday(today); // 0 = Monday … 6 = Sunday
+        var rows = new List<string?>(weekday);
+        for (var i = 1; i <= weekday; i++) // i=1 -> yesterday, … back to Monday; skips today
+        {
+            var suffix = today.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            rows.Add(Get($"{AppUsagePrefix}{sid}_{suffix}"));
+        }
+        return AppUsageStats.Merge(rows);
     }
 
     /// <summary>Distinct Windows-user SIDs with recorded usage, from <c>used_time_&lt;sid&gt;_&lt;date&gt;</c> keys in state.db. Populates settings per-user picker (each Windows user keeps own budget; no provisioned-user list). Legacy unscoped <c>used_time_&lt;date&gt;</c> rows have no SID, skipped. Order unspecified.</summary>

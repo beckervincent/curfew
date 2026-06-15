@@ -30,6 +30,7 @@ internal static class TrayIcon
     private const int IdQuit = 8;
     private const int IdShowWarning = 9;
     private const int IdShowOverlay = 10;
+    private const int IdBreak = 11;
 
     private const uint NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2;
     private const uint NIF_MESSAGE = 0x01, NIF_ICON = 0x02, NIF_TIP = 0x04, NIF_INFO = 0x10;
@@ -132,6 +133,12 @@ internal static class TrayIcon
         var menu = CreatePopupMenu();
         if (menu == IntPtr.Zero) return;
 
+        // child-facing, UNGATED: a self-service break the child can take without the parent passcode.
+        // abuse is bounded by the parent's pause policy (PauseRules), not by a prompt, so it needs no
+        // Curfew.App round-trip — the overlay applies it directly via the tray_command it writes below.
+        AppendMenuW(menu, MF_STRING, (nuint)IdBreak, Loc.T("tray.break"));
+        AppendMenuW(menu, MF_SEPARATOR, 0, string.Empty);
+
         // privileged items (stats, settings, extend, pause, quit) gated: hand off to Curfew.App which verifies passcode before overlay acts. harmless items (update check, about) + debug items run directly
         AppendMenuW(menu, MF_STRING, (nuint)IdStats, Loc.T("tray.stats"));
         AppendMenuW(menu, MF_STRING, (nuint)IdSettings, Loc.T("tray.settings"));
@@ -181,9 +188,31 @@ internal static class TrayIcon
             case IdCheckUpdate: CheckForUpdates(); break;
             case IdAbout: OpenUrl(GitHubUrl); break;
 
+            // ungated child break: write the one-shot command for the overlay tick to apply (it consults
+            // the pause policy and balloons the result). Same channel the gated items use, written directly
+            // since no passcode is required.
+            case IdBreak: RequestBreak(); break;
+
             // debug items -- harmless, ungated
             case IdShowWarning: ShowBalloon(Loc.T("tray.warning.test.title"), Loc.T("tray.warning.test.body")); break;
             case IdShowOverlay: LockScreen.Show(); break;
+        }
+    }
+
+    /// <summary>Write the one-shot "break" tray command for the overlay tick to apply. Timestamp first,
+    /// then the command, so the tick never pairs a fresh command with a stale timestamp and drops it.</summary>
+    private static void RequestBreak()
+    {
+        try
+        {
+            OverlayState.Settings.Set("tray_command_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
+            OverlayState.Settings.Set("tray_command", "break");
+        }
+        catch (Exception ex)
+        {
+            // state.db momentarily locked by another writer; the child can simply pick the item again.
+            // log it so a persistently failing break button is diagnosable rather than silently dead
+            OverlayLog.Write($"tray: break request write failed: {ex.Message}");
         }
     }
 

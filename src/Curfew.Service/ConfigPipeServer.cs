@@ -11,6 +11,11 @@ namespace Curfew.Service;
 internal sealed class ConfigPipeServer
 {
     private readonly SettingsStore _config;
+
+    /// <summary>Invoked (with the key) after a config key is successfully written, so the worker can apply
+    /// the change immediately (e.g. re-run the content filter) instead of waiting for the next reboot or
+    /// network change. Null = no listener.</summary>
+    private readonly Action<string>? _onConfigChanged;
     private static readonly JsonSerializerOptions Json = new() { IncludeFields = false };
 
     /// <summary>Max time one connection may take to deliver request line; drop stallers else accept loop never returns to <see cref="NamedPipeServerStream.WaitForConnectionAsync"/> and parent writes starve.</summary>
@@ -20,7 +25,11 @@ internal sealed class ConfigPipeServer
     private const int MaxRequestBytes = 8 * 1024;
 
     /// <param name="config">A config-writable settings store owned by the service.</param>
-    public ConfigPipeServer(SettingsStore config) => _config = config;
+    public ConfigPipeServer(SettingsStore config, Action<string>? onConfigChanged = null)
+    {
+        _config = config;
+        _onConfigChanged = onConfigChanged;
+    }
 
     /// <summary>Accept connections till cancelled. Never throw out of loop.</summary>
     public async Task RunAsync(CancellationToken ct)
@@ -125,8 +134,32 @@ internal sealed class ConfigPipeServer
             ConfigPipe.OpProvision => HandleProvision(request),
             ConfigPipe.OpRecordFailure => HandleRecordFailure(),
             ConfigPipe.OpResetFailures => HandleResetFailures(request),
+            ConfigPipe.OpRedeem => HandleRedeem(request),
             _ => new ConfigResponse(false, $"unknown op '{request.Op}'"),
         };
+    }
+
+    /// <summary>Verify an offline unlock (TOTP) code against the device secret and, on success, advance the
+    /// replay counter — both in write-protected config.db, so a child (who in the offline-grant case knows the
+    /// code) cannot reset the counter to replay it. The code arrives in <see cref="ConfigRequest.Passcode"/>.
+    /// Brute-force lockout is enforced here too, since a direct pipe client bypasses the lock UI.</summary>
+    private ConfigResponse HandleRedeem(ConfigRequest request)
+    {
+        var secret = _config.Get("unlock_secret");
+        if (string.IsNullOrEmpty(secret)) return new ConfigResponse(false, "no unlock secret");
+
+        if (IsLockedOut(out var locked)) return locked;
+
+        var minCounter = long.TryParse(_config.Get("unlock_last_counter"), out var last) ? last : long.MinValue;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        // window=10 (+/-5 min) matches the lock UI; replay blocked by minCounter from config
+        if (!UnlockCode.Verify(secret, request.Passcode, now, 10, minCounter, out var matched))
+            return RecordFailureAndReject();
+
+        // advance the counter (SYSTEM-only write) so this and earlier steps can't be redeemed again
+        _config.Set("unlock_last_counter", matched.ToString());
+        return new ConfigResponse(true);
     }
 
     /// <summary>Set up new Windows user after parent passcode verified: write per-user daily limit (all weekdays) and add SID to set-up list. Brute-force lockout enforced here, not just lock UI.</summary>
@@ -236,6 +269,7 @@ internal sealed class ConfigPipeServer
         }
 
         _config.Set(request.Key, request.Value);
+        _onConfigChanged?.Invoke(request.Key);
         return new ConfigResponse(true);
     }
 }

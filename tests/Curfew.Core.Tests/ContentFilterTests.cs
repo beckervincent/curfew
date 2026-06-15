@@ -12,6 +12,7 @@ public class ContentFilterTests
     [InlineData("off", FilterMode.Off)]
     [InlineData("malware", FilterMode.Malware)]
     [InlineData("family", FilterMode.Family)]
+    [InlineData("family-opendns", FilterMode.FamilyOpenDns)]
     [InlineData(null, FilterMode.Off)]
     [InlineData("nonsense", FilterMode.Off)]
     public void Parse_maps_known_values_and_falls_back_to_off(string? value, FilterMode expected)
@@ -46,6 +47,7 @@ public class ContentFilterTests
     [InlineData(FilterMode.Off, "off")]
     [InlineData(FilterMode.Malware, "malware")]
     [InlineData(FilterMode.Family, "family")]
+    [InlineData(FilterMode.FamilyOpenDns, "family-opendns")]
     public void ToSetting_emits_the_persisted_literal(FilterMode mode, string expected)
     {
         // on-disk contract shared with WinUI app + service; stay lower-case, exactly as written
@@ -56,12 +58,27 @@ public class ContentFilterTests
     [InlineData(FilterMode.Off)]
     [InlineData(FilterMode.Malware)]
     [InlineData(FilterMode.Family)]
+    [InlineData(FilterMode.FamilyOpenDns)]
     public void ToSetting_then_Parse_roundtrips(FilterMode mode)
     {
         Assert.Equal(mode, ContentFilter.Parse(ContentFilter.ToSetting(mode)));
     }
 
     // ---- Servers -----------------------------------------------------------
+
+    [Fact]
+    public void OpenDns_family_uses_familyshield_ipv4_and_no_doh()
+    {
+        var (v4, v6, doh) = ContentFilter.Servers(FilterMode.FamilyOpenDns);
+        Assert.Equal(new[] { "208.67.222.123", "208.67.220.123" }, v4);
+        Assert.Empty(v6);
+        Assert.Equal(string.Empty, doh);
+
+        // pins the resolver but registers no DoH endpoint (FamilyShield has none)
+        var script = ContentFilter.BuildApplyScript(FilterMode.FamilyOpenDns);
+        Assert.Contains("208.67.222.123", script);
+        Assert.DoesNotContain("Add-DnsClientDohServerAddress", script);
+    }
 
     [Fact]
     public void Malware_mode_uses_security_servers()

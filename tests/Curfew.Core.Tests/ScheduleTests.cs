@@ -342,4 +342,28 @@ public class ScheduleTests
             for (var inSlot = 0; inSlot < Schedule.SlotsPerDay; inSlot++)
                 Assert.True(s.GetSlot(day, inSlot));
     }
+
+    // MinutesUntilBlock
+
+    [Fact]
+    public void MinutesUntilBlock_counts_minutes_to_next_blocked_slot()
+    {
+        var s = Schedule.AllAllowed();
+        // block from 22:00 (slot 88) onward — a bedtime window
+        for (var slot = 88; slot < Schedule.SlotsPerDay; slot++) s.SetSlot(Monday, slot, false);
+
+        Assert.Equal(10, s.MinutesUntilBlock(Monday, 21 * 60 + 50)); // 21:50 -> 22:00
+        Assert.Equal(60, s.MinutesUntilBlock(Monday, 21 * 60));      // 21:00 -> 22:00
+    }
+
+    [Fact]
+    public void MinutesUntilBlock_returns_minus_one_when_rest_of_day_allowed()
+    {
+        var s = Schedule.AllAllowed();
+        Assert.Equal(-1, s.MinutesUntilBlock(Monday, 12 * 60));
+    }
+
+    [Fact]
+    public void MinutesUntilBlock_out_of_range_weekday_is_minus_one() =>
+        Assert.Equal(-1, Schedule.AllAllowed().MinutesUntilBlock(9, 600));
 }

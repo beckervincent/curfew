@@ -67,6 +67,25 @@ public sealed partial class LockWindow : Window
     /// <summary>focus passcode field (once window shown)</summary>
     public void FocusInput() => PinBox.Focus(FocusState.Programmatic);
 
+    /// <summary>Show or hide the child self-service break button based on the break minutes the overlay
+    /// currently offers (published in lock_break_minutes). Zero or less hides it.</summary>
+    public void SetBreakOffer(int minutes)
+    {
+        if (minutes > 0)
+        {
+            BreakButton.Content = Loc.T("lock.break", minutes);
+            BreakButton.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            BreakButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Child takes a self-service break: ungated (no passcode), bounded by the parent's pause
+    /// policy in the overlay. Records the action for the overlay to grant and tears the lock down.</summary>
+    private void OnBreak(object sender, RoutedEventArgs e) => ActionConfirmed?.Invoke("break", null);
+
     private string BudgetMessage()
     {
         var configured = _settings.Get("blocking_message");

@@ -65,11 +65,50 @@ internal static class OverlayState
     /// <summary>process names whose foreground time doesn't consume budget (cat-3 app allow-list). loaded in <see cref="LoadEnforcement"/></summary>
     public static IReadOnlySet<string> AllowedApps = new HashSet<string>();
 
+    /// <summary>process names the parent blocks outright; the overlay terminates them when foreground. loaded in <see cref="LoadEnforcement"/></summary>
+    public static IReadOnlySet<string> BlockedApps = new HashSet<string>();
+
+    /// <summary>per-app daily time limits (normalized name -> minutes). once an app's tracked foreground
+    /// time today reaches its limit the overlay blocks it like <see cref="BlockedApps"/>. loaded in <see cref="LoadEnforcement"/></summary>
+    public static IReadOnlyDictionary<string, int> AppLimits = new Dictionary<string, int>();
+
+    /// <summary>per-app WEEKLY time limits (normalized name -> minutes/week). enforced on top of the daily
+    /// per-app limit using the running weekly total. loaded in <see cref="LoadEnforcement"/></summary>
+    public static IReadOnlyDictionary<string, int> AppWeeklyLimits = new Dictionary<string, int>();
+
+    /// <summary>per-app seconds Mon..yesterday (this week), refreshed each enforcement reload; today's count is
+    /// added live from <see cref="_appUsed"/> so the weekly total needs no per-tick SQLite read</summary>
+    private static IReadOnlyDictionary<string, int> _appWeekPriorSeconds = new Dictionary<string, int>();
+
+    /// <summary>20-20-20 eye-strain reminder enabled: after this many minutes of continuous active screen
+    /// use the overlay nudges the child to look away. loaded in <see cref="LoadEnforcement"/></summary>
+    public static bool EyeStrainEnabled;
+
+    /// <summary>minutes of continuous active use between eye-strain reminders (default 20)</summary>
+    public static int EyeStrainIntervalMinutes = 20;
+
+    /// <summary>log an activity event the first time a never-before-seen app runs (parent opt-in). the seen-set
+    /// is always maintained regardless; this only gates the logging, so enabling it later alerts on apps that
+    /// are genuinely new rather than flooding with the already-installed set. loaded in <see cref="LoadEnforcement"/></summary>
+    public static bool NewAppAlertsEnabled;
+
     /// <summary>parent unlocked during blocked schedule window; cleared once allowed window reached so next blocked window re-locks</summary>
     public static bool ScheduleOverride;
 
     /// <summary>parent ignores weekly schedule rest of session. unlike <see cref="ScheduleOverride"/> never cleared on allowed window, so later blocked windows don't re-lock. in-memory -> resets <c>false</c> on next restart (reboot/logon) = "until next restart" lifetime</summary>
     public static bool IgnoreScheduleUntilRestart;
+
+    /// <summary>weekly total screen-time cap enforced (on top of the daily budget)</summary>
+    public static bool WeeklyLimitEnabled;
+
+    /// <summary>weekly cap in minutes (0 = no cap)</summary>
+    public static int WeeklyLimitMinutes;
+
+    /// <summary>screen time used so far this week (Mon..today), minutes; refreshed each enforcement reload</summary>
+    public static int WeeklyUsedMinutes;
+
+    /// <summary>parent lifted the weekly cap for the rest of this session (set from the lock's unlock/extend). in-memory -> re-enforced next restart</summary>
+    public static bool WeeklyOverride;
 
     /// <summary>(re)load parent enforcement choices from store; each accessor falls back to safe default on missing/malformed key so partial DB never throws</summary>
     public static void LoadEnforcement()
@@ -78,6 +117,24 @@ internal static class OverlayState
         ScheduleEnabled = Settings.GetBool(KeyScheduleEnabled, false);
         Schedule = Schedule.Parse(Settings.Get(KeySchedule));
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
+        var blocked = new HashSet<string>(AppAllowlist.Parse(Settings.Get("blocked_apps")), StringComparer.OrdinalIgnoreCase);
+        // one-tap anti-circumvention: fold the bundled VPN/Tor client names into the blocklist
+        if (Settings.GetBool("block_vpn_apps", false)) blocked.UnionWith(VpnApps.Names);
+        // one-tap safety: fold the bundled remote-access client names in (anti-scam/stranger-control)
+        if (Settings.GetBool("block_remote_access_apps", false)) blocked.UnionWith(RemoteAccessApps.Names);
+        BlockedApps = blocked;
+        AppLimits = AppTimeLimits.Parse(Settings.Get("app_time_limits"));
+        AppWeeklyLimits = AppTimeLimits.Parse(Settings.Get("app_weekly_limits"));
+        // refresh the weekly base (Mon..yesterday) only when weekly limits exist, to avoid needless reads
+        _appWeekPriorSeconds = AppWeeklyLimits.Count > 0
+            ? Settings.AppUsageWeekBeforeToday(DateOnly.FromDateTime(DateTime.Now))
+            : new Dictionary<string, int>();
+        EyeStrainEnabled = Settings.GetBool("eyestrain_enabled", false);
+        EyeStrainIntervalMinutes = Settings.GetInt("eyestrain_interval_minutes", 20);
+        NewAppAlertsEnabled = Settings.GetBool("newapp_alerts_enabled", false);
+        WeeklyLimitEnabled = Settings.GetBool("weekly_limit_enabled", false);
+        WeeklyLimitMinutes = Settings.GetInt("weekly_limit_minutes", 0);
+        WeeklyUsedMinutes = Settings.UsedThisWeekMinutes(DateOnly.FromDateTime(DateTime.Now));
         ApplyLimitChangeToRemaining();
     }
 
@@ -110,6 +167,15 @@ internal static class OverlayState
         _limitTracked = true;
     }
 
+    /// <summary>minutes until the next schedule (bedtime) block today, or -1 when the schedule is off or the rest of the day is allowed. caller should check <see cref="ScheduleAllows"/> first (only meaningful while currently allowed)</summary>
+    public static int MinutesUntilScheduleBlock()
+    {
+        if (!ScheduleEnabled) return -1;
+        var now = DateTime.Now;
+        var weekday = TimeMath.MondayBasedWeekday(DateOnly.FromDateTime(now));
+        return Schedule.MinutesUntilBlock(weekday, now.Hour * 60 + now.Minute);
+    }
+
     /// <summary>usage allowed by schedule now. always true when schedule disabled -> budget is only gate</summary>
     public static bool ScheduleAllows()
     {
@@ -126,6 +192,10 @@ internal static class OverlayState
     /// <summary>daily budget enabled + exhausted</summary>
     public static bool BudgetBlocked => LimitEnabled && Remaining <= 0;
 
+    /// <summary>weekly cap enabled, this week's usage has reached it, and the parent has not lifted it this session</summary>
+    public static bool WeeklyBlocked =>
+        WeeklyLimitEnabled && WeeklyLimitMinutes > 0 && WeeklyUsedMinutes >= WeeklyLimitMinutes && !WeeklyOverride;
+
     /// <summary>schedule enabled, current slot blocked, parent neither overrode nor ignored for session</summary>
     public static bool ScheduleBlocked =>
         ScheduleEnabled && !ScheduleAllows() && !ScheduleOverride && !IgnoreScheduleUntilRestart;
@@ -138,7 +208,7 @@ internal static class OverlayState
         && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
 
     /// <summary>any enforcement reason requires lock screen now</summary>
-    public static bool ShouldBlock => BudgetBlocked || ScheduleBlocked || NewUserBlocked;
+    public static bool ShouldBlock => BudgetBlocked || WeeklyBlocked || ScheduleBlocked || NewUserBlocked;
 
     /// <summary>genuinely new user the gate must still hold: no usage history at startup, not yet in
     /// provisioned_users. unlike <see cref="NewUserBlocked"/> does NOT depend on passcode, so stays true
@@ -193,4 +263,277 @@ internal static class OverlayState
 
     private static string UsageKey(DateOnly date) =>
         $"{SettingsStore.UsagePrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+    // ---- Per-app daily time limits -----------------------------------------
+    // Track each app's foreground seconds for the day so an app with its own limit
+    // (AppLimits) can be blocked once it reaches that limit, independent of the global
+    // budget. Persisted as one serialized state.db row per day so the count survives an
+    // overlay restart; midnight rollover flushes the finished day and resets.
+
+    private static Dictionary<string, int> _appUsed = new(StringComparer.OrdinalIgnoreCase);
+    private static DateOnly _appUsageDate;
+
+    /// <summary>load today's accumulated per-app usage so a respawn continues the counts</summary>
+    public static void LoadAppUsage()
+    {
+        _appUsageDate = DateOnly.FromDateTime(DateTime.Now);
+        _appUsed = AppUsageMap.Parse(Settings.Get(AppUsageKey(_appUsageDate)));
+    }
+
+    /// <summary>count one second of foreground use against <paramref name="appName"/>'s daily total. recorded
+    /// for every app (not only limited ones) so the parent gets per-app usage stats; per-app limits read the
+    /// same totals. midnight rollover flushes the finished day + resets; persists ~twice a minute to bound
+    /// writes. no-op for a blank name</summary>
+    public static void RecordAppSecond(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return;
+        var name = AppAllowlist.Normalize(appName);
+        if (name.Length == 0) return;
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today != _appUsageDate)
+        {
+            PersistAppUsage();
+            _appUsageDate = today;
+            _appUsed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        _appUsed.TryGetValue(name, out var seconds);
+        _appUsed[name] = seconds + 1;
+        if ((seconds + 1) % 30 == 0) PersistAppUsage();
+    }
+
+    /// <summary>true when <paramref name="appName"/> has a per-app limit and today's tracked foreground time
+    /// has reached it; the overlay then terminates the app's foreground (like the blocklist)</summary>
+    public static bool IsAppOverLimit(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return false;
+        var name = AppAllowlist.Normalize(appName);
+        var limitMinutes = AppTimeLimits.LimitMinutesFor(AppLimits, name);
+        if (limitMinutes < 0) return false;
+
+        _appUsed.TryGetValue(name, out var seconds);
+        return seconds >= limitMinutes * 60;
+    }
+
+    /// <summary>Seconds of foreground time left before <paramref name="appName"/> hits its tightest per-app
+    /// limit (daily or weekly), or -1 when the app has no limit. Lets the overlay warn the child before the
+    /// app is closed rather than killing it abruptly.</summary>
+    public static int AppSecondsUntilLimit(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return -1;
+        var name = AppAllowlist.Normalize(appName);
+        _appUsed.TryGetValue(name, out var todaySeconds);
+
+        var remaining = int.MaxValue;
+
+        var daily = AppTimeLimits.LimitMinutesFor(AppLimits, name);
+        if (daily >= 0) remaining = Math.Min(remaining, daily * 60 - todaySeconds);
+
+        var weekly = AppTimeLimits.LimitMinutesFor(AppWeeklyLimits, name);
+        if (weekly >= 0)
+        {
+            _appWeekPriorSeconds.TryGetValue(name, out var prior);
+            remaining = Math.Min(remaining, weekly * 60 - (prior + todaySeconds));
+        }
+
+        return remaining == int.MaxValue ? -1 : Math.Max(0, remaining);
+    }
+
+    /// <summary>true when <paramref name="appName"/> has a per-app WEEKLY limit and this week's running total
+    /// (Mon..yesterday from the store + today live) has reached it</summary>
+    public static bool IsAppOverWeeklyLimit(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return false;
+        var name = AppAllowlist.Normalize(appName);
+        var limitMinutes = AppTimeLimits.LimitMinutesFor(AppWeeklyLimits, name);
+        if (limitMinutes < 0) return false;
+
+        _appWeekPriorSeconds.TryGetValue(name, out var prior);
+        _appUsed.TryGetValue(name, out var todaySeconds);
+        return prior + todaySeconds >= limitMinutes * 60;
+    }
+
+    /// <summary>write the running per-app usage totals for the current day</summary>
+    public static void PersistAppUsage() =>
+        Settings.Set(AppUsageKey(_appUsageDate), AppUsageMap.Serialize(_appUsed));
+
+    private static string AppUsageKey(DateOnly date) =>
+        $"{SettingsStore.AppUsagePrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+    // ---- New-app visibility ------------------------------------------------
+    // Remember every app ever seen running for this user so the first run of a new app
+    // can be logged for the parent. The set persists in a child-writable state row;
+    // non-destructive (no blocking), purely informational.
+
+    private static HashSet<string> _seenApps = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>load the set of apps already seen for this user (so only genuinely new ones get logged)</summary>
+    public static void LoadSeenApps() =>
+        _seenApps = new HashSet<string>(AppAllowlist.Parse(Settings.Get(SeenAppsKey())), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>record that <paramref name="appName"/> was seen; returns true the first time (so the caller
+    /// logs it once) and persists the grown set. No-op / false for a blank name or one already seen</summary>
+    public static bool NoteAppSeen(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return false;
+        var name = AppAllowlist.Normalize(appName);
+        if (name.Length == 0 || !_seenApps.Add(name)) return false;
+
+        Settings.Set(SeenAppsKey(), AppAllowlist.Serialize(_seenApps));
+        return true;
+    }
+
+    private static string SeenAppsKey() => $"apps_seen_{CurrentSid}";
+
+    // ---- Child-initiated breaks (pause) ------------------------------------
+    // A child can take a short break that freezes the budget, rate-limited by the
+    // parent's pause policy (PauseRules in Core): a daily pause budget, a per-break
+    // cap, a cooldown between breaks, and a minimum active time before the first one.
+    // No passcode — the policy is what prevents abuse. Budget used today and the last
+    // break's end are persisted to state.db so the limits survive an overlay restart
+    // (PausedUntilUnix itself stays in-memory, so a restart simply ends the break).
+
+    private static int _pauseUsedSeconds;
+    private static DateOnly _pauseDate;
+    private static long _lastPauseEndUnix;
+    private static bool _wasPaused;
+
+    /// <summary>Load today's consumed pause budget and the last break's end so the limits persist across a restart.</summary>
+    public static void LoadPause()
+    {
+        _pauseDate = DateOnly.FromDateTime(DateTime.Now);
+        _pauseUsedSeconds = int.TryParse(Settings.Get(PauseUsedKey(_pauseDate)), out var used) ? used : 0;
+        _lastPauseEndUnix = long.TryParse(Settings.Get(PauseLastEndKey()), out var end) ? end : 0;
+    }
+
+    /// <summary>
+    /// Attempt to start a child-initiated break. Consults the parent's pause policy
+    /// (enabled, time left, daily budget, cooldown, minimum active time). On success
+    /// freezes the budget for the granted duration and returns <see cref="PauseBlock.None"/>
+    /// with <paramref name="grantedSeconds"/> set; otherwise returns the blocking reason
+    /// and changes nothing.
+    /// </summary>
+    public static PauseBlock TryStartBreak(out int grantedSeconds)
+    {
+        grantedSeconds = 0;
+        RollPauseDay();
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var dailyBudget = Settings.GetInt("pause_daily_budget", 45) * 60;
+        var state = new PauseState(
+            Enabled: Settings.GetBool("pause_enabled", true),
+            RemainingSeconds: Remaining,
+            PauseUsedSeconds: _pauseUsedSeconds,
+            DailyBudgetSeconds: dailyBudget,
+            LastPauseEndUnix: _lastPauseEndUnix,
+            NowUnix: now,
+            CooldownSeconds: Settings.GetInt("pause_cooldown", 15) * 60,
+            SessionActiveSeconds: _usedSeconds,
+            MinActiveSeconds: Settings.GetInt("pause_min_active_time", 10) * 60);
+
+        var verdict = PauseRules.CanPause(state);
+        if (verdict != PauseBlock.None) return verdict;
+
+        grantedSeconds = PauseRules.MaxPauseDuration(
+            Settings.GetInt("pause_max_duration", 20) * 60, dailyBudget, _pauseUsedSeconds);
+        if (grantedSeconds <= 0) return PauseBlock.BudgetExhausted;
+
+        PausedUntilUnix = now + grantedSeconds;
+        _wasPaused = true;
+        return PauseBlock.None;
+    }
+
+    /// <summary>Seconds remaining before another break is allowed, for the cooldown message; 0 if none.</summary>
+    public static int CooldownRemainingSeconds()
+    {
+        if (_lastPauseEndUnix <= 0) return 0;
+        var cooldown = Settings.GetInt("pause_cooldown", 15) * 60;
+        var elapsed = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastPauseEndUnix;
+        return (int)Math.Max(0, cooldown - elapsed);
+    }
+
+    /// <summary>Per-tick pause accounting: charge a second against the daily budget while a break is in
+    /// effect, and stamp the break's end the instant it lapses (starts the cooldown). Call once per tick.</summary>
+    public static void TickPause()
+    {
+        RollPauseDay();
+
+        if (IsPaused)
+        {
+            _wasPaused = true;
+            _pauseUsedSeconds++;
+            if (_pauseUsedSeconds % 15 == 0) PersistPauseUsed();
+            return;
+        }
+
+        if (_wasPaused)
+        {
+            // break just lapsed: record its end so the cooldown begins, and flush the budget
+            _wasPaused = false;
+            _lastPauseEndUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            Settings.Set(PauseLastEndKey(), _lastPauseEndUnix.ToString(CultureInfo.InvariantCulture));
+            PersistPauseUsed();
+        }
+    }
+
+    private static void RollPauseDay()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today == _pauseDate) return;
+        PersistPauseUsed();
+        _pauseDate = today;
+        _pauseUsedSeconds = 0;
+    }
+
+    private static void PersistPauseUsed() =>
+        Settings.Set(PauseUsedKey(_pauseDate), _pauseUsedSeconds.ToString(CultureInfo.InvariantCulture));
+
+    private static string PauseUsedKey(DateOnly date) =>
+        $"pause_used_{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+    private static string PauseLastEndKey() => $"pause_last_end_{CurrentSid}";
+
+    /// <summary>
+    /// Break time (seconds) the child could redeem right now for bonus minutes while budget-blocked, or 0
+    /// if none is available (breaks off, daily budget spent, or still in cooldown). Pure — no mutation; the
+    /// overlay publishes this to <c>lock_break_minutes</c> so the lock screen can offer the button. Unlike
+    /// <see cref="TryStartBreak"/> there is no "time too low" gate: the whole point is that time has run out.
+    /// </summary>
+    public static int BreakOfferSeconds()
+    {
+        RollPauseDay();
+        if (!Settings.GetBool("pause_enabled", true)) return 0;
+
+        var dailyBudget = Settings.GetInt("pause_daily_budget", 45) * 60;
+        if (PauseRules.RemainingBudget(dailyBudget, _pauseUsedSeconds) <= 0) return 0;
+
+        if (_lastPauseEndUnix > 0)
+        {
+            var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastPauseEndUnix;
+            if (since < Settings.GetInt("pause_cooldown", 15) * 60) return 0;
+        }
+
+        return PauseRules.MaxPauseDuration(
+            Settings.GetInt("pause_max_duration", 20) * 60, dailyBudget, _pauseUsedSeconds);
+    }
+
+    /// <summary>
+    /// Redeem the available break as bonus screen time while budget-blocked: adds the granted minutes to
+    /// <see cref="Remaining"/>, charges them against the daily break budget, and starts the cooldown.
+    /// Returns the granted seconds, or 0 when nothing is available (see <see cref="BreakOfferSeconds"/>).
+    /// </summary>
+    public static int TryRedeemBreak()
+    {
+        var granted = BreakOfferSeconds();
+        if (granted <= 0) return 0;
+
+        Remaining = TimeKeeper.Extend(Math.Max(0, Remaining), granted / 60);
+        _pauseUsedSeconds += granted;
+        PersistPauseUsed();
+        _lastPauseEndUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Settings.Set(PauseLastEndKey(), _lastPauseEndUnix.ToString(CultureInfo.InvariantCulture));
+        Persist();
+        return granted;
+    }
 }

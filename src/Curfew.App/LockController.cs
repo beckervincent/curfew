@@ -55,6 +55,7 @@ internal sealed class LockController
         _timer.Tick += OnTick;
         _timer.Start();
         UpdateCountdown();
+        UpdateBreakOffer();
 
         return _primary;
     }
@@ -111,6 +112,7 @@ internal sealed class LockController
         foreach (var cover in _covers) ReassertTopmost(cover);
 
         UpdateCountdown();
+        UpdateBreakOffer();
     }
 
     private static void ReassertTopmost(Window? window)
@@ -163,6 +165,17 @@ internal sealed class LockController
         _primary.SetCountdown(remaining <= 60
             ? Loc.T("lock.shutdown.in.short", remaining)
             : Loc.T("lock.shutdown.in.long", TimeMath.FormatDuration(remaining)));
+    }
+
+    /// <summary>Mirror the overlay's current break offer (lock_break_minutes) onto the lock window's
+    /// self-service break button. A transient state.db read failure just leaves the last state in place.</summary>
+    private void UpdateBreakOffer()
+    {
+        if (_primary is null) return;
+        int minutes;
+        try { minutes = int.TryParse(_settings.Get("lock_break_minutes"), out var m) ? m : 0; }
+        catch { return; }
+        _primary.SetBreakOffer(minutes);
     }
 
     private void OnAction(string action, string? code)

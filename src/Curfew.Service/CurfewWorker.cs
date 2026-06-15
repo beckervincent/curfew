@@ -73,7 +73,8 @@ public sealed class CurfewWorker : BackgroundService
         var pipeStore = CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
         // config.db now exists (open above made it) — lock down: users read, not write/delete
         ConfigFileGuard.Protect(CurfewPaths.ConfigFile);
-        var pipeServer = Task.Run(() => new ConfigPipeServer(pipeStore).RunAsync(stoppingToken), CancellationToken.None);
+        var pipeServer = Task.Run(
+            () => new ConfigPipeServer(pipeStore, OnConfigKeyChanged).RunAsync(stoppingToken), CancellationToken.None);
 
         // MinValue forces the first clock check and slow cycle to run immediately, not after a full interval
         var lastSlow = DateTimeOffset.MinValue;
@@ -128,6 +129,7 @@ public sealed class CurfewWorker : BackgroundService
             try
             {
                 await CheckForUpdatesAsync(ct).ConfigureAwait(false);
+                await RefreshBlocklistAsync(ct).ConfigureAwait(false);
             }
             finally
             {
@@ -144,7 +146,14 @@ public sealed class CurfewWorker : BackgroundService
         _timeGuardRunning = true;
         _timeGuardCycle = Task.Run(() =>
         {
-            try { EnforceTimeGuard(); }
+            try
+            {
+                EnforceTimeGuard();
+                // defense-in-depth: re-pin the content filter so any drift (e.g. an adapter's DNS reset,
+                // a cleared hosts section) is corrected within this cadence, not only at startup / network
+                // change / settings save. Idempotent — hosts/DoH only rewrite on change.
+                ApplyContentFilter();
+            }
             finally { _timeGuardRunning = false; }
         }, CancellationToken.None);
     }
@@ -217,6 +226,39 @@ public sealed class CurfewWorker : BackgroundService
 
     private void OnNetworkChanged(object? sender, EventArgs e) => ApplyContentFilter();
 
+    /// <summary>Config keys whose change should re-apply the content filter (DNS/DoH/hosts) right away.</summary>
+    private static readonly HashSet<string> ContentFilterKeys = new(StringComparer.Ordinal)
+    {
+        "dns_filter_mode", "block_doh_bypass", "safesearch_enabled", "blocked_domains", "blocked_categories",
+        "block_private_browsing", "blocklist_allow",
+    };
+
+    /// <summary>Config keys whose change should re-download the public blocklists (then re-apply hosts).</summary>
+    private static readonly HashSet<string> BlocklistKeys = new(StringComparer.Ordinal)
+    {
+        "blocklist_enabled", "blocklist_sources", "blocklist_max_domains", "blocklist_custom_urls",
+    };
+
+    /// <summary>Called when a config key is written via the pipe (parent saved a setting). Re-applies the
+    /// content filter immediately for the relevant keys so SafeSearch / blocklists / DNS mode take effect on
+    /// save, not at the next reboot or network change. Dispatched off the pipe thread; ApplyContentFilter is
+    /// self-guarded. Other keys are picked up by the overlay's own 30s reload.</summary>
+    private void OnConfigKeyChanged(string key)
+    {
+        // RefreshBlocklistAsync / ApplyContentFilter both swallow their own errors, but guard the fire-and-forget
+        // Task.Run too so an unexpected fault is logged, never an unobserved task exception
+        if (BlocklistKeys.Contains(key))
+            _ = Task.Run(() => RefreshBlocklistAsync(CancellationToken.None)).ContinueWith(LogIfFaulted, TaskScheduler.Default);
+        else if (ContentFilterKeys.Contains(key))
+            _ = Task.Run(ApplyContentFilter).ContinueWith(LogIfFaulted, TaskScheduler.Default);
+    }
+
+    /// <summary>Log a faulted fire-and-forget task so its exception is observed, never silently lost.</summary>
+    private static void LogIfFaulted(Task t)
+    {
+        if (t.IsFaulted) ServiceLog.Write("config-triggered apply faulted", t.Exception!.GetBaseException());
+    }
+
     /// <summary>(Re)apply DNS content filter. Serialised by <see cref="_filterGate"/>, fully guarded so PowerShell failure or burst of network-change events never destabilise service.</summary>
     private void ApplyContentFilter()
     {
@@ -226,6 +268,8 @@ public sealed class CurfewWorker : BackgroundService
             {
                 using var settings = OpenSettings();
                 ContentFilterApplier.Apply(settings);
+                HostsFileApplier.Apply(settings);
+                BrowserPolicyApplier.Apply(settings);
             }
             ServiceLog.Write("content filter applied");
         }
@@ -252,6 +296,27 @@ public sealed class CurfewWorker : BackgroundService
         {
             _logger.LogWarning(ex, "Time guard enforcement failed");
             ServiceLog.Write($"time guard failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Re-download the enabled public blocklists and re-apply the hosts filter so new domains take
+    /// effect. Best-effort: failure keeps the last cached list (see <see cref="BlocklistUpdater"/>).</summary>
+    private async Task RefreshBlocklistAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var settings = OpenSettings();
+            await BlocklistUpdater.RefreshAsync(settings, ct).ConfigureAwait(false);
+            ApplyContentFilter();
+        }
+        catch (OperationCanceledException)
+        {
+            // stopping mid-refresh expected
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Blocklist refresh failed");
+            ServiceLog.Write($"blocklist refresh failed: {ex.Message}");
         }
     }
 

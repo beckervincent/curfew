@@ -45,13 +45,17 @@ public static class AppAllowlist
         return false;
     }
 
-    /// <summary>lower-case, strip directory and trailing <c>.exe</c>, trim</summary>
-    private static string Normalize(string value)
+    /// <summary>lower-case, strip directory and trailing <c>.exe</c>, trim. shared so other app-name
+    /// features (per-app time limits, usage stats) normalize identically and match the same process</summary>
+    public static string Normalize(string value)
     {
         var name = value.Trim();
         var slash = name.LastIndexOfAny(new[] { '\\', '/' });
         if (slash >= 0) name = name[(slash + 1)..];
         if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
-        return name.Trim();
+        // lower-case so matching never depends on the dictionary/set comparer alone:
+        // serialized keys (per-app usage, limits) compare consistently regardless of source casing.
+        // already trimmed above and slicing can't reintroduce whitespace, so no second Trim needed
+        return name.ToLowerInvariant();
     }
 }

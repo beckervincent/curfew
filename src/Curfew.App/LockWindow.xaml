@@ -95,6 +95,13 @@
 
                 <!-- Actions -->
                 <StackPanel Spacing="8">
+                    <!-- child self-service break (budget lock only); shown when the overlay offers break time -->
+                    <Button x:Name="BreakButton"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Visibility="Collapsed"
+                            TabIndex="0"
+                            Click="OnBreak" />
                     <Button x:Name="UnlockButton"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"

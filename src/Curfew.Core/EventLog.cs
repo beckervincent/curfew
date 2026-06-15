@@ -31,6 +31,18 @@ public enum CurfewEventKind
 
     /// <summary>settings store corrupt, deleted and recreated</summary>
     StoreRecreated,
+
+    /// <summary>child took a self-service break</summary>
+    BreakTaken,
+
+    /// <summary>a blocked app was closed</summary>
+    AppBlocked,
+
+    /// <summary>an app reached its per-app daily time limit and was closed</summary>
+    AppTimeLimitReached,
+
+    /// <summary>an app was seen running for the first time on this user (new-app visibility for the parent)</summary>
+    AppFirstSeen,
 }
 
 /// <summary>one event: when, what kind, short detail</summary>

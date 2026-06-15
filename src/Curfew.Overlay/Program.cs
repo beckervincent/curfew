@@ -76,6 +76,9 @@ namespace Curfew.Overlay
                 TimeKeeper.InitialRemaining(saved, OverlayState.Settings.GetDailyLimit(weekday));
             OverlayState.LoadEnforcement();
             OverlayState.LoadUsage();
+            OverlayState.LoadAppUsage();
+            OverlayState.LoadSeenApps();
+            OverlayState.LoadPause();
 
             var hInstance = GetModuleHandleW(null);
             OverlayLog.Write($"settings opened, remaining={OverlayState.Remaining}, hInstance={hInstance}");
@@ -188,6 +191,137 @@ namespace Curfew.Overlay
             Environment.GetFolderPath(Environment.SpecialFolder.Windows),
         }.Where(p => !string.IsNullOrEmpty(p)).ToArray();
 
+        /// <summary>last blocked-app name we ballooned about, so the notification fires once per app rather than every tick</summary>
+        private static string? _lastBlockedAppName;
+
+        /// <summary>last app we ballooned a time-up notice for, so it fires once per app rather than every tick</summary>
+        private static string? _lastTimeUpAppName;
+
+        /// <summary>Read the foreground app once, then run every per-app rule against it: hard blocklist
+        /// (terminate), usage tracking (for stats + per-app limits), and the per-app daily limit (terminate
+        /// when over). One <see cref="ForegroundApp.Foreground"/> call per tick. <paramref name="active"/> is
+        /// false while idle or paused so time isn't charged when the child is away. Never touches Curfew's own
+        /// windows.</summary>
+        private static void HandleForegroundApp(bool active)
+        {
+            var (pid, name) = ForegroundApp.Foreground();
+            if (pid == 0 || string.IsNullOrEmpty(name)) { _lastBlockedAppName = null; _lastTimeUpAppName = null; return; }
+            if (name.StartsWith("Curfew", StringComparison.OrdinalIgnoreCase)) return; // never touch our own UI
+
+            // 0. new-app visibility: always grow the seen-set; log the first sighting only when the parent
+            // opted in (so enabling later alerts on truly new apps, not the whole already-installed set)
+            if (OverlayState.NoteAppSeen(name) && OverlayState.NewAppAlertsEnabled)
+            {
+                OverlayLog.Write($"new app seen: {name}");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.AppFirstSeen, name);
+            }
+
+            // 1. hard blocklist: close outright regardless of time
+            if (EnforceBlockedApp(pid, name)) return;
+
+            // 2. record active foreground time (every app -> per-app usage stats; per-app limits read it too)
+            if (active) OverlayState.RecordAppSecond(name);
+
+            // 2b. warn the child as the app nears its per-app limit (so the close isn't abrupt)
+            if (active) WarnAppLimitNear(name);
+
+            // 3. per-app daily limit: close once today's tracked time reaches the app's own budget
+            EnforceAppTimeLimit(pid, name);
+        }
+
+        /// <summary>Terminate the foreground app when it is on the parent's blocklist; notify the child once.
+        /// Returns true when it was blocked (so no further per-app rule should run for it this tick).</summary>
+        private static bool EnforceBlockedApp(int pid, string name)
+        {
+            if (OverlayState.BlockedApps.Count == 0 || !AppAllowlist.Allows(OverlayState.BlockedApps, name))
+            {
+                _lastBlockedAppName = null;
+                return false;
+            }
+
+            ForegroundApp.Terminate(pid);
+            if (!string.Equals(_lastBlockedAppName, name, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastBlockedAppName = name;
+                OverlayLog.Write($"blocked app terminated: {name}");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.AppBlocked, name);
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.appblocked", name));
+            }
+            return true;
+        }
+
+        /// <summary>warn thresholds (minutes left) for an app nearing its per-app limit</summary>
+        private static readonly int[] AppWarnThresholds = { 5, 1 };
+
+        /// <summary>last threshold (minutes) we ballooned for each app, so each warning fires once per approach</summary>
+        private static readonly Dictionary<string, int> _appWarnedThreshold = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Balloon once as the foreground app crosses each "minutes left" threshold for its per-app
+        /// limit, so the child gets warning before it is closed. Resets when the app has ample time again.</summary>
+        private static void WarnAppLimitNear(string name)
+        {
+            var secondsLeft = OverlayState.AppSecondsUntilLimit(name);
+            if (secondsLeft < 0) return; // no per-app limit
+
+            var minutesLeft = (secondsLeft + 59) / 60; // ceil
+            var threshold = AppWarnThresholds.FirstOrDefault(t => minutesLeft == t, -1);
+
+            if (threshold < 0)
+            {
+                // not at a threshold; clear the marker once we're back above the largest threshold so the
+                // next approach warns again (e.g. parent raised the limit)
+                if (minutesLeft > AppWarnThresholds[0]) _appWarnedThreshold.Remove(name);
+                return;
+            }
+
+            _appWarnedThreshold.TryGetValue(name, out var last);
+            if (last == threshold) return; // already warned at this threshold
+            _appWarnedThreshold[name] = threshold;
+            TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.applimitwarn", name, threshold));
+        }
+
+        /// <summary>Terminate the foreground app once it reaches its per-app daily OR weekly time limit;
+        /// notify the child once. No-op when the app has neither limit.</summary>
+        private static void EnforceAppTimeLimit(int pid, string name)
+        {
+            if (!OverlayState.IsAppOverLimit(name) && !OverlayState.IsAppOverWeeklyLimit(name))
+            {
+                _lastTimeUpAppName = null;
+                return;
+            }
+
+            ForegroundApp.Terminate(pid);
+            if (!string.Equals(_lastTimeUpAppName, name, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastTimeUpAppName = name;
+                OverlayLog.Write($"app time limit reached: {name}");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.AppTimeLimitReached, name);
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.apptimeup", name));
+            }
+        }
+
+        /// <summary>seconds of continuous active screen use since the last eye-strain reminder (or last rest)</summary>
+        private static int _eyeStrainActiveSeconds;
+
+        /// <summary>20-20-20 rule nudge: after <see cref="OverlayState.EyeStrainIntervalMinutes"/> of continuous
+        /// active use, balloon the child to look ~20 ft away for 20 s, then reset the streak. A rest (idle or a
+        /// pause) also resets it, since the eyes have already had a break. No-op when disabled or the interval
+        /// is non-positive.</summary>
+        private static void EyeStrainReminder(bool active)
+        {
+            if (!OverlayState.EyeStrainEnabled || OverlayState.EyeStrainIntervalMinutes <= 0 || !active)
+            {
+                _eyeStrainActiveSeconds = 0;
+                return;
+            }
+
+            if (++_eyeStrainActiveSeconds < OverlayState.EyeStrainIntervalMinutes * 60) return;
+
+            _eyeStrainActiveSeconds = 0;
+            OverlayLog.Write("eye-strain reminder fired");
+            TrayIcon.ShowBalloon(Loc.T("tray.eyestrain.title"), Loc.T("tray.eyestrain.body"));
+        }
+
         /// <summary>foreground app allow-listed -> this second exempt from budget</summary>
         private static bool ForegroundExempt() =>
             OverlayState.AllowedApps.Count > 0
@@ -228,6 +362,10 @@ namespace Curfew.Overlay
                 OverlayState.LoadEnforcement();
             }
 
+            // charge an in-progress child break against the daily pause budget and stamp its end when it
+            // lapses (cooldown). a break freezes the budget regardless of idle, so this runs first
+            OverlayState.TickPause();
+
             // idle (no keyboard/mouse past the configured timeout) is not active screen use: it must
             // neither consume the budget nor count toward usage history. the child stepping away should
             // not drain their time. honours the idle_enabled / idle_timeout_minutes settings
@@ -239,6 +377,15 @@ namespace Curfew.Overlay
             // locks them here anyway; this guard closes the window where the gate failed to engage
             // (config.db unreadable) so the lock re-raises next boot instead of being silently disabled
             if (!OverlayState.PendingNewUser && !idle) OverlayState.RecordActiveSecond();
+
+            // foreground app rules in one pass (single Foreground() read): blocklist, usage tracking, per-app
+            // limit. per-app limits are independent of the global budget — a game can be capped at 1h/day even
+            // when general screen time remains
+            HandleForegroundApp(active: !idle && !OverlayState.IsPaused);
+
+            // 20-20-20 eye-strain nudge: after enough continuous active use, remind the child to look away.
+            // idle or a pause counts as rest and resets the streak
+            EyeStrainReminder(active: !idle && !OverlayState.IsPaused);
 
             // budget ticks down only when active control, not idle, no pause, foreground not allow-listed (homework/IDE exempt)
             if (OverlayState.LimitEnabled && !idle && !OverlayState.IsPaused && !ForegroundExempt())
@@ -273,6 +420,7 @@ namespace Curfew.Overlay
             {
                 case "extend15": ApplyExtend(15); break;
                 case "extend45": ApplyExtend(45); break;
+                case "break": StartBreak(); break;
                 case "pause":
                     OverlayState.PausedUntilUnix = now + PauseDurationSeconds;
                     OverlayLog.Write("tray: paused");
@@ -294,13 +442,41 @@ namespace Curfew.Overlay
             }
         }
 
-        /// <summary>add bonus minutes + lift schedule block, like lock-screen extend</summary>
+        /// <summary>add bonus minutes + lift the schedule and weekly-cap blocks, like lock-screen extend</summary>
         private static void ApplyExtend(int minutes)
         {
             OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
             OverlayState.ScheduleOverride = true;
+            OverlayState.WeeklyOverride = true; // granted minutes must be usable past the weekly cap too
             OverlayState.Persist();
             OverlayLog.Write($"tray: extended +{minutes} min");
+        }
+
+        /// <summary>Apply a child-initiated break governed by the parent's pause policy, then tell the child
+        /// (balloon) whether it started and for how long, or why it was refused.</summary>
+        private static void StartBreak()
+        {
+            var verdict = OverlayState.TryStartBreak(out var grantedSeconds);
+            if (verdict == PauseBlock.None)
+            {
+                OverlayLog.Write($"tray: break started ({grantedSeconds}s)");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.BreakTaken, $"{grantedSeconds / 60} min");
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.break.granted", grantedSeconds / 60));
+                return;
+            }
+
+            OverlayLog.Write($"tray: break denied ({verdict})");
+            var message = verdict switch
+            {
+                PauseBlock.Disabled => Loc.T("tray.break.denied.disabled"),
+                PauseBlock.BudgetExhausted => Loc.T("tray.break.denied.budget"),
+                PauseBlock.Cooldown => Loc.T("tray.break.denied.cooldown",
+                    Math.Max(1, (OverlayState.CooldownRemainingSeconds() + 59) / 60)),
+                PauseBlock.MinActiveTimeNotMet => Loc.T("tray.break.denied.active"),
+                PauseBlock.TimeTooLow => Loc.T("tray.break.denied.timelow"),
+                _ => Loc.T("tray.break.denied.budget"),
+            };
+            TrayIcon.ShowBalloon(Loc.T("tray.idle"), message);
         }
 
         /// <summary>refresh tray tooltip, raise balloon at each warning threshold</summary>
@@ -310,6 +486,10 @@ namespace Curfew.Overlay
                 OverlayState.IsPaused ? Loc.T("tray.paused")
                 : OverlayState.LimitEnabled ? Loc.T("tray.left", TimeMath.FormatCompact(OverlayState.Remaining))
                 : Loc.T("tray.idle"));
+
+            // bedtime wind-down: warn once before the next schedule block, even in schedule-only mode
+            // (so this runs before the daily-budget early-return below)
+            WarnBeforeBedtime();
 
             if (!OverlayState.LimitEnabled || OverlayState.IsPaused) return;
 
@@ -326,6 +506,37 @@ namespace Curfew.Overlay
         {
             var message = OverlayState.Settings.Get(key);
             return string.IsNullOrWhiteSpace(message) ? Loc.T("warn.default") : message;
+        }
+
+        /// <summary>Minute-of-day of the bedtime block we last warned about, so the wind-down balloon fires
+        /// once per upcoming block rather than every tick. -1 = no pending warning.</summary>
+        private static int _bedtimeWarnedStartMinute = -1;
+
+        /// <summary>Raise a one-shot balloon when the next schedule (bedtime) block is within the configured
+        /// wind-down window, so the child gets warning before the screen locks. No-op when the schedule is
+        /// off, currently blocked, the wind-down is disabled, or no block is imminent today.</summary>
+        private static void WarnBeforeBedtime()
+        {
+            var windDown = OverlayState.Settings.GetInt("wind_down_minutes", 10);
+            if (windDown <= 0 || !OverlayState.ScheduleEnabled || !OverlayState.ScheduleAllows())
+            {
+                _bedtimeWarnedStartMinute = -1;
+                return;
+            }
+
+            var mins = OverlayState.MinutesUntilScheduleBlock();
+            if (mins <= 0 || mins > windDown)
+            {
+                _bedtimeWarnedStartMinute = -1;
+                return;
+            }
+
+            var now = DateTime.Now;
+            var blockStartMinute = now.Hour * 60 + now.Minute + mins; // stable id for this upcoming block
+            if (_bedtimeWarnedStartMinute == blockStartMinute) return; // already warned for it
+
+            _bedtimeWarnedStartMinute = blockStartMinute;
+            TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.bedtime", mins));
         }
 
         /// <summary>paint whole pill in one pass: panel fill, colour-coded accent bar, small caption, large remaining-time (or clock) value. every GDI object released, DC originals restored</summary>

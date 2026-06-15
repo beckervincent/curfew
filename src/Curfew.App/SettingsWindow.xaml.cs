@@ -82,7 +82,7 @@ public sealed partial class SettingsWindow : Window
         _cards = new FrameworkElement[]
         {
             UsageExpander, ActivityExpander, DailyLimitsExpander, ScheduleExpander, WarningsExpander,
-            LockExpander, FilterExpander, ProtectionExpander, UnlockExpander, PasscodeExpander,
+            LockExpander, PauseExpander, FilterExpander, ProtectionExpander, UnlockExpander, PasscodeExpander,
         };
         CardSource.Children.Clear();
 
@@ -128,10 +128,12 @@ public sealed partial class SettingsWindow : Window
         LoadDailyLimits();
         LoadWarnings();
         LoadLockScreen();
+        LoadPause();
         LoadContentFilter();
         LoadProtection();
         LoadUnlock();
         LoadUsageHistory();
+        LoadAppUsage();
         LoadActivity();
         UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
     }
@@ -210,7 +212,10 @@ public sealed partial class SettingsWindow : Window
         LoadDailyLimits();
         LoadWarnings();
         LoadLockScreen();
+        LoadPause();
         LoadContentFilter();
+        LoadUsageHistory();
+        LoadAppUsage();
     }
 
     /// <summary>draw 7-day bar chart of active screen time from usage history</summary>
@@ -283,6 +288,31 @@ public sealed partial class SettingsWindow : Window
         return minutes < 60
             ? Loc.T("settings.history.minutes", minutes)
             : Loc.T("settings.history.hours", minutes / 60, minutes % 60);
+    }
+
+    /// <summary>list the apps that used the most screen time this week (per the picked user)</summary>
+    private void LoadAppUsage()
+    {
+        var apps = _settings.AppUsageThisWeek(DateOnly.FromDateTime(DateTime.Now));
+        AppUsageList.Items.Clear();
+        AppUsageEmpty.Visibility = apps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var muted = new SolidColorBrush(Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+        foreach (var (name, minutes) in apps.Take(10))
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var label = new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis };
+            Grid.SetColumn(label, 0);
+            var value = new TextBlock { Text = FormatUsage(minutes), Foreground = muted };
+            Grid.SetColumn(value, 1);
+
+            row.Children.Add(label);
+            row.Children.Add(value);
+            AppUsageList.Items.Add(row);
+        }
     }
 
     /// <summary>fill activity list from most recent event-log entries</summary>
@@ -391,6 +421,19 @@ public sealed partial class SettingsWindow : Window
             show ? "AccentButtonStyle" : "DefaultButtonStyle"];
     }
 
+    /// <summary>one-tap strict protection: flip the safety controls to the <see cref="StrictPreset"/> values.
+    /// Persisted when the parent presses Save (single persistence path), so they can review first.</summary>
+    private void OnApplyStrict(object sender, RoutedEventArgs e)
+    {
+        FilterFamily.IsChecked = true;
+        BlockDoh.IsOn = true;
+        SafeSearch.IsOn = true;
+        BlockPrivateBrowsing.IsOn = true;
+        BlockVpnApps.IsOn = true;
+        CatAdult.IsChecked = true;
+        CatProxy.IsChecked = true;
+    }
+
     /// <summary>issue fresh secret, reset replay counter so old codes stop working</summary>
     private void OnRegenerateUnlock(object sender, RoutedEventArgs e)
     {
@@ -431,6 +474,15 @@ public sealed partial class SettingsWindow : Window
         }
 
         AppAllowlistBox.Text = _settings.Get("app_allowlist") ?? string.Empty;
+        BlockedAppsBox.Text = _settings.Get("blocked_apps") ?? string.Empty;
+        AppTimeLimitsBox.Text = _settings.Get("app_time_limits") ?? string.Empty;
+        AppWeeklyLimitsBox.Text = _settings.Get("app_weekly_limits") ?? string.Empty;
+        BlockVpnApps.IsOn = _settings.GetBool("block_vpn_apps", false);
+        BlockRemoteAccessApps.IsOn = _settings.GetBool("block_remote_access_apps", false);
+
+        // weekly cap: stored in minutes, edited in hours
+        WeeklyLimitEnabled.IsOn = _settings.GetBool("weekly_limit_enabled", false);
+        WeeklyLimit.Value = MinutesToHours(_settings.GetInt("weekly_limit_minutes", 0));
     }
 
     private void LoadWarnings()
@@ -448,6 +500,20 @@ public sealed partial class SettingsWindow : Window
         LockTimeout.Value = _settings.GetInt("lock_screen_timeout", 600) / 60;
         IdleEnabled.IsOn = _settings.GetBool("idle_enabled", true);
         IdleTimeout.Value = _settings.GetInt("idle_timeout_minutes", 5);
+        WindDown.Value = _settings.GetInt("wind_down_minutes", 10);
+        EyeStrainEnabled.IsOn = _settings.GetBool("eyestrain_enabled", false);
+        EyeStrainInterval.Value = _settings.GetInt("eyestrain_interval_minutes", 20);
+        NewAppAlerts.IsOn = _settings.GetBool("newapp_alerts_enabled", false);
+    }
+
+    private void LoadPause()
+    {
+        // all stored and edited in minutes
+        PauseEnabled.IsOn = _settings.GetBool("pause_enabled", true);
+        PauseDailyBudget.Value = _settings.GetInt("pause_daily_budget", 45);
+        PauseMaxDuration.Value = _settings.GetInt("pause_max_duration", 20);
+        PauseCooldown.Value = _settings.GetInt("pause_cooldown", 15);
+        PauseMinActive.Value = _settings.GetInt("pause_min_active_time", 10);
     }
 
     private void LoadContentFilter()
@@ -456,9 +522,29 @@ public sealed partial class SettingsWindow : Window
         {
             case FilterMode.Malware: FilterMalware.IsChecked = true; break;
             case FilterMode.Family: FilterFamily.IsChecked = true; break;
+            case FilterMode.FamilyOpenDns: FilterFamilyOpenDns.IsChecked = true; break;
             default: FilterOff.IsChecked = true; break;
         }
         BlockDoh.IsOn = _settings.GetBool("block_doh_bypass", true);
+        SafeSearch.IsOn = _settings.GetBool("safesearch_enabled", false);
+        BlockPrivateBrowsing.IsOn = _settings.GetBool("block_private_browsing", false);
+        var cats = BlockCategories.Parse(_settings.Get("blocked_categories"));
+        CatSocial.IsChecked = cats.Contains(BlockCategories.Social);
+        CatGaming.IsChecked = cats.Contains(BlockCategories.Gaming);
+        CatStreaming.IsChecked = cats.Contains(BlockCategories.Streaming);
+        CatAdult.IsChecked = cats.Contains(BlockCategories.Adult);
+        CatProxy.IsChecked = cats.Contains(BlockCategories.Proxy);
+
+        BlocklistEnabled.IsOn = _settings.GetBool("blocklist_enabled", false);
+        var sources = BlocklistSources.Parse(_settings.Get("blocklist_sources"));
+        BlocklistAdult.IsChecked = sources.Contains(BlocklistSources.Adult);
+        BlocklistAds.IsChecked = sources.Contains(BlocklistSources.Ads);
+        BlocklistFakeNews.IsChecked = sources.Contains(BlocklistSources.FakeNews);
+        BlocklistGambling.IsChecked = sources.Contains(BlocklistSources.Gambling);
+        BlocklistSocial.IsChecked = sources.Contains(BlocklistSources.Social);
+        BlocklistCustomUrls.Text = _settings.Get("blocklist_custom_urls") ?? string.Empty;
+        BlocklistAllow.Text = _settings.Get("blocklist_allow") ?? string.Empty;
+        BlockedDomains.Text = _settings.Get("blocked_domains") ?? string.Empty;
     }
 
     private void LoadProtection()
@@ -627,6 +713,7 @@ public sealed partial class SettingsWindow : Window
         SaveDailyLimits();
         SaveWarnings();
         SaveLockScreen();
+        SavePause();
         SaveContentFilter();
         SaveProtection();
         _settings.Set("unlock_bonus_minutes", Clamp(UnlockBonus, 1, 600, 30).ToString());
@@ -661,6 +748,18 @@ public sealed partial class SettingsWindow : Window
 
         // apps whose foreground time is exempt from budget. stored raw; overlay parses (AppAllowlist.Parse) when enforcing
         _settings.Set("app_allowlist", AppAllowlistBox.Text ?? string.Empty);
+        _settings.Set("blocked_apps", BlockedAppsBox.Text ?? string.Empty);
+        // per-app daily limits ("name=minutes" lines); overlay parses (AppTimeLimits.Parse) when enforcing
+        _settings.Set("app_time_limits", AppTimeLimitsBox.Text ?? string.Empty);
+        // per-app weekly limits ("name=minutes/week" lines)
+        _settings.Set("app_weekly_limits", AppWeeklyLimitsBox.Text ?? string.Empty);
+        _settings.Set("block_vpn_apps", ToFlag(BlockVpnApps.IsOn));
+        _settings.Set("block_remote_access_apps", ToFlag(BlockRemoteAccessApps.IsOn));
+
+        // weekly cap: edited in hours, stored in minutes
+        _settings.Set("weekly_limit_enabled", ToFlag(WeeklyLimitEnabled.IsOn));
+        var weeklyHours = double.IsNaN(WeeklyLimit.Value) ? 0 : WeeklyLimit.Value;
+        _settings.Set("weekly_limit_minutes", ((int)Math.Round(Math.Clamp(weeklyHours, 0, 168) * 60)).ToString());
     }
 
     private void SaveWarnings()
@@ -678,15 +777,52 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("lock_screen_timeout", (Clamp(LockTimeout, 1, 720, 10) * 60).ToString());
         _settings.Set("idle_enabled", ToFlag(IdleEnabled.IsOn));
         _settings.Set("idle_timeout_minutes", Clamp(IdleTimeout, 1, 600, 5).ToString());
+        _settings.Set("wind_down_minutes", Clamp(WindDown, 0, 120, 10).ToString());
+        _settings.Set("eyestrain_enabled", ToFlag(EyeStrainEnabled.IsOn));
+        _settings.Set("eyestrain_interval_minutes", Clamp(EyeStrainInterval, 5, 120, 20).ToString());
+        _settings.Set("newapp_alerts_enabled", ToFlag(NewAppAlerts.IsOn));
+    }
+
+    private void SavePause()
+    {
+        _settings.Set("pause_enabled", ToFlag(PauseEnabled.IsOn));
+        _settings.Set("pause_daily_budget", Clamp(PauseDailyBudget, 0, 600, 45).ToString());
+        _settings.Set("pause_max_duration", Clamp(PauseMaxDuration, 1, 240, 20).ToString());
+        _settings.Set("pause_cooldown", Clamp(PauseCooldown, 0, 240, 15).ToString());
+        _settings.Set("pause_min_active_time", Clamp(PauseMinActive, 0, 240, 10).ToString());
     }
 
     private void SaveContentFilter()
     {
         var mode = FilterMalware.IsChecked == true ? FilterMode.Malware
                  : FilterFamily.IsChecked == true ? FilterMode.Family
+                 : FilterFamilyOpenDns.IsChecked == true ? FilterMode.FamilyOpenDns
                  : FilterMode.Off;
         _settings.Set("dns_filter_mode", ContentFilter.ToSetting(mode));
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));
+        _settings.Set("safesearch_enabled", ToFlag(SafeSearch.IsOn));
+        _settings.Set("block_private_browsing", ToFlag(BlockPrivateBrowsing.IsOn));
+        var cats = new List<string>();
+        if (CatSocial.IsChecked == true) cats.Add(BlockCategories.Social);
+        if (CatGaming.IsChecked == true) cats.Add(BlockCategories.Gaming);
+        if (CatStreaming.IsChecked == true) cats.Add(BlockCategories.Streaming);
+        if (CatAdult.IsChecked == true) cats.Add(BlockCategories.Adult);
+        if (CatProxy.IsChecked == true) cats.Add(BlockCategories.Proxy);
+        _settings.Set("blocked_categories", string.Join(',', cats));
+        // normalize to a clean newline-joined list so the stored value round-trips predictably
+        _settings.Set("blocked_domains", string.Join('\n', HostsBlocklist.Parse(BlockedDomains.Text)));
+
+        // downloadable public blocklists (Pi-hole/StevenBlack); service fetches + caches the selected sources
+        var sources = new List<string>();
+        if (BlocklistAdult.IsChecked == true) sources.Add(BlocklistSources.Adult);
+        if (BlocklistAds.IsChecked == true) sources.Add(BlocklistSources.Ads);
+        if (BlocklistFakeNews.IsChecked == true) sources.Add(BlocklistSources.FakeNews);
+        if (BlocklistGambling.IsChecked == true) sources.Add(BlocklistSources.Gambling);
+        if (BlocklistSocial.IsChecked == true) sources.Add(BlocklistSources.Social);
+        _settings.Set("blocklist_sources", string.Join(',', sources));
+        _settings.Set("blocklist_enabled", ToFlag(BlocklistEnabled.IsOn));
+        _settings.Set("blocklist_custom_urls", string.Join('\n', BlocklistSources.ParseCustomUrls(BlocklistCustomUrls.Text)));
+        _settings.Set("blocklist_allow", string.Join('\n', HostsBlocklist.Parse(BlocklistAllow.Text)));
     }
 
     private void SaveProtection()

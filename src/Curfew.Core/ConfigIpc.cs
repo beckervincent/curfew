@@ -22,6 +22,10 @@ public static class ConfigPipe
 
     /// <summary>clear failed-attempt lockout counter after a success</summary>
     public const string OpResetFailures = "reset";
+
+    /// <summary>verify an offline unlock (TOTP) code and advance the replay counter, all SYSTEM-side. The
+    /// counter lives in write-protected config.db so a child can't reset it to replay a known code.</summary>
+    public const string OpRedeem = "redeem";
 }
 
 /// <summary>config-IPC request. unused fields null for a given op</summary>
@@ -96,4 +100,10 @@ public static class ConfigClient
     /// <summary>clear lockout counter after success. the code that just unlocked (passcode or device code) authenticates the reset — without it any local user could zero the counter between guesses and brute-force</summary>
     public static bool ResetFailures(string? code) =>
         Send(new ConfigRequest(ConfigPipe.OpResetFailures, Passcode: code)).Ok;
+
+    /// <summary>Verify an offline unlock code and advance the replay counter SYSTEM-side. Returns
+    /// <c>Ok = true</c> when the code is valid and freshly redeemed (counter advanced in config.db); the
+    /// overlay then applies the bonus. The code travels in the passcode field (it is the authenticator).</summary>
+    public static ConfigResponse Redeem(string? code) =>
+        Send(new ConfigRequest(ConfigPipe.OpRedeem, Passcode: code));
 }

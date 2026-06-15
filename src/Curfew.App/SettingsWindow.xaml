@@ -93,7 +93,13 @@
                             <TextBlock Text="{local:Loc Key=settings.history.desc}" Style="{StaticResource SectionDescriptionStyle}" />
                         </StackPanel>
                     </Expander.Header>
-                    <Grid x:Name="UsageChart" Height="160" Padding="0,8,0,4" ColumnSpacing="8" />
+                    <StackPanel Spacing="8" Padding="0,8,0,4">
+                        <Grid x:Name="UsageChart" Height="160" ColumnSpacing="8" />
+                        <TextBlock Text="{local:Loc Key=settings.apps.title}" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
+                        <TextBlock x:Name="AppUsageEmpty" Text="{local:Loc Key=settings.apps.empty}"
+                                   Style="{StaticResource SectionDescriptionStyle}" Visibility="Collapsed" />
+                        <ItemsControl x:Name="AppUsageList" />
+                    </StackPanel>
                 </Expander>
 
                 <!-- Recent activity / tamper events -->
@@ -134,12 +140,47 @@
                     <StackPanel Spacing="12" Padding="0,4,0,4">
                         <StackPanel x:Name="DailyLimitsPanel" Spacing="12" />
                         <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="WeeklyLimitEnabled" Header="{local:Loc Key=settings.weekly.toggle}"
+                                          OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                            <NumberBox x:Name="WeeklyLimit" Header="{local:Loc Key=settings.weekly.hours}"
+                                       Minimum="0" Maximum="168" Width="220" HorizontalAlignment="Left"
+                                       SpinButtonPlacementMode="Inline" SmallChange="0.5"
+                                       ToolTipService.ToolTip="Total screen-time cap for the whole week (Mon–Sun)" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
                             <TextBlock Text="{local:Loc Key=settings.allowlist.title}" Style="{StaticResource BodyTextBlockStyle}" />
                             <TextBlock Text="{local:Loc Key=settings.allowlist.desc}"
                                        Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
                             <TextBox x:Name="AppAllowlistBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
                                      PlaceholderText="code.exe&#x0A;winword.exe" />
                         </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.blockapps.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.blockapps.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <TextBox x:Name="BlockedAppsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
+                                     PlaceholderText="steam.exe&#x0A;roblox.exe" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.apptime.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.apptime.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <TextBox x:Name="AppTimeLimitsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
+                                     PlaceholderText="minecraft.exe=60&#x0A;roblox.exe=30" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.appweek.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.appweek.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <TextBox x:Name="AppWeeklyLimitsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
+                                     PlaceholderText="minecraft.exe=300&#x0A;roblox.exe=180" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="BlockVpnApps" Header="{local:Loc Key=settings.blockvpnapps}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Also close known VPN / Tor apps (NordVPN, ProtonVPN, Tor, etc.)" />
+                        <ToggleSwitch x:Name="BlockRemoteAccessApps" Header="{local:Loc Key=settings.blockremoteapps}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Close remote-control apps (TeamViewer, AnyDesk, Quick Assist, VNC, etc.) — anti-scam" />
                     </StackPanel>
                 </Expander>
 
@@ -244,11 +285,55 @@
                                    Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
                                    ToolTipService.ToolTip="Inactivity required before screen time is paused" />
+                        <NumberBox x:Name="WindDown" Header="{local:Loc Key=settings.winddown}"
+                                   Minimum="0" Maximum="120" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Warn this many minutes before a schedule (bedtime) block; 0 = off" />
+                        <ToggleSwitch x:Name="EyeStrainEnabled" Header="{local:Loc Key=settings.eyestrain.toggle}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                        <NumberBox x:Name="EyeStrainInterval" Header="{local:Loc Key=settings.eyestrain.interval}"
+                                   Minimum="5" Maximum="120" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Minutes of continuous use between eye-rest reminders (20-20-20 rule)" />
+                        <ToggleSwitch x:Name="NewAppAlerts" Header="{local:Loc Key=settings.newapp.toggle}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Log an entry in Recent activity the first time a new app is used" />
+                    </StackPanel>
+                </Expander>
+
+                <!-- Breaks (child-initiated pause) -->
+                <Expander x:Name="PauseExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="4">
+                    <Expander.Header>
+                        <StackPanel Spacing="2" Padding="0,4">
+                            <TextBlock Text="{local:Loc Key=settings.pause.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.pause.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Padding="0,4,0,4" Spacing="16">
+                        <ToggleSwitch x:Name="PauseEnabled" Header="{local:Loc Key=settings.pause.toggle}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                        <NumberBox x:Name="PauseDailyBudget" Header="{local:Loc Key=settings.pause.budget}"
+                                   Minimum="0" Maximum="600" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Total break minutes the child may take per day" />
+                        <NumberBox x:Name="PauseMaxDuration" Header="{local:Loc Key=settings.pause.max}"
+                                   Minimum="1" Maximum="240" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Longest single break" />
+                        <NumberBox x:Name="PauseCooldown" Header="{local:Loc Key=settings.pause.cooldown}"
+                                   Minimum="0" Maximum="240" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Minimum wait between breaks" />
+                        <NumberBox x:Name="PauseMinActive" Header="{local:Loc Key=settings.pause.minactive}"
+                                   Minimum="0" Maximum="240" Width="220" HorizontalAlignment="Left"
+                                   SpinButtonPlacementMode="Inline"
+                                   ToolTipService.ToolTip="Active time required before the first break" />
                     </StackPanel>
                 </Expander>
 
                 <!-- Content filtering -->
-                <Expander x:Name="FilterExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="4">
+                <Expander x:Name="FilterExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="5">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=setup.filter.header}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -261,15 +346,56 @@
                             <RadioButton x:Name="FilterOff" Content="{local:Loc Key=filter.none}" GroupName="filter" />
                             <RadioButton x:Name="FilterMalware" Content="{local:Loc Key=filter.malware}" GroupName="filter" />
                             <RadioButton x:Name="FilterFamily" Content="{local:Loc Key=filter.family}" GroupName="filter" />
+                            <RadioButton x:Name="FilterFamilyOpenDns" Content="{local:Loc Key=filter.family.opendns}" GroupName="filter" />
                         </StackPanel>
                         <ToggleSwitch x:Name="BlockDoh" Header="{local:Loc Key=settings.doh}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
                                       ToolTipService.ToolTip="Prevent apps from bypassing the DNS filter with encrypted DNS" />
+                        <ToggleSwitch x:Name="SafeSearch" Header="{local:Loc Key=settings.safesearch}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Force SafeSearch on Google, Bing and YouTube" />
+                        <ToggleSwitch x:Name="BlockPrivateBrowsing" Header="{local:Loc Key=settings.privatebrowsing}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Disable incognito / private windows in Chrome, Edge and Firefox" />
+                        <Button x:Name="StrictModeButton" Click="OnApplyStrict"
+                                Content="{local:Loc Key=settings.strict.button}"
+                                ToolTipService.ToolTip="Turn on family DNS, SafeSearch, DoH block, adult+VPN/proxy blocking and private-browsing block in one tap" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.categories.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <CheckBox x:Name="CatSocial" Content="{local:Loc Key=settings.categories.social}" />
+                            <CheckBox x:Name="CatGaming" Content="{local:Loc Key=settings.categories.gaming}" />
+                            <CheckBox x:Name="CatStreaming" Content="{local:Loc Key=settings.categories.streaming}" />
+                            <CheckBox x:Name="CatAdult" Content="{local:Loc Key=settings.categories.adult}" />
+                            <CheckBox x:Name="CatProxy" Content="{local:Loc Key=settings.categories.proxy}" />
+                        </StackPanel>
+                        <TextBox x:Name="BlockedDomains" Header="{local:Loc Key=settings.blocked.header}"
+                                 PlaceholderText="{local:Loc Key=settings.blocked.placeholder}"
+                                 TextWrapping="Wrap" AcceptsReturn="True" Height="96"
+                                 ToolTipService.ToolTip="One domain per line; blocked machine-wide via the hosts file" />
+                        <StackPanel Spacing="4">
+                            <ToggleSwitch x:Name="BlocklistEnabled" Header="{local:Loc Key=settings.blocklist.toggle}"
+                                          OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
+                            <TextBlock Text="{local:Loc Key=settings.blocklist.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <CheckBox x:Name="BlocklistAdult" Content="{local:Loc Key=settings.blocklist.adult}" />
+                            <CheckBox x:Name="BlocklistAds" Content="{local:Loc Key=settings.blocklist.ads}" />
+                            <CheckBox x:Name="BlocklistFakeNews" Content="{local:Loc Key=settings.blocklist.fakenews}" />
+                            <CheckBox x:Name="BlocklistGambling" Content="{local:Loc Key=settings.blocklist.gambling}" />
+                            <CheckBox x:Name="BlocklistSocial" Content="{local:Loc Key=settings.blocklist.social}" />
+                            <TextBox x:Name="BlocklistCustomUrls" Header="{local:Loc Key=settings.blocklist.customurls}"
+                                     PlaceholderText="https://example.com/hosts.txt"
+                                     TextWrapping="Wrap" AcceptsReturn="True" Height="72"
+                                     ToolTipService.ToolTip="Your own blocklist URLs (https only, one per line); hosts or bare-domain format" />
+                            <TextBox x:Name="BlocklistAllow" Header="{local:Loc Key=settings.blocklist.allow}"
+                                     PlaceholderText="school.example.edu&#x0A;cdn.example.com"
+                                     TextWrapping="Wrap" AcceptsReturn="True" Height="72"
+                                     ToolTipService.ToolTip="Domains to never block even if a subscribed list contains them (one per line; covers subdomains)" />
+                        </StackPanel>
                     </StackPanel>
                 </Expander>
 
                 <!-- Protection and updates -->
-                <Expander x:Name="ProtectionExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="5">
+                <Expander x:Name="ProtectionExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="6">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=settings.protection.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -309,7 +435,7 @@
                 </Expander>
 
                 <!-- Offline unlock codes -->
-                <Expander x:Name="UnlockExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="6">
+                <Expander x:Name="UnlockExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="7">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=settings.unlock.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -342,7 +468,7 @@
                 </Expander>
 
                 <!-- Passcode -->
-                <Expander x:Name="PasscodeExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="7">
+                <Expander x:Name="PasscodeExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" TabIndex="8">
                     <Expander.Header>
                         <StackPanel Spacing="2" Padding="0,4">
                             <TextBlock Text="{local:Loc Key=settings.passcode.title}" Style="{StaticResource BodyStrongTextBlockStyle}" />

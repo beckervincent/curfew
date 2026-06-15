@@ -63,10 +63,11 @@ internal static class LockScreen
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         OverlayState.Settings.Set("lock_reason",
             OverlayState.NewUserBlocked ? "newuser"
-            : OverlayState.BudgetBlocked ? "budget" : "schedule");
+            : OverlayState.BudgetBlocked || OverlayState.WeeklyBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         OverlayState.Settings.Set("lock_action", string.Empty); // clear stale action
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
+        PublishBreakOffer();
         OverlayState.Settings.Set("lock_active", "1");
         LockAppHost.Launch();
 
@@ -121,6 +122,9 @@ internal static class LockScreen
 
         if (!OverlayState.Locked) return;
 
+        // keep the lock's break offer current as the budget/cooldown change while it sits up
+        PublishBreakOffer();
+
         // WinUI surface IS the lock UI; if dies relaunch. cover black-locks the gap, nothing leaks
         if (!LockAppHost.IsRunning) LockAppHost.Launch();
     }
@@ -142,6 +146,7 @@ internal static class LockScreen
             case "extend60": ExtendApply(60); break;
             case "unlock":
                 OverlayState.ScheduleOverride = true;
+                OverlayState.WeeklyOverride = true; // parent authorized more time past the weekly cap this session
                 EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "passcode");
                 if (!OverlayState.ShouldBlock) Hide();
                 break;
@@ -168,10 +173,32 @@ internal static class LockScreen
                 OverlayState.Settings.Set("lock_setup_limit", string.Empty);
                 StartProvision(provCode, provLimit);
                 break;
+            case "break":
+                // ungated child self-service: spend remaining daily break budget for bonus minutes.
+                // no passcode — abuse is bounded by the pause policy (budget + cooldown) in TryRedeemBreak.
+                var grantedSeconds = OverlayState.TryRedeemBreak();
+                if (grantedSeconds > 0)
+                {
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.BreakTaken, $"+{grantedSeconds / 60} min");
+                    if (!OverlayState.ShouldBlock) Hide();
+                }
+                break;
             case "logoff":
                 LockNative.Logoff();
                 break;
         }
+    }
+
+    /// <summary>Publish the break time (whole minutes) the child may redeem now, so the lock surface can show
+    /// or hide its "Take a break" button. Only offered for a pure budget block; a schedule or new-user lock
+    /// is not something a break can lift, so it publishes 0 there.</summary>
+    private static void PublishBreakOffer()
+    {
+        var minutes = OverlayState.BudgetBlocked && !OverlayState.WeeklyBlocked
+                      && !OverlayState.ScheduleBlocked && !OverlayState.NewUserBlocked
+            ? OverlayState.BreakOfferSeconds() / 60
+            : 0;
+        OverlayState.Settings.Set("lock_break_minutes", minutes.ToString());
     }
 
     /// <summary>run new-user setup pipe call off pump thread, reset/record lockout counter on same bg thread. one at a time; second request while in-flight ignored</summary>
@@ -213,30 +240,32 @@ internal static class LockScreen
     {
         OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
         OverlayState.ScheduleOverride = true;
+        OverlayState.WeeklyOverride = true; // granted minutes must be usable past the weekly cap too
         OverlayState.Persist();
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"+{minutes} min");
         if (!OverlayState.ShouldBlock) Hide();
     }
 
-    /// <summary>redeem valid offline unlock code (TOTP): grant bonus minutes, lift schedule block, record time step so no replay. false if no secret or code wrong/reused</summary>
+    /// <summary>redeem valid offline unlock code (TOTP): grant bonus minutes, lift schedule + weekly blocks.
+    /// Verification and the replay-counter advance happen in the SYSTEM service (config.db is write-protected),
+    /// so a child who knows the code can't reset the counter to replay it. false if the service rejects the
+    /// code (wrong/reused) or is unreachable.</summary>
     private static bool TryRedeemCode(string entered)
     {
-        var secret = OverlayState.Settings.Get("unlock_secret");
-        if (string.IsNullOrWhiteSpace(secret)) return false;
+        if (string.IsNullOrWhiteSpace(entered)) return false;
 
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var minCounter = long.TryParse(OverlayState.Settings.Get("unlock_last_counter"), out var last)
-            ? last
-            : long.MinValue;
+        // service owns the secret + replay counter (config.db); it verifies and advances the counter atomically
+        if (!ConfigClient.Redeem(entered).Ok) return false;
 
-        // window=10 (+/-5 min) keeps parent-read code valid long enough to enter despite rotation. replay blocked: minCounter advances past each redeemed step
-        if (!UnlockCode.Verify(secret, entered, now, 10, minCounter, out var matched))
-            return false;
-
-        OverlayState.Settings.Set("unlock_last_counter", matched.ToString());
+        // bonus minutes come from write-protected config (a child can't inflate them)
         var bonus = OverlayState.Settings.GetInt("unlock_bonus_minutes", 30);
         OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), bonus);
+        // lift every session-scoped block the granted time should bypass, exactly like ExtendApply and the
+        // passcode "unlock": schedule (bedtime) AND the weekly cap. Without WeeklyOverride a redeemed code
+        // while weekly-capped added minutes but left WeeklyBlocked true, so the lock never came down and the
+        // ticket looked dead whenever a weekly limit was set.
         OverlayState.ScheduleOverride = true;
+        OverlayState.WeeklyOverride = true;
         OverlayState.Persist();
         OverlayLog.Write($"unlock code redeemed (+{bonus} min)");
         return true;
