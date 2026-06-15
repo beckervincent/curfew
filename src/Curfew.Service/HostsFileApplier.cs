@@ -57,8 +57,14 @@ internal static class HostsFileApplier
             // compare ignoring newline style so we don't rewrite purely over CRLF/LF
             if (Normalize(existing) == Normalize(merged)) return;
 
-            // hosts files are conventionally CRLF on Windows
-            File.WriteAllText(path, merged.Replace("\n", "\r\n"));
+            // atomic replace: write a temp file then swap it in, so a crash mid-write can never leave the
+            // system-critical hosts file truncated/corrupt (matters now the blocklist can make it large).
+            // File.Replace keeps the original file's ACLs + is atomic on the same volume.
+            // hosts files are conventionally CRLF on Windows.
+            var tmp = path + ".curfew.tmp";
+            File.WriteAllText(tmp, merged.Replace("\n", "\r\n"));
+            if (File.Exists(path)) File.Replace(tmp, path, null);
+            else File.Move(tmp, path);
             ServiceLog.Write($"hosts blocklist applied ({domains.Count} domain(s))");
         }
         catch (Exception ex)

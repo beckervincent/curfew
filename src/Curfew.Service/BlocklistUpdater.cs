@@ -115,9 +115,18 @@ internal static class BlocklistUpdater
             if (!resp.IsSuccessStatusCode) { ServiceLog.Write($"blocklist {url}: HTTP {(int)resp.StatusCode}"); return null; }
             if (resp.Content.Headers.ContentLength is > MaxDownloadBytes) { ServiceLog.Write($"blocklist {url}: too large"); return null; }
 
-            var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-            if (bytes.LongLength > MaxDownloadBytes) return null;
-            return System.Text.Encoding.UTF8.GetString(bytes);
+            // stream into a bounded buffer rather than ReadAsByteArrayAsync: a server that omits Content-Length
+            // (or lies) could otherwise stream gigabytes into memory before any size check. Abort past the cap.
+            await using var body = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await body.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > MaxDownloadBytes) { ServiceLog.Write($"blocklist {url}: exceeded cap mid-stream"); return null; }
+                buffer.Write(chunk, 0, read);
+            }
+            return System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

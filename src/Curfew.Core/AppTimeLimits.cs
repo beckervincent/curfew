@@ -44,11 +44,14 @@ public static class AppTimeLimits
     }
 
     /// <summary>Serialize a <c>name -> minutes</c> map back to the stored <c>name=minutes</c> newline form.</summary>
-    public static string Serialize(IReadOnlyDictionary<string, int> limits) =>
-        string.Join('\n', limits
+    public static string Serialize(IReadOnlyDictionary<string, int> limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return string.Join('\n', limits
             .Select(kv => (Name: AppAllowlist.Normalize(kv.Key), kv.Value))
             .Where(e => e.Name.Length > 0)
             .Select(e => $"{e.Name}={Math.Clamp(e.Value, 0, MaxMinutes)}"));
+    }
 
     /// <summary>Daily limit in minutes for <paramref name="processName"/> (image name or full path), or
     /// <c>-1</c> when the app has no limit set. A configured limit of 0 returns 0 (blocked outright).</summary>

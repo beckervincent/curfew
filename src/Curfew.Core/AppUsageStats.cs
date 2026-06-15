@@ -10,6 +10,7 @@ public static class AppUsageStats
     /// <summary>Merge several day rows into one <c>name -> seconds</c> total. Null/blank rows are ignored.</summary>
     public static IReadOnlyDictionary<string, int> Merge(IEnumerable<string?> dayRows)
     {
+        ArgumentNullException.ThrowIfNull(dayRows);
         var totals = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in dayRows)
         {
@@ -29,6 +30,7 @@ public static class AppUsageStats
     /// Zero/negative counts are dropped. <paramref name="count"/> &lt;= 0 returns empty.</summary>
     public static IReadOnlyList<AppTime> Top(IReadOnlyDictionary<string, int> totals, int count)
     {
+        ArgumentNullException.ThrowIfNull(totals);
         if (count <= 0) return Array.Empty<AppTime>();
         return totals
             .Where(kv => kv.Value > 0)
