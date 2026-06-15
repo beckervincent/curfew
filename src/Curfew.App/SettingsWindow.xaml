@@ -347,6 +347,9 @@
                         <ToggleSwitch x:Name="SafeSearch" Header="{local:Loc Key=settings.safesearch}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
                                       ToolTipService.ToolTip="Force SafeSearch on Google, Bing and YouTube" />
+                        <ToggleSwitch x:Name="BlockPrivateBrowsing" Header="{local:Loc Key=settings.privatebrowsing}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Disable incognito / private windows in Chrome, Edge and Firefox" />
                         <StackPanel Spacing="4">
                             <TextBlock Text="{local:Loc Key=settings.categories.title}" Style="{StaticResource BodyTextBlockStyle}" />
                             <CheckBox x:Name="CatSocial" Content="{local:Loc Key=settings.categories.social}" />

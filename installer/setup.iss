@@ -113,6 +113,11 @@ begin
     '    Set-Content -Path $hostsFile -Value $keep -Encoding ASCII' + #13#10 +
     '}' + #13#10 +
     '' + #13#10 +
+    '# 3b. remove browser private-browsing policies so incognito is not left disabled after removal' + #13#10 +
+    'reg delete "HKLM\SOFTWARE\Policies\Google\Chrome" /v IncognitoModeAvailability /f 2>$null | Out-Null' + #13#10 +
+    'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v InPrivateModeAvailability /f 2>$null | Out-Null' + #13#10 +
+    'reg delete "HKLM\SOFTWARE\Policies\Mozilla\Firefox" /v DisablePrivateBrowsing /f 2>$null | Out-Null' + #13#10 +
+    '' + #13#10 +
     'foreach ($p in @($dir, (Join-Path $env:ProgramData "{#DataFolder}"))) {' + #13#10 +
     '    if (Test-Path $p) {' + #13#10 +
     '        $acl = Get-Acl $p' + #13#10 +

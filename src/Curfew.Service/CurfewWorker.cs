@@ -229,6 +229,7 @@ public sealed class CurfewWorker : BackgroundService
     private static readonly HashSet<string> ContentFilterKeys = new(StringComparer.Ordinal)
     {
         "dns_filter_mode", "block_doh_bypass", "safesearch_enabled", "blocked_domains", "blocked_categories",
+        "block_private_browsing",
     };
 
     /// <summary>Called when a config key is written via the pipe (parent saved a setting). Re-applies the
@@ -251,6 +252,7 @@ public sealed class CurfewWorker : BackgroundService
                 using var settings = OpenSettings();
                 ContentFilterApplier.Apply(settings);
                 HostsFileApplier.Apply(settings);
+                BrowserPolicyApplier.Apply(settings);
             }
             ServiceLog.Write("content filter applied");
         }

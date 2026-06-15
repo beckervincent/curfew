@@ -50,6 +50,8 @@ public static class SettingsPartition
         "unlock_secret", "unlock_bonus_minutes",
         // custom hosts-file blocklist + enforced SafeSearch: applied machine-wide by the SYSTEM service
         "blocked_domains", "safesearch_enabled", "blocked_categories",
+        // disable private/incognito browsing via machine-wide browser registry policies
+        "block_private_browsing",
     };
 
     /// <summary>Store a (fully-formed) key belongs to.</summary>

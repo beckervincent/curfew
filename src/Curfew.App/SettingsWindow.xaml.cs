@@ -511,6 +511,7 @@ public sealed partial class SettingsWindow : Window
         }
         BlockDoh.IsOn = _settings.GetBool("block_doh_bypass", true);
         SafeSearch.IsOn = _settings.GetBool("safesearch_enabled", false);
+        BlockPrivateBrowsing.IsOn = _settings.GetBool("block_private_browsing", false);
         var cats = BlockCategories.Parse(_settings.Get("blocked_categories"));
         CatSocial.IsChecked = cats.Contains(BlockCategories.Social);
         CatGaming.IsChecked = cats.Contains(BlockCategories.Gaming);
@@ -771,6 +772,7 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("dns_filter_mode", ContentFilter.ToSetting(mode));
         _settings.Set("block_doh_bypass", ToFlag(BlockDoh.IsOn));
         _settings.Set("safesearch_enabled", ToFlag(SafeSearch.IsOn));
+        _settings.Set("block_private_browsing", ToFlag(BlockPrivateBrowsing.IsOn));
         var cats = new List<string>();
         if (CatSocial.IsChecked == true) cats.Add(BlockCategories.Social);
         if (CatGaming.IsChecked == true) cats.Add(BlockCategories.Gaming);
