@@ -117,7 +117,10 @@ internal static class OverlayState
         ScheduleEnabled = Settings.GetBool(KeyScheduleEnabled, false);
         Schedule = Schedule.Parse(Settings.Get(KeySchedule));
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
-        BlockedApps = AppAllowlist.Parse(Settings.Get("blocked_apps"));
+        var blocked = new HashSet<string>(AppAllowlist.Parse(Settings.Get("blocked_apps")), StringComparer.OrdinalIgnoreCase);
+        // one-tap anti-circumvention: fold the bundled VPN/Tor client names into the blocklist
+        if (Settings.GetBool("block_vpn_apps", false)) blocked.UnionWith(VpnApps.Names);
+        BlockedApps = blocked;
         AppLimits = AppTimeLimits.Parse(Settings.Get("app_time_limits"));
         AppWeeklyLimits = AppTimeLimits.Parse(Settings.Get("app_weekly_limits"));
         // refresh the weekly base (Mon..yesterday) only when weekly limits exist, to avoid needless reads

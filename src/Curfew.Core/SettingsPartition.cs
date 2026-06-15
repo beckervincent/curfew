@@ -52,6 +52,8 @@ public static class SettingsPartition
         "blocked_domains", "safesearch_enabled", "blocked_categories",
         // disable private/incognito browsing via machine-wide browser registry policies
         "block_private_browsing",
+        // one-tap "block VPN apps" toggle (overlay folds VpnApps.Names into the blocklist)
+        "block_vpn_apps",
     };
 
     /// <summary>Store a (fully-formed) key belongs to.</summary>

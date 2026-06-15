@@ -175,6 +175,9 @@
                             <TextBox x:Name="AppWeeklyLimitsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
                                      PlaceholderText="minecraft.exe=300&#x0A;roblox.exe=180" />
                         </StackPanel>
+                        <ToggleSwitch x:Name="BlockVpnApps" Header="{local:Loc Key=settings.blockvpnapps}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Also close known VPN / Tor apps (NordVPN, ProtonVPN, Tor, etc.)" />
                     </StackPanel>
                 </Expander>
 

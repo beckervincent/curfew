@@ -464,6 +464,7 @@ public sealed partial class SettingsWindow : Window
         BlockedAppsBox.Text = _settings.Get("blocked_apps") ?? string.Empty;
         AppTimeLimitsBox.Text = _settings.Get("app_time_limits") ?? string.Empty;
         AppWeeklyLimitsBox.Text = _settings.Get("app_weekly_limits") ?? string.Empty;
+        BlockVpnApps.IsOn = _settings.GetBool("block_vpn_apps", false);
 
         // weekly cap: stored in minutes, edited in hours
         WeeklyLimitEnabled.IsOn = _settings.GetBool("weekly_limit_enabled", false);
@@ -727,6 +728,7 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("app_time_limits", AppTimeLimitsBox.Text ?? string.Empty);
         // per-app weekly limits ("name=minutes/week" lines)
         _settings.Set("app_weekly_limits", AppWeeklyLimitsBox.Text ?? string.Empty);
+        _settings.Set("block_vpn_apps", ToFlag(BlockVpnApps.IsOn));
 
         // weekly cap: edited in hours, stored in minutes
         _settings.Set("weekly_limit_enabled", ToFlag(WeeklyLimitEnabled.IsOn));

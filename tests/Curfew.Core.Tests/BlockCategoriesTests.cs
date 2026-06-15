@@ -48,4 +48,15 @@ public class BlockCategoriesTests
         Assert.Contains("nordvpn.com", domains);
         Assert.Contains("croxyproxy.com", domains);
     }
+
+    [Fact]
+    public void VpnApps_names_are_normalized_and_match_real_process_paths()
+    {
+        Assert.Contains("nordvpn", VpnApps.Names);
+        Assert.Contains("tor", VpnApps.Names);
+        // names match the overlay's foreground check (which uses AppAllowlist.Allows -> Normalize)
+        Assert.True(AppAllowlist.Allows(VpnApps.Names, @"C:\Program Files\NordVPN\NordVPN.exe"));
+        Assert.True(AppAllowlist.Allows(VpnApps.Names, "ProtonVPN.exe"));
+        Assert.False(AppAllowlist.Allows(VpnApps.Names, "chrome.exe"));
+    }
 }
