@@ -27,11 +27,17 @@ internal static class PowerShellRunner
             return FailureExitCode;
         }
 
-        // -NonInteractive: never prompt; -ExecutionPolicy Bypass: ignore machine policy this invocation; -Command -: read script from stdin
+        // -EncodedCommand (base64 UTF-16LE) NOT "-Command -" over stdin: a multi-line script piped to
+        // "-Command -" was observed to run and exit 0 yet silently skip CIM cmdlet side effects
+        // (Set-DnsClientServerAddress / firewall / w32tm did nothing), so the DNS content filter never
+        // actually applied. EncodedCommand runs the script in a normal full context exactly like a .ps1,
+        // and also sidesteps all quoting. -NonInteractive: never prompt; -ExecutionPolicy Bypass: ignore
+        // machine policy for this invocation.
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         var psi = new ProcessStartInfo("powershell.exe",
-            "-NonInteractive -NoProfile -ExecutionPolicy Bypass -Command -")
+            $"-NonInteractive -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded}")
         {
-            RedirectStandardInput = true,
+            RedirectStandardInput = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -61,16 +67,7 @@ internal static class PowerShellRunner
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
-            // feed script and signal EOF so PowerShell starts. dead process (crashed on startup) closes pipe, shows as IOException — swallow, let exit code/timeout below report
-            try
-            {
-                process.StandardInput.Write(script);
-                process.StandardInput.Close();
-            }
-            catch (IOException)
-            {
-                // broken pipe: child gone. WaitForExit returns promptly
-            }
+            // script is in -EncodedCommand; nothing to feed over stdin
 
             if (!process.WaitForExit((int)RunTimeout.TotalMilliseconds))
             {
