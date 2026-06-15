@@ -117,6 +117,8 @@ begin
     'reg delete "HKLM\SOFTWARE\Policies\Google\Chrome" /v IncognitoModeAvailability /f 2>$null | Out-Null' + #13#10 +
     'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v InPrivateModeAvailability /f 2>$null | Out-Null' + #13#10 +
     'reg delete "HKLM\SOFTWARE\Policies\Mozilla\Firefox" /v DisablePrivateBrowsing /f 2>$null | Out-Null' + #13#10 +
+    'reg delete "HKLM\SOFTWARE\Policies\BraveSoftware\Brave" /v IncognitoModeAvailability /f 2>$null | Out-Null' + #13#10 +
+    'reg delete "HKLM\SOFTWARE\Policies\Chromium" /v IncognitoModeAvailability /f 2>$null | Out-Null' + #13#10 +
     '' + #13#10 +
     'foreach ($p in @($dir, (Join-Path $env:ProgramData "{#DataFolder}"))) {' + #13#10 +
     '    if (Test-Path $p) {' + #13#10 +

@@ -23,6 +23,8 @@ internal static class BrowserPolicyApplier
         (@"HKLM\SOFTWARE\Policies\Google\Chrome", "IncognitoModeAvailability"),
         (@"HKLM\SOFTWARE\Policies\Microsoft\Edge", "InPrivateModeAvailability"),
         (@"HKLM\SOFTWARE\Policies\Mozilla\Firefox", "DisablePrivateBrowsing"),
+        (@"HKLM\SOFTWARE\Policies\BraveSoftware\Brave", "IncognitoModeAvailability"),
+        (@"HKLM\SOFTWARE\Policies\Chromium", "IncognitoModeAvailability"),
     };
 
     /// <summary>Apply (or clear) the private-browsing-disabled policies for every known browser.</summary>
