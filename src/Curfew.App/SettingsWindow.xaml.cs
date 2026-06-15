@@ -538,6 +538,7 @@ public sealed partial class SettingsWindow : Window
         BlocklistAdult.IsChecked = sources.Contains(BlocklistSources.Adult);
         BlocklistAds.IsChecked = sources.Contains(BlocklistSources.Ads);
         BlocklistFakeNews.IsChecked = sources.Contains(BlocklistSources.FakeNews);
+        BlocklistCustomUrls.Text = _settings.Get("blocklist_custom_urls") ?? string.Empty;
         BlocklistAllow.Text = _settings.Get("blocklist_allow") ?? string.Empty;
         BlockedDomains.Text = _settings.Get("blocked_domains") ?? string.Empty;
     }
@@ -812,6 +813,7 @@ public sealed partial class SettingsWindow : Window
         if (BlocklistFakeNews.IsChecked == true) sources.Add(BlocklistSources.FakeNews);
         _settings.Set("blocklist_sources", string.Join(',', sources));
         _settings.Set("blocklist_enabled", ToFlag(BlocklistEnabled.IsOn));
+        _settings.Set("blocklist_custom_urls", string.Join('\n', BlocklistSources.ParseCustomUrls(BlocklistCustomUrls.Text)));
         _settings.Set("blocklist_allow", string.Join('\n', HostsBlocklist.Parse(BlocklistAllow.Text)));
     }
 

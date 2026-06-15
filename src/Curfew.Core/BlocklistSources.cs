@@ -52,4 +52,25 @@ public static class BlocklistSources
                 urls.Add(url);
         return urls;
     }
+
+    /// <summary>
+    /// Parse parent-supplied custom blocklist URLs (newline/space/comma/semicolon separated) into a
+    /// de-duplicated list of valid absolute <c>https://</c> URLs. Anything not well-formed HTTPS is dropped
+    /// (http and other schemes rejected — the list is fetched unattended as SYSTEM, so require transport security).
+    /// </summary>
+    public static IReadOnlyList<string> ParseCustomUrls(string? stored)
+    {
+        var urls = new List<string>();
+        if (string.IsNullOrWhiteSpace(stored)) return urls;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in stored.Split(new[] { '\n', '\r', ',', ';', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (Uri.TryCreate(raw, UriKind.Absolute, out var uri)
+                && uri.Scheme == Uri.UriSchemeHttps
+                && seen.Add(uri.AbsoluteUri))
+                urls.Add(uri.AbsoluteUri);
+        }
+        return urls;
+    }
 }

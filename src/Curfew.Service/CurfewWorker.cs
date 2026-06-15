@@ -236,7 +236,7 @@ public sealed class CurfewWorker : BackgroundService
     /// <summary>Config keys whose change should re-download the public blocklists (then re-apply hosts).</summary>
     private static readonly HashSet<string> BlocklistKeys = new(StringComparer.Ordinal)
     {
-        "blocklist_enabled", "blocklist_sources", "blocklist_max_domains",
+        "blocklist_enabled", "blocklist_sources", "blocklist_max_domains", "blocklist_custom_urls",
     };
 
     /// <summary>Called when a config key is written via the pipe (parent saved a setting). Re-applies the

@@ -107,4 +107,16 @@ public class BlocklistSourcesTests
     [Fact]
     public void UrlsFor_unknown_is_empty() =>
         Assert.Empty(BlocklistSources.UrlsFor(new[] { "nope" }));
+
+    [Fact]
+    public void ParseCustomUrls_keeps_https_only_and_dedupes()
+    {
+        var urls = BlocklistSources.ParseCustomUrls(
+            "https://a.com/hosts.txt\nhttp://insecure.com/x\nnot a url\nhttps://a.com/hosts.txt\nftp://f.com/l");
+        Assert.Equal(new[] { "https://a.com/hosts.txt" }, urls);
+    }
+
+    [Fact]
+    public void ParseCustomUrls_empty_is_empty() =>
+        Assert.Empty(BlocklistSources.ParseCustomUrls(""));
 }

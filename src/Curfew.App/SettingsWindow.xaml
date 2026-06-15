@@ -376,6 +376,10 @@
                             <CheckBox x:Name="BlocklistAdult" Content="{local:Loc Key=settings.blocklist.adult}" />
                             <CheckBox x:Name="BlocklistAds" Content="{local:Loc Key=settings.blocklist.ads}" />
                             <CheckBox x:Name="BlocklistFakeNews" Content="{local:Loc Key=settings.blocklist.fakenews}" />
+                            <TextBox x:Name="BlocklistCustomUrls" Header="{local:Loc Key=settings.blocklist.customurls}"
+                                     PlaceholderText="https://example.com/hosts.txt"
+                                     TextWrapping="Wrap" AcceptsReturn="True" Height="72"
+                                     ToolTipService.ToolTip="Your own blocklist URLs (https only, one per line); hosts or bare-domain format" />
                             <TextBox x:Name="BlocklistAllow" Header="{local:Loc Key=settings.blocklist.allow}"
                                      PlaceholderText="school.example.edu&#x0A;cdn.example.com"
                                      TextWrapping="Wrap" AcceptsReturn="True" Height="72"

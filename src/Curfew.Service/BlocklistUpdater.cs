@@ -19,6 +19,7 @@ internal static class BlocklistUpdater
 {
     private const string EnabledKey = "blocklist_enabled";
     private const string SourcesKey = "blocklist_sources";
+    private const string CustomUrlsKey = "blocklist_custom_urls";
     private const string MaxKey = "blocklist_max_domains";
     private const string CacheFileName = "blocklist-cache.txt";
 
@@ -59,7 +60,9 @@ internal static class BlocklistUpdater
                 return;
             }
 
-            var urls = BlocklistSources.UrlsFor(BlocklistSources.Parse(settings.Get(SourcesKey)));
+            var urls = new List<string>(BlocklistSources.UrlsFor(BlocklistSources.Parse(settings.Get(SourcesKey))));
+            foreach (var custom in BlocklistSources.ParseCustomUrls(settings.Get(CustomUrlsKey)))
+                if (!urls.Contains(custom)) urls.Add(custom);
             if (urls.Count == 0) return;
 
             var max = settings.GetInt(MaxKey, BlocklistParser.DefaultMaxDomains);
