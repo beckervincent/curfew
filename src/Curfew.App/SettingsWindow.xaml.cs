@@ -515,6 +515,7 @@ public sealed partial class SettingsWindow : Window
         CatSocial.IsChecked = cats.Contains(BlockCategories.Social);
         CatGaming.IsChecked = cats.Contains(BlockCategories.Gaming);
         CatStreaming.IsChecked = cats.Contains(BlockCategories.Streaming);
+        CatAdult.IsChecked = cats.Contains(BlockCategories.Adult);
         BlockedDomains.Text = _settings.Get("blocked_domains") ?? string.Empty;
     }
 
@@ -773,6 +774,7 @@ public sealed partial class SettingsWindow : Window
         if (CatSocial.IsChecked == true) cats.Add(BlockCategories.Social);
         if (CatGaming.IsChecked == true) cats.Add(BlockCategories.Gaming);
         if (CatStreaming.IsChecked == true) cats.Add(BlockCategories.Streaming);
+        if (CatAdult.IsChecked == true) cats.Add(BlockCategories.Adult);
         _settings.Set("blocked_categories", string.Join(',', cats));
         // normalize to a clean newline-joined list so the stored value round-trips predictably
         _settings.Set("blocked_domains", string.Join('\n', HostsBlocklist.Parse(BlockedDomains.Text)));

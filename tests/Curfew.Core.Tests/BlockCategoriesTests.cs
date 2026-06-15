@@ -29,4 +29,14 @@ public class BlockCategoriesTests
     [Fact]
     public void DomainsFor_none_is_empty() =>
         Assert.Empty(BlockCategories.DomainsFor(System.Array.Empty<string>()));
+
+    [Fact]
+    public void Adult_category_is_known_and_expands()
+    {
+        Assert.Contains(BlockCategories.Adult, BlockCategories.AllKeys);
+        Assert.Equal(new[] { "adult" }, BlockCategories.Parse("ADULT"));
+        var domains = BlockCategories.DomainsFor(new[] { BlockCategories.Adult });
+        Assert.Contains("pornhub.com", domains);
+        Assert.DoesNotContain("tiktok.com", domains);
+    }
 }

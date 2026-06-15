@@ -15,6 +15,7 @@ public static class BlockCategories
     public const string Social = "social";
     public const string Gaming = "gaming";
     public const string Streaming = "streaming";
+    public const string Adult = "adult";
 
     private static readonly IReadOnlyDictionary<string, string[]> Catalog =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
@@ -32,10 +33,18 @@ public static class BlockCategories
             {
                 "netflix.com", "hulu.com", "disneyplus.com", "twitch.tv",
             },
+            // Flagship adult sites. Defense-in-depth alongside enforced SafeSearch and the Cloudflare
+            // family DNS filter (1.1.1.3), which covers the long tail; this hosts list still bites when
+            // the DNS filter is off. Conservative on purpose — not an exhaustive adult-content filter.
+            [Adult] = new[]
+            {
+                "pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com", "redtube.com",
+                "youporn.com", "onlyfans.com", "chaturbate.com", "stripchat.com", "spankbang.com",
+            },
         };
 
     /// <summary>All category keys, for building the settings UI.</summary>
-    public static IReadOnlyList<string> AllKeys => new[] { Social, Gaming, Streaming };
+    public static IReadOnlyList<string> AllKeys => new[] { Social, Gaming, Streaming, Adult };
 
     /// <summary>Parse the stored comma/space/semicolon-separated category list into known keys (lower-case, de-duped).</summary>
     public static IReadOnlyList<string> Parse(string? stored)

@@ -352,6 +352,7 @@
                             <CheckBox x:Name="CatSocial" Content="{local:Loc Key=settings.categories.social}" />
                             <CheckBox x:Name="CatGaming" Content="{local:Loc Key=settings.categories.gaming}" />
                             <CheckBox x:Name="CatStreaming" Content="{local:Loc Key=settings.categories.streaming}" />
+                            <CheckBox x:Name="CatAdult" Content="{local:Loc Key=settings.categories.adult}" />
                         </StackPanel>
                         <TextBox x:Name="BlockedDomains" Header="{local:Loc Key=settings.blocked.header}"
                                  PlaceholderText="{local:Loc Key=settings.blocked.placeholder}"
