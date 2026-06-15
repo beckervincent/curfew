@@ -77,6 +77,7 @@ namespace Curfew.Overlay
             OverlayState.LoadEnforcement();
             OverlayState.LoadUsage();
             OverlayState.LoadAppUsage();
+            OverlayState.LoadSeenApps();
             OverlayState.LoadPause();
 
             var hInstance = GetModuleHandleW(null);
@@ -206,6 +207,14 @@ namespace Curfew.Overlay
             var (pid, name) = ForegroundApp.Foreground();
             if (pid == 0 || string.IsNullOrEmpty(name)) { _lastBlockedAppName = null; _lastTimeUpAppName = null; return; }
             if (name.StartsWith("Curfew", StringComparison.OrdinalIgnoreCase)) return; // never touch our own UI
+
+            // 0. new-app visibility: always grow the seen-set; log the first sighting only when the parent
+            // opted in (so enabling later alerts on truly new apps, not the whole already-installed set)
+            if (OverlayState.NoteAppSeen(name) && OverlayState.NewAppAlertsEnabled)
+            {
+                OverlayLog.Write($"new app seen: {name}");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.AppFirstSeen, name);
+            }
 
             // 1. hard blocklist: close outright regardless of time
             if (EnforceBlockedApp(pid, name)) return;

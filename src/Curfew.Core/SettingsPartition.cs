@@ -19,7 +19,7 @@ public static class SettingsPartition
     /// <summary>Prefixes in child-writable state store: per-day budget/usage counters, pause accounting, runtime lock-coordination keys. Else config.</summary>
     private static readonly string[] StatePrefixes =
     {
-        "remaining_time_", "used_time_", "app_usage_", "pause_used_", "pause_log_", "pause_last_end_", "session_active_",
+        "remaining_time_", "used_time_", "app_usage_", "apps_seen_", "pause_used_", "pause_log_", "pause_last_end_", "session_active_",
         // child-side runtime coordination (not policy): lock handshake (exact keys
         // below, NOT broad "lock_" prefix — that catches policy keys like
         // lock_screen_timeout, giving child write access), tray command, offline-code

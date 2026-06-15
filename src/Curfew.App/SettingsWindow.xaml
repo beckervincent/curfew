@@ -289,6 +289,9 @@
                                    Minimum="5" Maximum="120" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
                                    ToolTipService.ToolTip="Minutes of continuous use between eye-rest reminders (20-20-20 rule)" />
+                        <ToggleSwitch x:Name="NewAppAlerts" Header="{local:Loc Key=settings.newapp.toggle}"
+                                      OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
+                                      ToolTipService.ToolTip="Log an entry in Recent activity the first time a new app is used" />
                     </StackPanel>
                 </Expander>
 

@@ -87,6 +87,11 @@ internal static class OverlayState
     /// <summary>minutes of continuous active use between eye-strain reminders (default 20)</summary>
     public static int EyeStrainIntervalMinutes = 20;
 
+    /// <summary>log an activity event the first time a never-before-seen app runs (parent opt-in). the seen-set
+    /// is always maintained regardless; this only gates the logging, so enabling it later alerts on apps that
+    /// are genuinely new rather than flooding with the already-installed set. loaded in <see cref="LoadEnforcement"/></summary>
+    public static bool NewAppAlertsEnabled;
+
     /// <summary>parent unlocked during blocked schedule window; cleared once allowed window reached so next blocked window re-locks</summary>
     public static bool ScheduleOverride;
 
@@ -121,6 +126,7 @@ internal static class OverlayState
             : new Dictionary<string, int>();
         EyeStrainEnabled = Settings.GetBool("eyestrain_enabled", false);
         EyeStrainIntervalMinutes = Settings.GetInt("eyestrain_interval_minutes", 20);
+        NewAppAlertsEnabled = Settings.GetBool("newapp_alerts_enabled", false);
         WeeklyLimitEnabled = Settings.GetBool("weekly_limit_enabled", false);
         WeeklyLimitMinutes = Settings.GetInt("weekly_limit_minutes", 0);
         WeeklyUsedMinutes = Settings.UsedThisWeekMinutes(DateOnly.FromDateTime(DateTime.Now));
@@ -325,6 +331,31 @@ internal static class OverlayState
 
     private static string AppUsageKey(DateOnly date) =>
         $"{SettingsStore.AppUsagePrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+    // ---- New-app visibility ------------------------------------------------
+    // Remember every app ever seen running for this user so the first run of a new app
+    // can be logged for the parent. The set persists in a child-writable state row;
+    // non-destructive (no blocking), purely informational.
+
+    private static HashSet<string> _seenApps = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>load the set of apps already seen for this user (so only genuinely new ones get logged)</summary>
+    public static void LoadSeenApps() =>
+        _seenApps = new HashSet<string>(AppAllowlist.Parse(Settings.Get(SeenAppsKey())), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>record that <paramref name="appName"/> was seen; returns true the first time (so the caller
+    /// logs it once) and persists the grown set. No-op / false for a blank name or one already seen</summary>
+    public static bool NoteAppSeen(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return false;
+        var name = AppAllowlist.Normalize(appName);
+        if (name.Length == 0 || !_seenApps.Add(name)) return false;
+
+        Settings.Set(SeenAppsKey(), AppAllowlist.Serialize(_seenApps));
+        return true;
+    }
+
+    private static string SeenAppsKey() => $"apps_seen_{CurrentSid}";
 
     // ---- Child-initiated breaks (pause) ------------------------------------
     // A child can take a short break that freezes the budget, rate-limited by the

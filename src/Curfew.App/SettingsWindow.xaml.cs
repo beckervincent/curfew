@@ -488,6 +488,7 @@ public sealed partial class SettingsWindow : Window
         WindDown.Value = _settings.GetInt("wind_down_minutes", 10);
         EyeStrainEnabled.IsOn = _settings.GetBool("eyestrain_enabled", false);
         EyeStrainInterval.Value = _settings.GetInt("eyestrain_interval_minutes", 20);
+        NewAppAlerts.IsOn = _settings.GetBool("newapp_alerts_enabled", false);
     }
 
     private void LoadPause()
@@ -748,6 +749,7 @@ public sealed partial class SettingsWindow : Window
         _settings.Set("wind_down_minutes", Clamp(WindDown, 0, 120, 10).ToString());
         _settings.Set("eyestrain_enabled", ToFlag(EyeStrainEnabled.IsOn));
         _settings.Set("eyestrain_interval_minutes", Clamp(EyeStrainInterval, 5, 120, 20).ToString());
+        _settings.Set("newapp_alerts_enabled", ToFlag(NewAppAlerts.IsOn));
     }
 
     private void SavePause()
