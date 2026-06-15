@@ -11,6 +11,11 @@ namespace Curfew.Service;
 internal sealed class ConfigPipeServer
 {
     private readonly SettingsStore _config;
+
+    /// <summary>Invoked (with the key) after a config key is successfully written, so the worker can apply
+    /// the change immediately (e.g. re-run the content filter) instead of waiting for the next reboot or
+    /// network change. Null = no listener.</summary>
+    private readonly Action<string>? _onConfigChanged;
     private static readonly JsonSerializerOptions Json = new() { IncludeFields = false };
 
     /// <summary>Max time one connection may take to deliver request line; drop stallers else accept loop never returns to <see cref="NamedPipeServerStream.WaitForConnectionAsync"/> and parent writes starve.</summary>
@@ -20,7 +25,11 @@ internal sealed class ConfigPipeServer
     private const int MaxRequestBytes = 8 * 1024;
 
     /// <param name="config">A config-writable settings store owned by the service.</param>
-    public ConfigPipeServer(SettingsStore config) => _config = config;
+    public ConfigPipeServer(SettingsStore config, Action<string>? onConfigChanged = null)
+    {
+        _config = config;
+        _onConfigChanged = onConfigChanged;
+    }
 
     /// <summary>Accept connections till cancelled. Never throw out of loop.</summary>
     public async Task RunAsync(CancellationToken ct)
@@ -236,6 +245,7 @@ internal sealed class ConfigPipeServer
         }
 
         _config.Set(request.Key, request.Value);
+        _onConfigChanged?.Invoke(request.Key);
         return new ConfigResponse(true);
     }
 }

@@ -73,7 +73,8 @@ public sealed class CurfewWorker : BackgroundService
         var pipeStore = CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
         // config.db now exists (open above made it) — lock down: users read, not write/delete
         ConfigFileGuard.Protect(CurfewPaths.ConfigFile);
-        var pipeServer = Task.Run(() => new ConfigPipeServer(pipeStore).RunAsync(stoppingToken), CancellationToken.None);
+        var pipeServer = Task.Run(
+            () => new ConfigPipeServer(pipeStore, OnConfigKeyChanged).RunAsync(stoppingToken), CancellationToken.None);
 
         // MinValue forces the first clock check and slow cycle to run immediately, not after a full interval
         var lastSlow = DateTimeOffset.MinValue;
@@ -216,6 +217,22 @@ public sealed class CurfewWorker : BackgroundService
     }
 
     private void OnNetworkChanged(object? sender, EventArgs e) => ApplyContentFilter();
+
+    /// <summary>Config keys whose change should re-apply the content filter (DNS/DoH/hosts) right away.</summary>
+    private static readonly HashSet<string> ContentFilterKeys = new(StringComparer.Ordinal)
+    {
+        "dns_filter_mode", "block_doh_bypass", "safesearch_enabled", "blocked_domains", "blocked_categories",
+    };
+
+    /// <summary>Called when a config key is written via the pipe (parent saved a setting). Re-applies the
+    /// content filter immediately for the relevant keys so SafeSearch / blocklists / DNS mode take effect on
+    /// save, not at the next reboot or network change. Dispatched off the pipe thread; ApplyContentFilter is
+    /// self-guarded. Other keys are picked up by the overlay's own 30s reload.</summary>
+    private void OnConfigKeyChanged(string key)
+    {
+        if (ContentFilterKeys.Contains(key))
+            _ = Task.Run(ApplyContentFilter);
+    }
 
     /// <summary>(Re)apply DNS content filter. Serialised by <see cref="_filterGate"/>, fully guarded so PowerShell failure or burst of network-change events never destabilise service.</summary>
     private void ApplyContentFilter()
