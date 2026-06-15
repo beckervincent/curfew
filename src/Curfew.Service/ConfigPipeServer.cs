@@ -134,8 +134,32 @@ internal sealed class ConfigPipeServer
             ConfigPipe.OpProvision => HandleProvision(request),
             ConfigPipe.OpRecordFailure => HandleRecordFailure(),
             ConfigPipe.OpResetFailures => HandleResetFailures(request),
+            ConfigPipe.OpRedeem => HandleRedeem(request),
             _ => new ConfigResponse(false, $"unknown op '{request.Op}'"),
         };
+    }
+
+    /// <summary>Verify an offline unlock (TOTP) code against the device secret and, on success, advance the
+    /// replay counter — both in write-protected config.db, so a child (who in the offline-grant case knows the
+    /// code) cannot reset the counter to replay it. The code arrives in <see cref="ConfigRequest.Passcode"/>.
+    /// Brute-force lockout is enforced here too, since a direct pipe client bypasses the lock UI.</summary>
+    private ConfigResponse HandleRedeem(ConfigRequest request)
+    {
+        var secret = _config.Get("unlock_secret");
+        if (string.IsNullOrEmpty(secret)) return new ConfigResponse(false, "no unlock secret");
+
+        if (IsLockedOut(out var locked)) return locked;
+
+        var minCounter = long.TryParse(_config.Get("unlock_last_counter"), out var last) ? last : long.MinValue;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        // window=10 (+/-5 min) matches the lock UI; replay blocked by minCounter from config
+        if (!UnlockCode.Verify(secret, request.Passcode, now, 10, minCounter, out var matched))
+            return RecordFailureAndReject();
+
+        // advance the counter (SYSTEM-only write) so this and earlier steps can't be redeemed again
+        _config.Set("unlock_last_counter", matched.ToString());
+        return new ConfigResponse(true);
     }
 
     /// <summary>Set up new Windows user after parent passcode verified: write per-user daily limit (all weekdays) and add SID to set-up list. Brute-force lockout enforced here, not just lock UI.</summary>

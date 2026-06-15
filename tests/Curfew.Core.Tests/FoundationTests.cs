@@ -18,7 +18,9 @@ public class SettingsPartitionTests
     [InlineData("lock_code", SettingsStoreKind.State)]
     [InlineData("lock_setup_limit", SettingsStoreKind.State)]
     [InlineData("tray_command", SettingsStoreKind.State)]
-    [InlineData("unlock_last_counter", SettingsStoreKind.State)]
+    // replay counter for offline codes: write-protected config, NOT child-writable state — else a child
+    // who knows the code could reset it in state.db and replay the code to farm bonus time
+    [InlineData("unlock_last_counter", SettingsStoreKind.Config)]
     [InlineData("passcode", SettingsStoreKind.Config)]
     [InlineData("provisioned_users", SettingsStoreKind.Config)]
     [InlineData("schedule", SettingsStoreKind.Config)]

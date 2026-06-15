@@ -246,22 +246,18 @@ internal static class LockScreen
         if (!OverlayState.ShouldBlock) Hide();
     }
 
-    /// <summary>redeem valid offline unlock code (TOTP): grant bonus minutes, lift schedule block, record time step so no replay. false if no secret or code wrong/reused</summary>
+    /// <summary>redeem valid offline unlock code (TOTP): grant bonus minutes, lift schedule + weekly blocks.
+    /// Verification and the replay-counter advance happen in the SYSTEM service (config.db is write-protected),
+    /// so a child who knows the code can't reset the counter to replay it. false if the service rejects the
+    /// code (wrong/reused) or is unreachable.</summary>
     private static bool TryRedeemCode(string entered)
     {
-        var secret = OverlayState.Settings.Get("unlock_secret");
-        if (string.IsNullOrWhiteSpace(secret)) return false;
+        if (string.IsNullOrWhiteSpace(entered)) return false;
 
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var minCounter = long.TryParse(OverlayState.Settings.Get("unlock_last_counter"), out var last)
-            ? last
-            : long.MinValue;
+        // service owns the secret + replay counter (config.db); it verifies and advances the counter atomically
+        if (!ConfigClient.Redeem(entered).Ok) return false;
 
-        // window=10 (+/-5 min) keeps parent-read code valid long enough to enter despite rotation. replay blocked: minCounter advances past each redeemed step
-        if (!UnlockCode.Verify(secret, entered, now, 10, minCounter, out var matched))
-            return false;
-
-        OverlayState.Settings.Set("unlock_last_counter", matched.ToString());
+        // bonus minutes come from write-protected config (a child can't inflate them)
         var bonus = OverlayState.Settings.GetInt("unlock_bonus_minutes", 30);
         OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), bonus);
         // lift every session-scoped block the granted time should bypass, exactly like ExtendApply and the

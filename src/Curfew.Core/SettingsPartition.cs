@@ -26,7 +26,7 @@ public static class SettingsPartition
         // replay counter.
         "lock_active", "lock_reason", "lock_deadline_unix", "lock_action",
         "lock_action_at", "lock_sid", "lock_code", "lock_setup_limit", "lock_break_minutes",
-        "tray_", "unlock_last_counter",
+        "tray_",
     };
 
     /// <summary>Device-wide config keys (not per-user): passcode, provisioned-user list, app allow-list,
@@ -40,7 +40,8 @@ public static class SettingsPartition
     /// would differ between where it is seeded (first-run setup, no UserSid -> global), where it is shown
     /// (Settings, scoped to the picked user), and where it is verified (lock/overlay, scoped to the session
     /// user) — so the enrolled code matched nothing and redemption always failed. Global keeps all four
-    /// sites on the same secret. The replay counter (unlock_last_counter) is already device-wide state.</para></summary>
+    /// sites on the same secret. The replay counter (unlock_last_counter) is device-wide config too, written
+    /// only by the SYSTEM service via the redeem pipe op so a child can't reset it to replay a code.</para></summary>
     private static readonly HashSet<string> GlobalConfigKeys = new(StringComparer.Ordinal)
     {
         "passcode", "provisioned_users", "app_allowlist",
@@ -48,6 +49,9 @@ public static class SettingsPartition
         "failed_attempts", "failed_attempt_at",
         "dns_filter_mode", "block_doh_bypass", "time_guard_enabled",
         "unlock_secret", "unlock_bonus_minutes",
+        // offline-code replay counter: must be SYSTEM-write only, else a child who knows the code (the
+        // offline-grant case) could reset it in state.db and replay the code to farm bonus time
+        "unlock_last_counter",
         // custom hosts-file blocklist + enforced SafeSearch: applied machine-wide by the SYSTEM service
         "blocked_domains", "safesearch_enabled", "blocked_categories",
         // disable private/incognito browsing via machine-wide browser registry policies
