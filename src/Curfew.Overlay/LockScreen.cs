@@ -179,7 +179,7 @@ internal static class LockScreen
                 var grantedSeconds = OverlayState.TryRedeemBreak();
                 if (grantedSeconds > 0)
                 {
-                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"break +{grantedSeconds / 60} min");
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.BreakTaken, $"+{grantedSeconds / 60} min");
                     if (!OverlayState.ShouldBlock) Hide();
                 }
                 break;

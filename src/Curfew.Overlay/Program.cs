@@ -208,6 +208,7 @@ namespace Curfew.Overlay
             {
                 _lastBlockedAppName = name;
                 OverlayLog.Write($"blocked app terminated: {name}");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.AppBlocked, name);
                 TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.appblocked", name));
             }
         }
@@ -343,6 +344,7 @@ namespace Curfew.Overlay
             if (verdict == PauseBlock.None)
             {
                 OverlayLog.Write($"tray: break started ({grantedSeconds}s)");
+                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.BreakTaken, $"{grantedSeconds / 60} min");
                 TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.break.granted", grantedSeconds / 60));
                 return;
             }
