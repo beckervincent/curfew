@@ -89,6 +89,8 @@ public class HostsBlocklistTests
     {
         var lines = SafeSearch.HostsLines();
         Assert.Contains(lines, l => l.EndsWith(" google.com"));
+        Assert.Contains(lines, l => l.EndsWith(" google.de"));      // country domain covered
+        Assert.Contains(lines, l => l.EndsWith(" www.google.co.uk"));
         Assert.Contains(lines, l => l.EndsWith(" bing.com"));
         Assert.Contains(lines, l => l.EndsWith(" youtube.com"));
         Assert.All(lines, l => Assert.Matches(@"^\d+\.\d+\.\d+\.\d+ \S+$", l));

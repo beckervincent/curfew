@@ -28,9 +28,19 @@ public static class SafeSearch
     {
         var lines = new List<string>();
 
-        // Google search (common country domains kept short; .com covers most setups)
-        foreach (var host in new[] { "google.com", "www.google.com" })
+        // Google search: .com plus the common country domains a child would otherwise use to
+        // dodge SafeSearch (each maps to forcesafesearch.google.com's VIP, apex + www).
+        var googleDomains = new[]
+        {
+            "google.com", "google.co.uk", "google.ca", "google.com.au", "google.de",
+            "google.fr", "google.es", "google.it", "google.nl", "google.pl",
+            "google.com.br", "google.co.in", "google.co.jp", "google.ru", "google.com.mx",
+        };
+        foreach (var host in googleDomains)
+        {
             lines.Add($"{GoogleSafe} {host}");
+            lines.Add($"{GoogleSafe} www.{host}");
+        }
 
         // Bing
         foreach (var host in new[] { "bing.com", "www.bing.com" })
