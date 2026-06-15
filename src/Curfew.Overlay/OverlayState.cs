@@ -314,6 +314,30 @@ internal static class OverlayState
         return seconds >= limitMinutes * 60;
     }
 
+    /// <summary>Seconds of foreground time left before <paramref name="appName"/> hits its tightest per-app
+    /// limit (daily or weekly), or -1 when the app has no limit. Lets the overlay warn the child before the
+    /// app is closed rather than killing it abruptly.</summary>
+    public static int AppSecondsUntilLimit(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return -1;
+        var name = AppAllowlist.Normalize(appName);
+        _appUsed.TryGetValue(name, out var todaySeconds);
+
+        var remaining = int.MaxValue;
+
+        var daily = AppTimeLimits.LimitMinutesFor(AppLimits, name);
+        if (daily >= 0) remaining = Math.Min(remaining, daily * 60 - todaySeconds);
+
+        var weekly = AppTimeLimits.LimitMinutesFor(AppWeeklyLimits, name);
+        if (weekly >= 0)
+        {
+            _appWeekPriorSeconds.TryGetValue(name, out var prior);
+            remaining = Math.Min(remaining, weekly * 60 - (prior + todaySeconds));
+        }
+
+        return remaining == int.MaxValue ? -1 : Math.Max(0, remaining);
+    }
+
     /// <summary>true when <paramref name="appName"/> has a per-app WEEKLY limit and this week's running total
     /// (Mon..yesterday from the store + today live) has reached it</summary>
     public static bool IsAppOverWeeklyLimit(string? appName)

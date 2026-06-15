@@ -222,6 +222,9 @@ namespace Curfew.Overlay
             // 2. record active foreground time (every app -> per-app usage stats; per-app limits read it too)
             if (active) OverlayState.RecordAppSecond(name);
 
+            // 2b. warn the child as the app nears its per-app limit (so the close isn't abrupt)
+            if (active) WarnAppLimitNear(name);
+
             // 3. per-app daily limit: close once today's tracked time reaches the app's own budget
             EnforceAppTimeLimit(pid, name);
         }
@@ -245,6 +248,36 @@ namespace Curfew.Overlay
                 TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.appblocked", name));
             }
             return true;
+        }
+
+        /// <summary>warn thresholds (minutes left) for an app nearing its per-app limit</summary>
+        private static readonly int[] AppWarnThresholds = { 5, 1 };
+
+        /// <summary>last threshold (minutes) we ballooned for each app, so each warning fires once per approach</summary>
+        private static readonly Dictionary<string, int> _appWarnedThreshold = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Balloon once as the foreground app crosses each "minutes left" threshold for its per-app
+        /// limit, so the child gets warning before it is closed. Resets when the app has ample time again.</summary>
+        private static void WarnAppLimitNear(string name)
+        {
+            var secondsLeft = OverlayState.AppSecondsUntilLimit(name);
+            if (secondsLeft < 0) return; // no per-app limit
+
+            var minutesLeft = (secondsLeft + 59) / 60; // ceil
+            var threshold = AppWarnThresholds.FirstOrDefault(t => minutesLeft == t, -1);
+
+            if (threshold < 0)
+            {
+                // not at a threshold; clear the marker once we're back above the largest threshold so the
+                // next approach warns again (e.g. parent raised the limit)
+                if (minutesLeft > AppWarnThresholds[0]) _appWarnedThreshold.Remove(name);
+                return;
+            }
+
+            _appWarnedThreshold.TryGetValue(name, out var last);
+            if (last == threshold) return; // already warned at this threshold
+            _appWarnedThreshold[name] = threshold;
+            TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.applimitwarn", name, threshold));
         }
 
         /// <summary>Terminate the foreground app once it reaches its per-app daily OR weekly time limit;
