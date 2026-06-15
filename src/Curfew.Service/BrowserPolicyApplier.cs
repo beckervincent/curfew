@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Curfew.Core;
 
 namespace Curfew.Service;
 
