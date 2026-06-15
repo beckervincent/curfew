@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Curfew.Core;
 
 /// <summary>
@@ -15,11 +17,9 @@ namespace Curfew.Core;
 public static class RemoteAccessApps
 {
     /// <summary>Normalized remote-access client image names to terminate when the toggle is on.</summary>
-    public static readonly IReadOnlySet<string> Names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
+    public static readonly IReadOnlySet<string> Names = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
         "teamviewer", "anydesk", "rustdesk", "vncviewer", "tvnviewer", "tvnserver",
         "winvnc", "uvnc_service", "vncserver", "remotepc", "logmein", "gotomypc",
         "splashtop", "srserver", "ammyy", "supremo", "quickassist", "msra",
-        "dwagent", "screenconnect", "connectwisecontrol", "ateraagent",
-    };
+        "dwagent", "screenconnect", "connectwisecontrol", "ateraagent");
 }

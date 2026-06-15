@@ -178,7 +178,7 @@ public sealed class SettingsStore : IDisposable
         // either way (migrated, or no legacy data to migrate).
         if (configWritable)
         {
-            try { Execute(config, $"DELETE FROM settings WHERE key = '{BootstrapMarkerKey}'"); }
+            try { Execute(config, "DELETE FROM settings WHERE key = $k", ("$k", BootstrapMarkerKey)); }
             catch (SqliteException) { /* best effort */ }
         }
 
@@ -302,7 +302,7 @@ public sealed class SettingsStore : IDisposable
         return OpenResilient(path, c =>
         {
             Prepare(c, seedDefaults: true, today, purge: false);
-            Execute(c, $"INSERT OR REPLACE INTO settings (key, value) VALUES ('{BootstrapMarkerKey}', '1')");
+            Execute(c, "INSERT OR REPLACE INTO settings (key, value) VALUES ($k, '1')", ("$k", BootstrapMarkerKey));
         }, ConfigJournalMode, eventLogPath);
     }
 
@@ -409,10 +409,11 @@ public sealed class SettingsStore : IDisposable
         }
     }
 
-    private static void Execute(SqliteConnection connection, string sql)
+    private static void Execute(SqliteConnection connection, string sql, params (string Name, object Value)[] parameters)
     {
         using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
+        foreach (var (name, value) in parameters) cmd.Parameters.AddWithValue(name, value);
         cmd.ExecuteNonQuery();
     }
 

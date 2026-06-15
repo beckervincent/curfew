@@ -245,10 +245,18 @@ public sealed class CurfewWorker : BackgroundService
     /// self-guarded. Other keys are picked up by the overlay's own 30s reload.</summary>
     private void OnConfigKeyChanged(string key)
     {
+        // RefreshBlocklistAsync / ApplyContentFilter both swallow their own errors, but guard the fire-and-forget
+        // Task.Run too so an unexpected fault is logged, never an unobserved task exception
         if (BlocklistKeys.Contains(key))
-            _ = Task.Run(() => RefreshBlocklistAsync(CancellationToken.None));
+            _ = Task.Run(() => RefreshBlocklistAsync(CancellationToken.None)).ContinueWith(LogIfFaulted, TaskScheduler.Default);
         else if (ContentFilterKeys.Contains(key))
-            _ = Task.Run(ApplyContentFilter);
+            _ = Task.Run(ApplyContentFilter).ContinueWith(LogIfFaulted, TaskScheduler.Default);
+    }
+
+    /// <summary>Log a faulted fire-and-forget task so its exception is observed, never silently lost.</summary>
+    private static void LogIfFaulted(Task t)
+    {
+        if (t.IsFaulted) ServiceLog.Write("config-triggered apply faulted", t.Exception!.GetBaseException());
     }
 
     /// <summary>(Re)apply DNS content filter. Serialised by <see cref="_filterGate"/>, fully guarded so PowerShell failure or burst of network-change events never destabilise service.</summary>

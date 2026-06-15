@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Curfew.Core;
 
 /// <summary>
@@ -14,10 +16,8 @@ namespace Curfew.Core;
 public static class VpnApps
 {
     /// <summary>Normalized VPN/Tor/proxy client image names to terminate when the toggle is on.</summary>
-    public static readonly IReadOnlySet<string> Names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
+    public static readonly IReadOnlySet<string> Names = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
         "nordvpn", "expressvpn", "protonvpn", "surfshark", "openvpn", "openvpn-gui",
         "wireguard", "tunnelbear", "windscribe", "hotspotshield", "cyberghost",
-        "psiphon", "psiphon3", "ultrasurf", "hola", "torbrowser", "tor", "mullvad",
-    };
+        "psiphon", "psiphon3", "ultrasurf", "hola", "torbrowser", "tor", "mullvad");
 }

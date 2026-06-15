@@ -106,4 +106,16 @@ public class HostsBlocklistTests
         Assert.Contains("127.0.0.1 localhost", stripped);
         Assert.Contains("10.0.0.1 intranet", stripped);
     }
+
+    [Fact]
+    public void StripSection_preserves_user_lines_when_section_is_unterminated()
+    {
+        // BEGIN with no matching END (torn write / manual edit) must NOT delete the user's entries below it
+        var hosts = "127.0.0.1 localhost\n" + HostsBlocklist.BeginMarker +
+                    "\n0.0.0.0 x.com\n10.0.0.1 intranet";
+        var stripped = HostsBlocklist.StripSection(hosts);
+        Assert.Contains("127.0.0.1 localhost", stripped);
+        Assert.Contains("10.0.0.1 intranet", stripped);            // user line below the orphan section preserved
+        Assert.DoesNotContain(HostsBlocklist.BeginMarker, stripped); // orphan marker dropped (no re-trigger)
+    }
 }

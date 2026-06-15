@@ -55,8 +55,9 @@ public static class BlocklistSources
     public static IReadOnlyList<string> UrlsFor(IReadOnlyList<string> keys)
     {
         var urls = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var key in keys)
-            if (Catalog.TryGetValue(key, out var url) && !urls.Contains(url))
+            if (Catalog.TryGetValue(key, out var url) && seen.Add(url))
                 urls.Add(url);
         return urls;
     }

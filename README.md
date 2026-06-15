@@ -20,7 +20,7 @@ Parental screen time manager for Windows. Set daily limits - when time is up, th
 1. Download the latest installer from [Releases](https://github.com/beckervincent/curfew/releases).
 2. Setup wizard will appear.
 
-Requires Windows 11 (64-bit).
+Requires Windows 10 (64-bit, version 2004 or later) or Windows 11.
 
 ## Thanks
 

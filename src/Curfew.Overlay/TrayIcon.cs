@@ -208,9 +208,11 @@ internal static class TrayIcon
             OverlayState.Settings.Set("tray_command_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
             OverlayState.Settings.Set("tray_command", "break");
         }
-        catch
+        catch (Exception ex)
         {
-            // state.db momentarily locked by another writer; the child can simply pick the item again
+            // state.db momentarily locked by another writer; the child can simply pick the item again.
+            // log it so a persistently failing break button is diagnosable rather than silently dead
+            OverlayLog.Write($"tray: break request write failed: {ex.Message}");
         }
     }
 

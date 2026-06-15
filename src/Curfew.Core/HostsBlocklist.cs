@@ -112,18 +112,27 @@ public static class HostsBlocklist
 
         var lines = existingHosts.Replace("\r\n", "\n").Split('\n');
         var kept = new List<string>(lines.Length);
+        // buffer lines from a BEGIN marker; they are dropped only once a matching END marker arrives. if EOF
+        // is reached with the section still open (a torn write or a manually deleted END), we must NOT silently
+        // delete everything after BEGIN — that would destroy the user's own hosts entries below it.
+        var section = new List<string>();
         var inside = false;
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
-            if (!inside && trimmed == BeginMarker) { inside = true; continue; }
+            if (!inside && trimmed == BeginMarker) { inside = true; section.Clear(); continue; }
             if (inside)
             {
-                if (trimmed == EndMarker) inside = false;
+                if (trimmed == EndMarker) { inside = false; section.Clear(); continue; } // complete section -> drop
+                section.Add(line);
                 continue;
             }
             kept.Add(line);
         }
+
+        // unterminated section: preserve its content lines (the orphan BEGIN marker itself is dropped so a
+        // later merge doesn't re-trigger and consume the freshly written section)
+        if (inside) kept.AddRange(section);
 
         // drop trailing blank lines we may have left, keep a single trailing newline
         return string.Join('\n', kept).TrimEnd('\n');

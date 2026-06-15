@@ -37,7 +37,7 @@ internal static class BlocklistUpdater
         {
             var path = CachePath;
             if (!File.Exists(path)) return Array.Empty<string>();
-            return File.ReadAllLines(path).Where(l => l.Length > 0).ToArray();
+            return File.ReadAllLines(path).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
         }
         catch (Exception ex)
         {
