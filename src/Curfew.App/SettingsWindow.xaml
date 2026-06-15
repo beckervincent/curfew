@@ -376,6 +376,10 @@
                             <CheckBox x:Name="BlocklistAdult" Content="{local:Loc Key=settings.blocklist.adult}" />
                             <CheckBox x:Name="BlocklistAds" Content="{local:Loc Key=settings.blocklist.ads}" />
                             <CheckBox x:Name="BlocklistFakeNews" Content="{local:Loc Key=settings.blocklist.fakenews}" />
+                            <TextBox x:Name="BlocklistAllow" Header="{local:Loc Key=settings.blocklist.allow}"
+                                     PlaceholderText="school.example.edu&#x0A;cdn.example.com"
+                                     TextWrapping="Wrap" AcceptsReturn="True" Height="72"
+                                     ToolTipService.ToolTip="Domains to never block even if a subscribed list contains them (one per line; covers subdomains)" />
                         </StackPanel>
                     </StackPanel>
                 </Expander>

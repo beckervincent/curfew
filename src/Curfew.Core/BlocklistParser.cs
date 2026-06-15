@@ -60,4 +60,32 @@ public static class BlocklistParser
 
     /// <summary>Parse with the default cap.</summary>
     public static IReadOnlyList<string> Parse(string? text) => Parse(text, DefaultMaxDomains, out _);
+
+    /// <summary>
+    /// Drop any domain that the parent has allow-listed (a Pi-hole-style exception), so a broad downloaded
+    /// list can't break a site the family needs. A domain is excluded when it equals, or is a subdomain of,
+    /// an allow entry (allowing <c>example.com</c> also frees <c>cdn.example.com</c>). Order preserved.
+    /// </summary>
+    public static IReadOnlyList<string> Exclude(IReadOnlyList<string> domains, IReadOnlySet<string> allow)
+    {
+        if (allow.Count == 0) return domains;
+
+        var kept = new List<string>(domains.Count);
+        foreach (var d in domains)
+            if (!IsAllowed(d, allow)) kept.Add(d);
+        return kept;
+    }
+
+    private static bool IsAllowed(string domain, IReadOnlySet<string> allow)
+    {
+        if (allow.Contains(domain)) return true;
+        // subdomain match: walk up the labels (cdn.ads.example.com -> ads.example.com -> example.com)
+        var i = domain.IndexOf('.');
+        while (i >= 0 && i < domain.Length - 1)
+        {
+            if (allow.Contains(domain[(i + 1)..])) return true;
+            i = domain.IndexOf('.', i + 1);
+        }
+        return false;
+    }
 }

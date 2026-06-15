@@ -60,6 +60,31 @@ public class BlocklistParserTests
         Assert.Empty(BlocklistParser.Parse(""));
         Assert.Empty(BlocklistParser.Parse("0.0.0.0 a.com", 0, out _));
     }
+
+    [Fact]
+    public void Exclude_drops_allowed_domains_and_their_subdomains()
+    {
+        var domains = new[] { "ads.com", "cdn.example.com", "example.com", "evil.net" };
+        var allow = new HashSet<string>(new[] { "example.com" }, System.StringComparer.OrdinalIgnoreCase);
+        var kept = BlocklistParser.Exclude(domains, allow);
+        Assert.Equal(new[] { "ads.com", "evil.net" }, kept); // example.com + cdn.example.com freed
+    }
+
+    [Fact]
+    public void Exclude_empty_allow_returns_input()
+    {
+        var domains = new[] { "a.com", "b.com" };
+        Assert.Same(domains, BlocklistParser.Exclude(domains, new HashSet<string>()));
+    }
+
+    [Fact]
+    public void Exclude_does_not_treat_suffix_lookalikes_as_subdomains()
+    {
+        // "notexample.com" must NOT be freed by allowing "example.com"
+        var kept = BlocklistParser.Exclude(new[] { "notexample.com" },
+            new HashSet<string>(new[] { "example.com" }, System.StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(new[] { "notexample.com" }, kept);
+    }
 }
 
 public class BlocklistSourcesTests

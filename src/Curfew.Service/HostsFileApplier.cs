@@ -43,8 +43,12 @@ internal static class HostsFileApplier
             var extra = new List<string>();
             if (settings.GetBool(SafeSearchKey, false)) extra.AddRange(SafeSearch.HostsLines());
             if (settings.GetBool("blocklist_enabled", false))
-                foreach (var d in BlocklistUpdater.LoadCachedDomains())
+            {
+                // parent allow-list (exceptions) so a broad list can't break a needed site
+                var allow = new HashSet<string>(HostsBlocklist.Parse(settings.Get("blocklist_allow")), StringComparer.OrdinalIgnoreCase);
+                foreach (var d in BlocklistParser.Exclude(BlocklistUpdater.LoadCachedDomains(), allow))
                     extra.Add($"0.0.0.0 {d}");
+            }
 
             var path = HostsPath;
             var existing = File.Exists(path) ? File.ReadAllText(path) : string.Empty;

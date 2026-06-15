@@ -230,7 +230,7 @@ public sealed class CurfewWorker : BackgroundService
     private static readonly HashSet<string> ContentFilterKeys = new(StringComparer.Ordinal)
     {
         "dns_filter_mode", "block_doh_bypass", "safesearch_enabled", "blocked_domains", "blocked_categories",
-        "block_private_browsing",
+        "block_private_browsing", "blocklist_allow",
     };
 
     /// <summary>Config keys whose change should re-download the public blocklists (then re-apply hosts).</summary>
