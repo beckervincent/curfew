@@ -154,4 +154,25 @@ public class SettingsStoreSplitTests : IDisposable
 
         Assert.Equal(90, s.UsedThisWeekMinutes(Today));
     }
+
+    [Fact]
+    public void AppUsage_week_readers_split_today_from_prior_days()
+    {
+        // Today (2026-06-11) Thursday; week = Mon 06-08 .. Thu 06-11.
+        using var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today);
+        s.UserSid = "S-1-5-21-9";
+        s.Set("app_usage_S-1-5-21-9_2026-06-08", "game=3600,chrome=600"); // Mon
+        s.Set("app_usage_S-1-5-21-9_2026-06-11", "game=1800");           // Thu (today)
+        s.Set("app_usage_S-1-5-21-9_2026-06-07", "game=9999");           // Sun before week — excluded
+
+        // whole week in minutes (incl. today), ranked
+        var week = s.AppUsageThisWeek(Today);
+        Assert.Equal(("game", 90), week[0]);   // 3600 + 1800 = 90 min
+        Assert.Equal(("chrome", 10), week[1]);
+
+        // prior days only (Mon..Wed), seconds, excludes today + last week
+        var prior = s.AppUsageWeekBeforeToday(Today);
+        Assert.Equal(3600, prior["game"]);     // today's 1800 NOT included
+        Assert.Equal(600, prior["chrome"]);
+    }
 }

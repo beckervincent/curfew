@@ -72,6 +72,14 @@ internal static class OverlayState
     /// time today reaches its limit the overlay blocks it like <see cref="BlockedApps"/>. loaded in <see cref="LoadEnforcement"/></summary>
     public static IReadOnlyDictionary<string, int> AppLimits = new Dictionary<string, int>();
 
+    /// <summary>per-app WEEKLY time limits (normalized name -> minutes/week). enforced on top of the daily
+    /// per-app limit using the running weekly total. loaded in <see cref="LoadEnforcement"/></summary>
+    public static IReadOnlyDictionary<string, int> AppWeeklyLimits = new Dictionary<string, int>();
+
+    /// <summary>per-app seconds Mon..yesterday (this week), refreshed each enforcement reload; today's count is
+    /// added live from <see cref="_appUsed"/> so the weekly total needs no per-tick SQLite read</summary>
+    private static IReadOnlyDictionary<string, int> _appWeekPriorSeconds = new Dictionary<string, int>();
+
     /// <summary>20-20-20 eye-strain reminder enabled: after this many minutes of continuous active screen
     /// use the overlay nudges the child to look away. loaded in <see cref="LoadEnforcement"/></summary>
     public static bool EyeStrainEnabled;
@@ -106,6 +114,11 @@ internal static class OverlayState
         AllowedApps = AppAllowlist.Parse(Settings.Get("app_allowlist"));
         BlockedApps = AppAllowlist.Parse(Settings.Get("blocked_apps"));
         AppLimits = AppTimeLimits.Parse(Settings.Get("app_time_limits"));
+        AppWeeklyLimits = AppTimeLimits.Parse(Settings.Get("app_weekly_limits"));
+        // refresh the weekly base (Mon..yesterday) only when weekly limits exist, to avoid needless reads
+        _appWeekPriorSeconds = AppWeeklyLimits.Count > 0
+            ? Settings.AppUsageWeekBeforeToday(DateOnly.FromDateTime(DateTime.Now))
+            : new Dictionary<string, int>();
         EyeStrainEnabled = Settings.GetBool("eyestrain_enabled", false);
         EyeStrainIntervalMinutes = Settings.GetInt("eyestrain_interval_minutes", 20);
         WeeklyLimitEnabled = Settings.GetBool("weekly_limit_enabled", false);
@@ -290,6 +303,20 @@ internal static class OverlayState
 
         _appUsed.TryGetValue(name, out var seconds);
         return seconds >= limitMinutes * 60;
+    }
+
+    /// <summary>true when <paramref name="appName"/> has a per-app WEEKLY limit and this week's running total
+    /// (Mon..yesterday from the store + today live) has reached it</summary>
+    public static bool IsAppOverWeeklyLimit(string? appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName)) return false;
+        var name = AppAllowlist.Normalize(appName);
+        var limitMinutes = AppTimeLimits.LimitMinutesFor(AppWeeklyLimits, name);
+        if (limitMinutes < 0) return false;
+
+        _appWeekPriorSeconds.TryGetValue(name, out var prior);
+        _appUsed.TryGetValue(name, out var todaySeconds);
+        return prior + todaySeconds >= limitMinutes * 60;
     }
 
     /// <summary>write the running per-app usage totals for the current day</summary>

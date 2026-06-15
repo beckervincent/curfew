@@ -579,6 +579,25 @@ public sealed class SettingsStore : IDisposable
             .ToList();
     }
 
+    /// <summary>
+    /// Per-app screen time in <em>seconds</em> from Monday through the day <em>before</em> <paramref name="today"/>,
+    /// scoped to <see cref="UserSid"/> (empty when no SID). The overlay adds today's in-memory count to this
+    /// base to enforce a weekly per-app limit without re-reading today's still-being-written row every tick.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> AppUsageWeekBeforeToday(DateOnly today)
+    {
+        if (UserSid is not { Length: > 0 } sid) return new Dictionary<string, int>();
+
+        var weekday = TimeMath.MondayBasedWeekday(today); // 0 = Monday … 6 = Sunday
+        var rows = new List<string?>(weekday);
+        for (var i = 1; i <= weekday; i++) // i=1 -> yesterday, … back to Monday; skips today
+        {
+            var suffix = today.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            rows.Add(Get($"{AppUsagePrefix}{sid}_{suffix}"));
+        }
+        return AppUsageStats.Merge(rows);
+    }
+
     /// <summary>Distinct Windows-user SIDs with recorded usage, from <c>used_time_&lt;sid&gt;_&lt;date&gt;</c> keys in state.db. Populates settings per-user picker (each Windows user keeps own budget; no provisioned-user list). Legacy unscoped <c>used_time_&lt;date&gt;</c> rows have no SID, skipped. Order unspecified.</summary>
     public IReadOnlyList<string> UsersWithHistory()
     {

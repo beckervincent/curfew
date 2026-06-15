@@ -238,11 +238,15 @@ namespace Curfew.Overlay
             return true;
         }
 
-        /// <summary>Terminate the foreground app once today's tracked time reaches its per-app daily limit;
-        /// notify the child once. No-op when the app has no limit.</summary>
+        /// <summary>Terminate the foreground app once it reaches its per-app daily OR weekly time limit;
+        /// notify the child once. No-op when the app has neither limit.</summary>
         private static void EnforceAppTimeLimit(int pid, string name)
         {
-            if (!OverlayState.IsAppOverLimit(name)) { _lastTimeUpAppName = null; return; }
+            if (!OverlayState.IsAppOverLimit(name) && !OverlayState.IsAppOverWeeklyLimit(name))
+            {
+                _lastTimeUpAppName = null;
+                return;
+            }
 
             ForegroundApp.Terminate(pid);
             if (!string.Equals(_lastTimeUpAppName, name, StringComparison.OrdinalIgnoreCase))

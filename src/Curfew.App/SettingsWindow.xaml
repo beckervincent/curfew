@@ -168,6 +168,13 @@
                             <TextBox x:Name="AppTimeLimitsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
                                      PlaceholderText="minecraft.exe=60&#x0A;roblox.exe=30" />
                         </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{local:Loc Key=settings.appweek.title}" Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{local:Loc Key=settings.appweek.desc}"
+                                       Style="{StaticResource SectionDescriptionStyle}" TextWrapping="Wrap" />
+                            <TextBox x:Name="AppWeeklyLimitsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="84"
+                                     PlaceholderText="minecraft.exe=300&#x0A;roblox.exe=180" />
+                        </StackPanel>
                     </StackPanel>
                 </Expander>
 
