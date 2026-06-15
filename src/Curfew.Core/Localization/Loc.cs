@@ -239,6 +239,8 @@ public static class Loc
 
             // usage history
             ["settings.history.title"] = "Usage history",
+            ["settings.apps.title"] = "Top apps this week",
+            ["settings.apps.empty"] = "No app usage recorded yet.",
             ["settings.activity.title"] = "Recent activity",
             ["settings.activity.desc"] = "Locks, unlocks, extensions and tamper attempts.",
             ["settings.activity.empty"] = "No activity recorded yet.",
@@ -472,6 +474,8 @@ public static class Loc
             ["settings.err.newlen"] = "Passwort muss mindestens {0} Zeichen haben.",
 
             ["settings.history.title"] = "Nutzungsverlauf",
+            ["settings.apps.title"] = "Top-Apps diese Woche",
+            ["settings.apps.empty"] = "Noch keine App-Nutzung aufgezeichnet.",
             ["settings.activity.title"] = "Letzte Aktivität",
             ["settings.activity.desc"] = "Sperren, Entsperren, Verlängerungen und Manipulationsversuche.",
             ["settings.activity.empty"] = "Noch keine Aktivität aufgezeichnet.",

@@ -552,6 +552,33 @@ public sealed class SettingsStore : IDisposable
         return Math.Max(0, totalSeconds) / 60;
     }
 
+    /// <summary>Per-app usage prefix in state.db: <c>app_usage_&lt;sid&gt;_&lt;date&gt;</c> holds one day's serialized <see cref="AppUsageMap"/>.</summary>
+    public const string AppUsagePrefix = "app_usage_";
+
+    /// <summary>
+    /// Per-app screen time (<c>name -> minutes</c>) from Monday through <paramref name="today"/> inclusive,
+    /// for the parent's "where did the time go" view. Scoped to <see cref="UserSid"/> (per-user rows only);
+    /// returns empty when no SID is set. Merges each day's serialized row via <see cref="AppUsageStats"/>.
+    /// </summary>
+    public IReadOnlyList<(string Name, int Minutes)> AppUsageThisWeek(DateOnly today)
+    {
+        if (UserSid is not { Length: > 0 } sid) return Array.Empty<(string, int)>();
+
+        var weekday = TimeMath.MondayBasedWeekday(today); // 0 = Monday … 6 = Sunday
+        var rows = new List<string?>(weekday + 1);
+        for (var i = 0; i <= weekday; i++)
+        {
+            var suffix = today.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            rows.Add(Get($"{AppUsagePrefix}{sid}_{suffix}"));
+        }
+
+        // rank by seconds (stable), then surface minutes; drop apps under a minute
+        return AppUsageStats.Top(AppUsageStats.Merge(rows), int.MaxValue)
+            .Select(a => (a.Name, Minutes: a.Seconds / 60))
+            .Where(a => a.Minutes > 0)
+            .ToList();
+    }
+
     /// <summary>Distinct Windows-user SIDs with recorded usage, from <c>used_time_&lt;sid&gt;_&lt;date&gt;</c> keys in state.db. Populates settings per-user picker (each Windows user keeps own budget; no provisioned-user list). Legacy unscoped <c>used_time_&lt;date&gt;</c> rows have no SID, skipped. Order unspecified.</summary>
     public IReadOnlyList<string> UsersWithHistory()
     {

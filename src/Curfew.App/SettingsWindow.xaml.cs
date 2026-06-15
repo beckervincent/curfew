@@ -133,6 +133,7 @@ public sealed partial class SettingsWindow : Window
         LoadProtection();
         LoadUnlock();
         LoadUsageHistory();
+        LoadAppUsage();
         LoadActivity();
         UpdateStatus.Text = Loc.T("settings.update.current", CurrentVersion);
     }
@@ -213,6 +214,8 @@ public sealed partial class SettingsWindow : Window
         LoadLockScreen();
         LoadPause();
         LoadContentFilter();
+        LoadUsageHistory();
+        LoadAppUsage();
     }
 
     /// <summary>draw 7-day bar chart of active screen time from usage history</summary>
@@ -285,6 +288,31 @@ public sealed partial class SettingsWindow : Window
         return minutes < 60
             ? Loc.T("settings.history.minutes", minutes)
             : Loc.T("settings.history.hours", minutes / 60, minutes % 60);
+    }
+
+    /// <summary>list the apps that used the most screen time this week (per the picked user)</summary>
+    private void LoadAppUsage()
+    {
+        var apps = _settings.AppUsageThisWeek(DateOnly.FromDateTime(DateTime.Now));
+        AppUsageList.Items.Clear();
+        AppUsageEmpty.Visibility = apps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var muted = new SolidColorBrush(Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+        foreach (var (name, minutes) in apps.Take(10))
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var label = new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis };
+            Grid.SetColumn(label, 0);
+            var value = new TextBlock { Text = FormatUsage(minutes), Foreground = muted };
+            Grid.SetColumn(value, 1);
+
+            row.Children.Add(label);
+            row.Children.Add(value);
+            AppUsageList.Items.Add(row);
+        }
     }
 
     /// <summary>fill activity list from most recent event-log entries</summary>

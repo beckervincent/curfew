@@ -193,16 +193,39 @@ namespace Curfew.Overlay
         /// <summary>last blocked-app name we ballooned about, so the notification fires once per app rather than every tick</summary>
         private static string? _lastBlockedAppName;
 
-        /// <summary>Terminate the foreground process when it is on the parent's app blocklist, and notify the
-        /// child once. Never touches Curfew's own windows. No-op when the blocklist is empty.</summary>
-        private static void EnforceBlockedApps()
-        {
-            if (OverlayState.BlockedApps.Count == 0) { _lastBlockedAppName = null; return; }
+        /// <summary>last app we ballooned a time-up notice for, so it fires once per app rather than every tick</summary>
+        private static string? _lastTimeUpAppName;
 
+        /// <summary>Read the foreground app once, then run every per-app rule against it: hard blocklist
+        /// (terminate), usage tracking (for stats + per-app limits), and the per-app daily limit (terminate
+        /// when over). One <see cref="ForegroundApp.Foreground"/> call per tick. <paramref name="active"/> is
+        /// false while idle or paused so time isn't charged when the child is away. Never touches Curfew's own
+        /// windows.</summary>
+        private static void HandleForegroundApp(bool active)
+        {
             var (pid, name) = ForegroundApp.Foreground();
-            if (pid == 0 || string.IsNullOrEmpty(name)) { _lastBlockedAppName = null; return; }
-            if (name.StartsWith("Curfew", StringComparison.OrdinalIgnoreCase)) return; // never kill our own UI
-            if (!AppAllowlist.Allows(OverlayState.BlockedApps, name)) { _lastBlockedAppName = null; return; }
+            if (pid == 0 || string.IsNullOrEmpty(name)) { _lastBlockedAppName = null; _lastTimeUpAppName = null; return; }
+            if (name.StartsWith("Curfew", StringComparison.OrdinalIgnoreCase)) return; // never touch our own UI
+
+            // 1. hard blocklist: close outright regardless of time
+            if (EnforceBlockedApp(pid, name)) return;
+
+            // 2. record active foreground time (every app -> per-app usage stats; per-app limits read it too)
+            if (active) OverlayState.RecordAppSecond(name);
+
+            // 3. per-app daily limit: close once today's tracked time reaches the app's own budget
+            EnforceAppTimeLimit(pid, name);
+        }
+
+        /// <summary>Terminate the foreground app when it is on the parent's blocklist; notify the child once.
+        /// Returns true when it was blocked (so no further per-app rule should run for it this tick).</summary>
+        private static bool EnforceBlockedApp(int pid, string name)
+        {
+            if (OverlayState.BlockedApps.Count == 0 || !AppAllowlist.Allows(OverlayState.BlockedApps, name))
+            {
+                _lastBlockedAppName = null;
+                return false;
+            }
 
             ForegroundApp.Terminate(pid);
             if (!string.Equals(_lastBlockedAppName, name, StringComparison.OrdinalIgnoreCase))
@@ -212,25 +235,13 @@ namespace Curfew.Overlay
                 EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.AppBlocked, name);
                 TrayIcon.ShowBalloon(Loc.T("tray.idle"), Loc.T("tray.appblocked", name));
             }
+            return true;
         }
 
-        /// <summary>last app we ballooned a time-up notice for, so it fires once per app rather than every tick</summary>
-        private static string? _lastTimeUpAppName;
-
-        /// <summary>Charge the foreground app's per-app daily time and, once it reaches its configured limit,
-        /// terminate it and notify the child once. <paramref name="active"/> is false while idle or paused, so
-        /// time isn't charged when the child is away. Never touches Curfew's own windows. No-op when no
-        /// per-app limits are configured.</summary>
-        private static void EnforceAppTimeLimits(bool active)
+        /// <summary>Terminate the foreground app once today's tracked time reaches its per-app daily limit;
+        /// notify the child once. No-op when the app has no limit.</summary>
+        private static void EnforceAppTimeLimit(int pid, string name)
         {
-            if (OverlayState.AppLimits.Count == 0) { _lastTimeUpAppName = null; return; }
-
-            var (pid, name) = ForegroundApp.Foreground();
-            if (pid == 0 || string.IsNullOrEmpty(name)) { _lastTimeUpAppName = null; return; }
-            if (name.StartsWith("Curfew", StringComparison.OrdinalIgnoreCase)) return; // never touch our own UI
-
-            if (active) OverlayState.RecordAppSecond(name);
-
             if (!OverlayState.IsAppOverLimit(name)) { _lastTimeUpAppName = null; return; }
 
             ForegroundApp.Terminate(pid);
@@ -321,13 +332,10 @@ namespace Curfew.Overlay
             // (config.db unreadable) so the lock re-raises next boot instead of being silently disabled
             if (!OverlayState.PendingNewUser && !idle) OverlayState.RecordActiveSecond();
 
-            // terminate any parent-blocked app that is in the foreground
-            EnforceBlockedApps();
-
-            // charge the foreground app's per-app daily time (active seconds only) and close it once it
-            // reaches its own limit. independent of the global budget — a game can be capped at 1h/day
-            // even when general screen time is still available
-            EnforceAppTimeLimits(active: !idle && !OverlayState.IsPaused);
+            // foreground app rules in one pass (single Foreground() read): blocklist, usage tracking, per-app
+            // limit. per-app limits are independent of the global budget — a game can be capped at 1h/day even
+            // when general screen time remains
+            HandleForegroundApp(active: !idle && !OverlayState.IsPaused);
 
             // 20-20-20 eye-strain nudge: after enough continuous active use, remind the child to look away.
             // idle or a pause counts as rest and resets the streak

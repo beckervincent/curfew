@@ -256,14 +256,15 @@ internal static class OverlayState
         _appUsed = AppUsageMap.Parse(Settings.Get(AppUsageKey(_appUsageDate)));
     }
 
-    /// <summary>count one second of foreground use against <paramref name="appName"/>'s daily total. midnight
-    /// rollover flushes the finished day + resets; persists ~twice a minute to bound writes. no-op for a blank
-    /// name or when the app has no configured limit (nothing reads the count otherwise)</summary>
+    /// <summary>count one second of foreground use against <paramref name="appName"/>'s daily total. recorded
+    /// for every app (not only limited ones) so the parent gets per-app usage stats; per-app limits read the
+    /// same totals. midnight rollover flushes the finished day + resets; persists ~twice a minute to bound
+    /// writes. no-op for a blank name</summary>
     public static void RecordAppSecond(string? appName)
     {
         if (string.IsNullOrWhiteSpace(appName)) return;
         var name = AppAllowlist.Normalize(appName);
-        if (name.Length == 0 || AppTimeLimits.LimitMinutesFor(AppLimits, name) < 0) return;
+        if (name.Length == 0) return;
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         if (today != _appUsageDate)
@@ -296,7 +297,7 @@ internal static class OverlayState
         Settings.Set(AppUsageKey(_appUsageDate), AppUsageMap.Serialize(_appUsed));
 
     private static string AppUsageKey(DateOnly date) =>
-        $"app_usage_{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+        $"{SettingsStore.AppUsagePrefix}{CurrentSid}_{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
 
     // ---- Child-initiated breaks (pause) ------------------------------------
     // A child can take a short break that freezes the budget, rate-limited by the

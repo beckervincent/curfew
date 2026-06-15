@@ -101,3 +101,34 @@ public class AppUsageMapTests
         Assert.Equal(45, round["game"]);
     }
 }
+
+public class AppUsageStatsTests
+{
+    [Fact]
+    public void Merge_sums_per_app_across_days_and_skips_blank_rows()
+    {
+        var totals = AppUsageStats.Merge(new[] { "chrome=100,game=50", null, "", "chrome=20,word=10" });
+        Assert.Equal(120, totals["chrome"]);
+        Assert.Equal(50, totals["game"]);
+        Assert.Equal(10, totals["word"]);
+    }
+
+    [Fact]
+    public void Top_orders_by_seconds_desc_then_name_and_caps_count()
+    {
+        var totals = new Dictionary<string, int> { ["a"] = 30, ["b"] = 100, ["c"] = 100, ["d"] = 0 };
+        var top = AppUsageStats.Top(totals, 2);
+        Assert.Equal(2, top.Count);
+        Assert.Equal("b", top[0].Name);   // 100, tie broken by name (b before c)
+        Assert.Equal("c", top[1].Name);
+        Assert.Equal(100, top[0].Seconds);
+    }
+
+    [Fact]
+    public void Top_drops_zero_and_handles_nonpositive_count()
+    {
+        var totals = new Dictionary<string, int> { ["a"] = 0, ["b"] = 5 };
+        Assert.Single(AppUsageStats.Top(totals, 10));
+        Assert.Empty(AppUsageStats.Top(totals, 0));
+    }
+}

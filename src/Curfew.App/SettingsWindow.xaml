@@ -93,7 +93,13 @@
                             <TextBlock Text="{local:Loc Key=settings.history.desc}" Style="{StaticResource SectionDescriptionStyle}" />
                         </StackPanel>
                     </Expander.Header>
-                    <Grid x:Name="UsageChart" Height="160" Padding="0,8,0,4" ColumnSpacing="8" />
+                    <StackPanel Spacing="8" Padding="0,8,0,4">
+                        <Grid x:Name="UsageChart" Height="160" ColumnSpacing="8" />
+                        <TextBlock Text="{local:Loc Key=settings.apps.title}" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
+                        <TextBlock x:Name="AppUsageEmpty" Text="{local:Loc Key=settings.apps.empty}"
+                                   Style="{StaticResource SectionDescriptionStyle}" Visibility="Collapsed" />
+                        <ItemsControl x:Name="AppUsageList" />
+                    </StackPanel>
                 </Expander>
 
                 <!-- Recent activity / tamper events -->
