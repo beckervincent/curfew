@@ -139,19 +139,35 @@ internal static class Program
         }
     }
 
-    /// <summary>resolve the PIN from stdin (if redirected/piped), then <c>CURFEW_PIN</c>, then <c>--pin</c>.</summary>
+    /// <summary>resolve the PIN from stdin (if piped), then <c>CURFEW_PIN</c>, then <c>--pin</c>.</summary>
+    /// <remarks>stdin is only consulted when neither env nor <c>--pin</c> supplied a value. otherwise we would
+    /// call <see cref="TextReader.ReadToEnd"/> on a still-open stdin (e.g. an SSH channel) and block forever,
+    /// even though a PIN was already provided. when stdin IS the source, the caller is expected to pipe it
+    /// (<c>echo pin | curfew-cli ...</c>), which closes the stream and yields EOF.</remarks>
     private static string? ResolvePin(CliCommand command)
     {
+        var arg = command.PinArg;
+        var env = Environment.GetEnvironmentVariable(PinEnvVar);
+        if (!string.IsNullOrEmpty(arg) || !string.IsNullOrEmpty(env))
+            return CliCommandParser.ResolvePin(null, env, arg);
+
         string? stdin = null;
         try
         {
-            if (Console.IsInputRedirected) stdin = Console.In.ReadToEnd();
+            // bounded read: a piped PIN (`echo pin | curfew-cli ...`) closes the stream and returns at once;
+            // an open-but-idle stdin (e.g. an inherited SSH channel) would otherwise block ReadToEnd forever.
+            // on timeout, treat as no PIN — the IPC call then fails with a clear auth error instead of hanging.
+            if (Console.IsInputRedirected)
+            {
+                var read = System.Threading.Tasks.Task.Run(() => Console.In.ReadToEnd());
+                stdin = read.Wait(TimeSpan.FromSeconds(2)) ? read.Result : null;
+            }
         }
         catch
         {
-            // no usable stdin; fall back to env/arg
+            // no usable stdin
         }
-        return CliCommandParser.ResolvePin(stdin, Environment.GetEnvironmentVariable(PinEnvVar), command.PinArg);
+        return CliCommandParser.ResolvePin(stdin, env, arg);
     }
 
     /// <summary>map a service error string to an exit code: auth failures vs an unreachable/refusing service.</summary>
