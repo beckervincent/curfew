@@ -18,13 +18,19 @@ scripting/remote-admin use, without ever weakening the existing security model.
 
 ## Surface
 
-New activation mode in `Curfew.App.exe` (`App.xaml.cs : Launch()`), selected by a
-leading `--config` argument. Runs **fully headless**: never activates a window,
-writes results to the parent console via the existing `AttachConsole` path, exits
-with a status code.
+> **Revised during implementation:** originally planned as a `--config` mode inside
+> `Curfew.App.exe`. That proved unworkable headless: `Curfew.App.exe` is a WinUI app
+> whose Windows App SDK bootstrap initializer runs *before* `Main` and requires an
+> interactive desktop, so it hangs when launched over SSH / in session 0 (verified on
+> the Windows test VM). The CLI is therefore a **separate console-subsystem executable
+> `curfew-cli.exe`** (`Curfew.Cli` project, references only `Curfew.Core`). Everything
+> else below holds. The pure parser/validator lives in `Curfew.Core/Cli`.
+
+A standalone console executable. Runs **fully headless**: real console I/O (no
+`AttachConsole` needed), exits with a status code.
 
 ```
-Curfew.App.exe --config <command> [args] [--user <name|sid>] [--pin <pin>]
+curfew-cli <command> [args] [--user <name|sid>] [--pin <pin>]
 ```
 
 ### Commands
@@ -97,10 +103,12 @@ exactly as the GUI first-run does — `set-passcode` is how the first PIN is set
 
 ## Components
 
-- `Curfew.App/CliConfig.cs` (new) — arg parse, PIN resolution, command dispatch,
-  console output, exit codes. Pure logic kept testable (parse + validate separated
-  from IPC send).
-- `Curfew.App/App.xaml.cs` — minimal: detect `--config`, delegate, never show window.
+- `Curfew.Core/Cli/CliCommand.cs` (new) — pure, cross-platform `CliCommandParser`:
+  arg parsing, validation, PIN-source precedence. Unit-tested (no WinUI/Windows deps).
+- `Curfew.Cli/Program.cs` (new) — console entry point: SID resolution, PIN resolution
+  (bounded stdin read), config-pipe writes, console output, exit codes.
+- `installer/build-installer.ps1` + `setup.iss` — publish + ship `curfew-cli.exe` as
+  `{app}\app\curfew-cli.exe`.
 - Reuses `Curfew.Core`: `ConfigClient`, `PasscodeHash`, `Schedule`, `SettingsStore`/
   `SettingsPartition`, `UserProvisioning`.
 
