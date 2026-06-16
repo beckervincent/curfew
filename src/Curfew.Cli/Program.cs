@@ -1,72 +1,57 @@
-using System.Runtime.InteropServices;
 using System.Security.Principal;
 using Curfew.Core;
 using Curfew.Core.Cli;
 
-namespace Curfew.App;
+namespace Curfew.Cli;
 
 /// <summary>
-/// Headless <c>--config</c> CLI: applies the parent's settings non-interactively, gated by the same PIN and
-/// lockout as the GUI. Parsing/validation live in <see cref="CliCommandParser"/> (Core, unit-tested); this
-/// class is the Windows-only glue — resolving <c>--user</c> to a SID, resolving the PIN source, sending
-/// writes through the SYSTEM config pipe, reading values back, and printing to the parent console.
+/// Headless, PIN-gated command-line tool for Curfew. Lets a parent set all settings non-interactively
+/// (scriptable / remote over SSH), gated by the same passcode and lockout as the GUI.
 /// </summary>
-/// <remarks>never shows a window; always ends the process via <see cref="Environment.Exit(int)"/> with a
-/// <see cref="CliExit"/> code so scripts/SSH callers can branch on the result.</remarks>
-internal static class CliConfig
+/// <remarks>
+/// A console-subsystem executable, deliberately separate from the WinUI <c>Curfew.App.exe</c>: the Windows
+/// App SDK bootstrap initializer runs before <c>Main</c> and requires an interactive desktop, so it hangs
+/// when launched headless (over SSH / in session 0). A plain console app has none of that.
+/// <para>Parsing/validation live in <see cref="CliCommandParser"/> (Curfew.Core, unit-tested); this is the
+/// Windows glue — SID resolution, PIN source, config-pipe writes, output, exit codes.</para>
+/// </remarks>
+internal static class Program
 {
-    /// <summary>marker that selects this mode; stripped before parsing.</summary>
-    public const string Argument = "--config";
-
     /// <summary>env var carrying the parent PIN when stdin isn't used (least visible scriptable option).</summary>
     private const string PinEnvVar = "CURFEW_PIN";
 
-    /// <summary>run the CLI for the args following <c>--config</c>, then hard-exit with a <see cref="CliExit"/> code.</summary>
-    public static void Run(IReadOnlyList<string> configArgs)
+    private static int Main(string[] args)
     {
-        AttachParentConsole();
-
-        var parsed = CliCommandParser.Parse(configArgs);
+        var parsed = CliCommandParser.Parse(args);
         if (!parsed.Ok)
         {
             Console.Error.WriteLine($"curfew: {parsed.Error}");
-            Exit(parsed.ErrorCode);
+            return (int)parsed.ErrorCode;
         }
 
         var command = parsed.Command!;
-        switch (command.Verb)
+        return command.Verb switch
         {
-            case CliVerb.Help:
-                PrintHelp();
-                Exit(CliExit.Ok);
-                break;
-            case CliVerb.ListUsers:
-                ListUsers();
-                break;
-            case CliVerb.Get:
-                Get(command);
-                break;
-            case CliVerb.Set:
-                Set(command);
-                break;
-        }
-
-        Exit(CliExit.Ok);
+            CliVerb.Help => PrintHelp(),
+            CliVerb.ListUsers => ListUsers(),
+            CliVerb.Get => Get(command),
+            CliVerb.Set => Set(command),
+            _ => (int)CliExit.Invalid,
+        };
     }
 
-    private static void Get(CliCommand command)
+    private static int Get(CliCommand command)
     {
-        var sid = ResolveScopeSid(command);
+        if (!TryResolveScopeSid(command, out var sid, out var code)) return code;
         using var settings = OpenSettings();
         if (sid is not null) settings.UserSid = sid;
-        var value = settings.Get(command.GetKey!);
-        Console.WriteLine(value ?? string.Empty);
-        Exit(CliExit.Ok);
+        Console.WriteLine(settings.Get(command.GetKey!) ?? string.Empty);
+        return (int)CliExit.Ok;
     }
 
-    private static void Set(CliCommand command)
+    private static int Set(CliCommand command)
     {
-        var sid = ResolveScopeSid(command);
+        if (!TryResolveScopeSid(command, out var sid, out var code)) return code;
         var pin = ResolvePin(command);
 
         foreach (var write in command.Writes)
@@ -77,43 +62,48 @@ internal static class CliConfig
             if (!response.Ok)
             {
                 Console.Error.WriteLine($"curfew: failed to set '{write.BaseKey}': {response.Error}");
-                Exit(MapError(response.Error));
+                return (int)MapError(response.Error);
             }
             Console.WriteLine($"set {key}");
         }
-        Exit(CliExit.Ok);
+        return (int)CliExit.Ok;
     }
 
-    private static void ListUsers()
+    private static int ListUsers()
     {
         using var settings = OpenSettings();
-        var provisioned = UserProvisioning.Parse(settings.Get("provisioned_users"));
-        var withHistory = settings.UsersWithHistory();
-        var sids = provisioned.Concat(withHistory).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var sids = UserProvisioning.Parse(settings.Get("provisioned_users"))
+            .Concat(settings.UsersWithHistory())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         if (sids.Count == 0)
         {
             Console.WriteLine("(no users)");
-            Exit(CliExit.Ok);
+            return (int)CliExit.Ok;
         }
 
         foreach (var sid in sids)
             Console.WriteLine($"{sid}\t{ResolveUserName(sid)}");
-        Exit(CliExit.Ok);
+        return (int)CliExit.Ok;
     }
 
-    /// <summary>resolve the SID a write/read should be scoped to, or null when not per-user. exits Invalid if a
-    /// <c>--user</c> name/SID can't be resolved.</summary>
-    private static string? ResolveScopeSid(CliCommand command)
+    /// <summary>resolve the SID a write/read scopes to. Returns true with <paramref name="sid"/> null when not
+    /// per-user; false with an exit <paramref name="code"/> when a <c>--user</c> value can't be resolved.</summary>
+    private static bool TryResolveScopeSid(CliCommand command, out string? sid, out int code)
     {
-        if (!command.PerUser) return null;
-        var sid = ResolveSid(command.UserArg!);
+        sid = null;
+        code = (int)CliExit.Ok;
+        if (!command.PerUser) return true;
+
+        sid = ResolveSid(command.UserArg!);
         if (sid is null)
         {
             Console.Error.WriteLine($"curfew: could not resolve user '{command.UserArg}'");
-            Exit(CliExit.Invalid);
+            code = (int)CliExit.Invalid;
+            return false;
         }
-        return sid;
+        return true;
     }
 
     /// <summary>accept a raw SID (<c>S-1-...</c>) as-is, else translate a Windows account name to its SID. null on failure.</summary>
@@ -149,7 +139,7 @@ internal static class CliConfig
         }
     }
 
-    /// <summary>resolve the PIN from stdin (if redirected), then <c>CURFEW_PIN</c>, then <c>--pin</c>.</summary>
+    /// <summary>resolve the PIN from stdin (if redirected/piped), then <c>CURFEW_PIN</c>, then <c>--pin</c>.</summary>
     private static string? ResolvePin(CliCommand command)
     {
         string? stdin = null;
@@ -178,12 +168,11 @@ internal static class CliConfig
     private static SettingsStore OpenSettings() =>
         CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now));
 
-    private static void PrintHelp()
+    private static int PrintHelp()
     {
+        Console.WriteLine("curfew-cli - set Curfew parental controls non-interactively (PIN required).");
         Console.WriteLine();
-        Console.WriteLine("Curfew config CLI - set parental controls non-interactively (PIN required).");
-        Console.WriteLine();
-        Console.WriteLine("Usage: Curfew.App.exe --config <command> [--user <name|sid>] [--pin <pin>]");
+        Console.WriteLine("Usage: curfew-cli <command> [--user <name|sid>] [--pin <pin>]");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  get <key>                         Print a config value.");
@@ -199,23 +188,6 @@ internal static class CliConfig
         Console.WriteLine("--user scopes per-user keys (limits, schedule, timeout); rejected for device-wide keys.");
         Console.WriteLine();
         Console.WriteLine("Exit codes: 0 ok, 1 auth failed/locked out, 2 invalid args, 3 service unavailable.");
-        Console.Out.Flush();
+        return (int)CliExit.Ok;
     }
-
-    private static void AttachParentConsole()
-    {
-        try { AttachConsole(AttachParentProcess); } catch { /* no parent console; writes are harmless no-ops */ }
-    }
-
-    private static void Exit(CliExit code)
-    {
-        try { Console.Out.Flush(); Console.Error.Flush(); } catch { /* best effort */ }
-        Environment.Exit((int)code);
-    }
-
-    private const uint AttachParentProcess = unchecked((uint)-1);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool AttachConsole(uint dwProcessId);
 }

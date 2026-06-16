@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net8.0-windows for SecurityIdentifier/NTAccount SID resolution. console subsystem so it runs
+         headless over SSH (no WinUI / Windows App SDK bootstrap, unlike Curfew.App.exe). -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Curfew.Cli</RootNamespace>
+    <AssemblyName>curfew-cli</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Curfew.Core\Curfew.Core.csproj" />
+  </ItemGroup>
+
+</Project>
