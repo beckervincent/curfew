@@ -4,7 +4,7 @@ using System.Security.Principal;
 namespace Curfew.Service;
 
 /// <summary>lock down config.db: users read but can't write/delete; state.db + data dir stay writable for child counters. applied by SYSTEM service after creating config.db on boot</summary>
-/// <remarks>explicit <see cref="AccessControlType.Deny"/> for Users group, not just dir ACL, so child can't rewrite or delete-and-recreate even though dir permits writes (state.db + SQLite sidecars need it). SYSTEM + Administrators keep full control. best-effort + Windows-only; failure logged not thrown</remarks>
+/// <remarks>inheritance dropped (so the dir's Users-write ACE doesn't apply) and Users granted Read only, which implicitly denies write/delete without an explicit Deny ACE. SYSTEM + Administrators keep full control. An explicit Deny on Users would also block the parent's admin account (admins are members of Users and Deny wins over Allow), so it is avoided. best-effort + Windows-only; failure logged not thrown</remarks>
 internal static class ConfigFileGuard
 {
     public static void Protect(string configPath)
@@ -44,12 +44,11 @@ internal static class ConfigFileGuard
 
             security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
             security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
+            // inheritance is off (above) so the dir's Users-write ACE doesn't reach here; granting Users
+            // only Read means they implicitly cannot write/delete. NO explicit Deny on Users: every account
+            // — including the parent's admin account — is a member of Users, and a Deny ACE wins over the
+            // Administrators FullControl Allow, which would lock admins out of repairing/removing config.db.
             security.AddAccessRule(new FileSystemAccessRule(users, FileSystemRights.Read, AccessControlType.Allow));
-            // deny wins over allow: users read, never write/delete
-            security.AddAccessRule(new FileSystemAccessRule(
-                users,
-                FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,
-                AccessControlType.Deny));
 
             new FileInfo(path).SetAccessControl(security);
         }

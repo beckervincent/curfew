@@ -108,5 +108,15 @@ public readonly record struct ReleaseInfo(string Tag, string InstallerUrl)
     public static bool IsInstallerUrl(string url) =>
         url.StartsWith(TrustedInstallerUrlPrefix, StringComparison.Ordinal)
         && url.EndsWith(InstallerExtension, StringComparison.OrdinalIgnoreCase)
-        && url.Contains(InstallerUrlMarker, StringComparison.OrdinalIgnoreCase);
+        && url.Contains(InstallerUrlMarker, StringComparison.OrdinalIgnoreCase)
+        && NormalizesUnderPrefix(url);
+
+    /// <summary>guard against path-traversal: the raw-string prefix check above accepts
+    /// <c>.../releases/download/../../../attacker/...</c> (it still starts with the prefix), but
+    /// <see cref="HttpClient"/> resolves <c>..</c> segments via <see cref="Uri"/> and would fetch from a
+    /// different repo. Re-check the normalized absolute URL (which has collapsed any <c>..</c>) still sits
+    /// under the pinned prefix, so a traversal that escapes the repo path is rejected.</summary>
+    private static bool NormalizesUnderPrefix(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && uri.AbsoluteUri.StartsWith(TrustedInstallerUrlPrefix, StringComparison.Ordinal);
 }

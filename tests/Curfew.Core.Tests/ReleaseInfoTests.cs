@@ -146,6 +146,15 @@ public class ReleaseInfoTests
     }
 
     [Fact]
+    public void IsInstallerUrl_rejects_path_traversal_escaping_the_pinned_repo()
+    {
+        // starts with the trusted prefix as a raw string, but HttpClient/Uri normalize the ".." segments and
+        // would fetch from github.com/attacker/repo — must be rejected by the normalized re-check
+        Assert.False(ReleaseInfo.IsInstallerUrl(
+            "https://github.com/beckervincent/curfew/releases/download/../../../attacker/repo/releases/download/v1.0.0/curfew-setup.exe"));
+    }
+
+    [Fact]
     public void FromGitHubJson_returns_null_for_empty_assets_array()
     {
         Assert.Null(ReleaseInfo.FromGitHubJson("""{ "tag_name": "v1.0.0", "assets": [] }"""));
