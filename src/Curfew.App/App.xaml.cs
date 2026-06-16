@@ -69,6 +69,17 @@ public partial class App : Application
     {
         var args = Environment.GetCommandLineArgs();
 
+        // --config: headless config CLI. checked before --help so `--config --help` shows CLI usage.
+        // never returns — CliConfig.Run hard-exits with a status code.
+        if (args.Contains(CliConfig.Argument))
+        {
+            var configArgs = args.SkipWhile(a => !string.Equals(a, CliConfig.Argument, StringComparison.Ordinal))
+                                 .Skip(1)
+                                 .ToList();
+            CliConfig.Run(configArgs);
+            return;
+        }
+
         if (args.Any(a => HelpArguments.Contains(a, StringComparer.OrdinalIgnoreCase)))
         {
             ShowHelp();
@@ -117,6 +128,7 @@ public partial class App : Application
             Console.WriteLine("  --settings        Open the passcode-gated settings editor.");
             Console.WriteLine("  --lock            Show the full-screen lock surface (normally launched by the overlay).");
             Console.WriteLine("  --tray=<command>  Run a passcode-gated tray action: extend15, extend45, pause, resume, quit.");
+            Console.WriteLine("  --config <cmd>    Headless, PIN-gated config CLI. Run '--config help' for commands.");
             Console.WriteLine("  --help, -h, /?    Show this help and exit.");
             Console.WriteLine();
             Console.WriteLine("With no option the app exits immediately. Enforcement runs in the Curfew service and");
