@@ -95,14 +95,15 @@ public static class CliCommandParser
         };
     }
 
-    /// <summary>first non-empty of stdin, env (<c>CURFEW_PIN</c>), then <c>--pin</c> arg. stdin trimmed of surrounding whitespace/newline (pipes/heredocs append one).</summary>
+    /// <summary>first non-empty of <c>--pin</c> arg, env (<c>CURFEW_PIN</c>), then stdin. explicit sources win
+    /// over ambient stdin so a supplied PIN is never ignored (and stdin need not be read/blocked on). stdin is
+    /// trimmed of surrounding whitespace/newline (pipes/heredocs append one).</summary>
     public static string? ResolvePin(string? stdin, string? env, string? arg)
     {
-        var trimmedStdin = stdin?.Trim();
-        if (!string.IsNullOrEmpty(trimmedStdin)) return trimmedStdin;
-        if (!string.IsNullOrEmpty(env)) return env;
         if (!string.IsNullOrEmpty(arg)) return arg;
-        return null;
+        if (!string.IsNullOrEmpty(env)) return env;
+        var trimmedStdin = stdin?.Trim();
+        return string.IsNullOrEmpty(trimmedStdin) ? null : trimmedStdin;
     }
 
     private static CliParse Ok(CliVerb verb, IReadOnlyList<CliKeyValue> writes, string? getKey, bool perUser, string? userArg, string? pinArg) =>
@@ -123,6 +124,10 @@ public static class CliCommandParser
     {
         if (rest.Count != 2) return CliParse.Fail(CliExit.Invalid, "usage: set <key> <value>");
         var key = rest[0];
+        // the passcode must go through set-passcode (min-length check + PBKDF2 hashing); a raw generic write
+        // would store an unhashed/short value and silently weaken or corrupt the gate.
+        if (key == "passcode")
+            return CliParse.Fail(CliExit.Invalid, "use 'set-passcode' to change the passcode");
         if (SettingsPartition.StoreFor(key) != SettingsStoreKind.Config)
             return CliParse.Fail(CliExit.Invalid, $"'{key}' is not a writable config key");
         if (perUser && !SettingsPartition.IsPerUser(key))

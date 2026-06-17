@@ -57,6 +57,15 @@ public class CliCommandParserTests
     }
 
     [Fact]
+    public void Set_rejects_passcode_key_directing_to_set_passcode()
+    {
+        // generic set must not write a raw/unhashed passcode; set-passcode is the only path.
+        var r = Parse("set", "passcode", "weak");
+        Assert.False(r.Ok);
+        Assert.Equal(CliExit.Invalid, r.ErrorCode);
+    }
+
+    [Fact]
     public void Set_writes_generic_config_key()
     {
         var r = Parse("set", "blocking_message", "stop");
@@ -225,8 +234,8 @@ public class CliCommandParserTests
     [InlineData("  5\n", null, null, "5")]
     [InlineData(null, "env-pin", null, "env-pin")]
     [InlineData(null, null, "arg-pin", "arg-pin")]
-    [InlineData("stdin", "env", "arg", "stdin")]
-    [InlineData(null, "env", "arg", "env")]
+    [InlineData("stdin", "env", "arg", "arg")]   // explicit --pin wins over env + stdin
+    [InlineData("stdin", "env", null, "env")]    // env wins over stdin
     [InlineData("", "", "arg", "arg")]
     public void Resolve_pin_precedence(string? stdin, string? env, string? arg, string expected)
     {

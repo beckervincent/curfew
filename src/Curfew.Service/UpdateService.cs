@@ -177,8 +177,13 @@ internal static class UpdateService
                 await file.WriteAsync(bytes, ct).ConfigureAwait(false);
             }
 
-            // lock file with same deny-ACE as dir, no longer child-writable once handle closed. must run before verify: Verify() racing a still-writable file proves nothing
-            ProtectFromChild(path, isDirectory: false);
+            // lock file with same deny-ACE as dir, no longer child-writable once handle closed. must run before verify: Verify() racing a still-writable file proves nothing. fail closed: if hardening fails the file stays child-writable, so discard rather than verify+run it
+            if (!ProtectFromChild(path, isDirectory: false))
+            {
+                ServiceLog.Write("update download rejected: could not lock down staged installer");
+                try { File.Delete(path); } catch { /* best effort */ }
+                return null;
+            }
 
             // last defence before SYSTEM schedules installer: must be Authenticode-signed by Curfew's key. anything else (unsigned, tampered, other key) discarded. run AFTER lockdown so verified bytes are bytes detached task opens; child can no longer swap in the window
             if (!InstallerSignature.Verify(path))
@@ -252,7 +257,13 @@ internal static class UpdateService
                 Directory.Delete(dir); // removes the junction/symlink link itself, not the target
 
             Directory.CreateDirectory(dir);
-            ProtectFromChild(dir, isDirectory: true);
+            // fail closed: if ACL hardening fails the dir keeps the inherited Users=Modify ACE, leaving the
+            // TOCTOU window open, so abort rather than stage into it
+            if (!ProtectFromChild(dir, isDirectory: true))
+            {
+                ServiceLog.Write("update staging dir prepare: could not lock down staging directory");
+                return false;
+            }
 
             // re-check after lockdown: a child racing to swap a junction back in between delete and create
             // would be caught here, so we never stage through a redirected path
@@ -269,9 +280,12 @@ internal static class UpdateService
     /// <summary>Lock down staging folder (and staged installer) so limited child cannot write/swap/delete the file SYSTEM later runs. Drop ACL inheritance (else folder keeps Users=Modify ACE installer grants on %ProgramData%\Curfew) and grant Users no ACE at all, while SYSTEM + Administrators keep full control. Mirrors <see cref="ConfigFileGuard"/>; best-effort, Windows-only, failure logged.</summary>
     /// <param name="path">Directory or file to protect.</param>
     /// <param name="isDirectory">When true deny is inheritable so files later created in folder (swapped-in payload, install-result marker) cannot be child-written; SYSTEM scheduled task still writes its marker because SYSTEM keeps full control.</param>
-    private static void ProtectFromChild(string path, bool isDirectory)
+    /// <returns><see langword="true"/> when the ACL was applied (or non-Windows, nothing to do);
+    /// <see langword="false"/> when hardening failed, so callers can fail closed instead of staging through a
+    /// still-child-writable path.</returns>
+    private static bool ProtectFromChild(string path, bool isDirectory)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsWindows()) return true;
 
         try
         {
@@ -307,10 +321,12 @@ internal static class UpdateService
                 // Deny on Users, which would also block the parent's admin account (member of Users, Deny wins).
                 new FileInfo(path).SetAccessControl(security);
             }
+            return true;
         }
         catch (Exception ex)
         {
             ServiceLog.Write($"update staging guard: {Path.GetFileName(path)}: {ex.Message}");
+            return false;
         }
     }
 }

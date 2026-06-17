@@ -1,7 +1,7 @@
 # PIN-Gated CLI Configuration — Design
 
 Date: 2026-06-16
-Status: Approved (design), pending implementation plan
+Status: Implemented (`curfew-cli.exe`); see "Revised during implementation" note under Surface.
 
 ## Goal
 
@@ -62,14 +62,14 @@ Introspection:
 
 ## Data Flow
 
-1. `Launch()` detects leading `--config`, routes to a new `CliConfig` handler
-   (own class in `Curfew.App`, keeps `App.xaml.cs` thin).
-2. Handler parses command + modifiers, resolves `--user` to SID if present.
-3. Resolves PIN from stdin/env/arg.
-4. Validates the command's value(s) **before** any write (clamp ranges, schedule
-   shape, passcode length). Invalid → exit 2, nothing written.
-5. Writes via `ConfigClient.SetConfig(key, value, pin)` (one call per key; `set-limit all`
-   loops weekdays). Reads via a config read (per-user scope honored).
+1. `Program.Main` (in `Curfew.Cli`) calls `CliCommandParser.Parse(args)` (in `Curfew.Core`).
+2. Parser validates and produces a `CliCommand` (writes + flags), or a typed error → exit 2.
+3. `Program` resolves `--user` to a SID and the PIN (precedence `--pin` → `CURFEW_PIN` → stdin).
+4. Validation happens in the parser **before** any write (clamp ranges, schedule shape,
+   passcode length, key writability). Invalid → exit 2, nothing written.
+5. Writes via `ConfigClient.Send(ConfigPipe.OpSet, …, pin)` (one call per key; `set-limit all`
+   loops weekdays — non-atomic, partial failure reported). Reads open `SettingsStore` directly
+   with per-user scope honored.
 6. Maps IPC outcome to exit code and prints a one-line result.
 
 `set-passcode` hashes locally then writes the `passcode` key through the same IPC

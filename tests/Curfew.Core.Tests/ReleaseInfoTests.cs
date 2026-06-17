@@ -145,13 +145,16 @@ public class ReleaseInfoTests
             "http://github.com/beckervincent/curfew/releases/download/v1.5.4/curfew-setup-v1.5.4.exe"));
     }
 
-    [Fact]
-    public void IsInstallerUrl_rejects_path_traversal_escaping_the_pinned_repo()
+    [Theory]
+    // literal ".." segments
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/../../../attacker/repo/releases/download/v1.0.0/curfew-setup.exe")]
+    // percent-encoded ".." (%2e%2e) — Uri normalization must collapse these the same way
+    [InlineData("https://github.com/beckervincent/curfew/releases/download/%2e%2e/%2e%2e/%2e%2e/attacker/repo/releases/download/v1.0.0/curfew-setup.exe")]
+    public void IsInstallerUrl_rejects_path_traversal_escaping_the_pinned_repo(string url)
     {
         // starts with the trusted prefix as a raw string, but HttpClient/Uri normalize the ".." segments and
         // would fetch from github.com/attacker/repo — must be rejected by the normalized re-check
-        Assert.False(ReleaseInfo.IsInstallerUrl(
-            "https://github.com/beckervincent/curfew/releases/download/../../../attacker/repo/releases/download/v1.0.0/curfew-setup.exe"));
+        Assert.False(ReleaseInfo.IsInstallerUrl(url));
     }
 
     [Fact]

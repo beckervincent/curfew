@@ -54,6 +54,9 @@ internal static class Program
         if (!TryResolveScopeSid(command, out var sid, out var code)) return code;
         var pin = ResolvePin(command);
 
+        // writes are applied one key at a time over the config pipe (same as the GUI's per-key writes); there
+        // is no batch/transaction op. on failure we stop and report which keys were already set, so a partial
+        // `set-limit all` is visible rather than silent. re-running the command is idempotent.
         foreach (var write in command.Writes)
         {
             // scope per-user base keys to the resolved SID; device-wide + state keys pass through unchanged.
@@ -139,10 +142,10 @@ internal static class Program
         }
     }
 
-    /// <summary>resolve the PIN from stdin (if piped), then <c>CURFEW_PIN</c>, then <c>--pin</c>.</summary>
-    /// <remarks>stdin is only consulted when neither env nor <c>--pin</c> supplied a value. otherwise we would
-    /// call <see cref="TextReader.ReadToEnd"/> on a still-open stdin (e.g. an SSH channel) and block forever,
-    /// even though a PIN was already provided. when stdin IS the source, the caller is expected to pipe it
+    /// <summary>resolve the PIN: <c>--pin</c> arg, then <c>CURFEW_PIN</c> env, then stdin.</summary>
+    /// <remarks>stdin is only consulted when neither <c>--pin</c> nor env supplied a value — otherwise we would
+    /// call <see cref="TextReader.ReadToEnd"/> on a still-open stdin (e.g. an SSH channel) and block, even
+    /// though a PIN was already provided. when stdin IS the source, the caller is expected to pipe it
     /// (<c>echo pin | curfew-cli ...</c>), which closes the stream and yields EOF.</remarks>
     private static string? ResolvePin(CliCommand command)
     {
@@ -200,7 +203,7 @@ internal static class Program
         Console.WriteLine("  set-passcode <new-pin>            Set parent PIN (min 8 chars).");
         Console.WriteLine("  list-users                        List provisioned users (SID + name).");
         Console.WriteLine();
-        Console.WriteLine("PIN source (first wins): stdin, CURFEW_PIN env var, --pin arg.");
+        Console.WriteLine("PIN source (first wins): --pin arg, CURFEW_PIN env var, stdin (piped).");
         Console.WriteLine("--user scopes per-user keys (limits, schedule, timeout); rejected for device-wide keys.");
         Console.WriteLine();
         Console.WriteLine("Exit codes: 0 ok, 1 auth failed/locked out, 2 invalid args, 3 service unavailable.");
