@@ -55,7 +55,7 @@ jobs:
       - name: Compile setup.iss with stub payload
         shell: pwsh
         run: |
-          foreach ($d in 'service','app','overlay') {
+          foreach ($d in 'service','app','overlay','cli') {
             New-Item -ItemType Directory -Path "installer\$d" -Force | Out-Null
             Set-Content -Path "installer\$d\stub.txt" -Value 'ci stub'
           }

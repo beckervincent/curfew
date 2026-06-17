@@ -119,6 +119,8 @@ public partial class App : Application
             Console.WriteLine("  --tray=<command>  Run a passcode-gated tray action: extend15, extend45, pause, resume, quit.");
             Console.WriteLine("  --help, -h, /?    Show this help and exit.");
             Console.WriteLine();
+            Console.WriteLine("To script settings non-interactively (PIN-gated), use the headless 'curfew-cli.exe'.");
+            Console.WriteLine();
             Console.WriteLine("With no option the app exits immediately. Enforcement runs in the Curfew service and");
             Console.WriteLine("overlay; this executable is only the configuration UI.");
             Console.Out.Flush();

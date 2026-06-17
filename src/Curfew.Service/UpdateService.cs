@@ -161,9 +161,12 @@ internal static class UpdateService
                 return null;
             }
 
-            // stage installer where child cannot tamper. update folder inherits Users=Modify from %ProgramData%\Curfew (installer grants it so state.db + SQLite sidecars stay writable), which would let limited child overwrite staged exe AFTER Verify() but BEFORE detached SYSTEM task opens it — signature TOCTOU landing attacker code with SYSTEM. drop dir inheritance + deny Users write/delete before writing payload, then lock file same way and verify AFTER lockdown, so bytes task runs are exactly bytes that passed signature check
-            Directory.CreateDirectory(CurfewPaths.UpdateDirectory);
-            ProtectFromChild(CurfewPaths.UpdateDirectory, isDirectory: true);
+            // stage installer where child cannot tamper. update folder inherits Users=Modify from %ProgramData%\Curfew (installer grants it so state.db + SQLite sidecars stay writable), which would let limited child overwrite staged exe AFTER Verify() but BEFORE detached SYSTEM task opens it — signature TOCTOU landing attacker code with SYSTEM. drop dir inheritance + remove Users write/delete before writing payload, then lock file same way and verify AFTER lockdown, so bytes task runs are exactly bytes that passed signature check
+            if (!TryPrepareStagingDir(CurfewPaths.UpdateDirectory))
+            {
+                ServiceLog.Write("update download rejected: staging folder is a reparse point (possible junction redirect)");
+                return null;
+            }
 
             var path = Path.Combine(CurfewPaths.UpdateDirectory, InstallerFileName);
 
@@ -174,8 +177,13 @@ internal static class UpdateService
                 await file.WriteAsync(bytes, ct).ConfigureAwait(false);
             }
 
-            // lock file with same deny-ACE as dir, no longer child-writable once handle closed. must run before verify: Verify() racing a still-writable file proves nothing
-            ProtectFromChild(path, isDirectory: false);
+            // lock file with same deny-ACE as dir, no longer child-writable once handle closed. must run before verify: Verify() racing a still-writable file proves nothing. fail closed: if hardening fails the file stays child-writable, so discard rather than verify+run it
+            if (!ProtectFromChild(path, isDirectory: false))
+            {
+                ServiceLog.Write("update download rejected: could not lock down staged installer");
+                try { File.Delete(path); } catch { /* best effort */ }
+                return null;
+            }
 
             // last defence before SYSTEM schedules installer: must be Authenticode-signed by Curfew's key. anything else (unsigned, tampered, other key) discarded. run AFTER lockdown so verified bytes are bytes detached task opens; child can no longer swap in the window
             if (!InstallerSignature.Verify(path))
@@ -234,20 +242,57 @@ internal static class UpdateService
         && bytes[0] == PortableExecutableMagic[0]
         && bytes[1] == PortableExecutableMagic[1];
 
-    /// <summary>Lock down staging folder (and staged installer) so limited child cannot write/swap/delete the file SYSTEM later runs. Drop ACL inheritance (else folder keeps Users=Modify ACE installer grants on %ProgramData%\Curfew) and add explicit deny for Users, while SYSTEM + Administrators keep full control. Mirrors <see cref="ConfigFileGuard"/>; best-effort, Windows-only, failure logged.</summary>
+    /// <summary>Prepare the update staging folder as a real, SYSTEM-owned, child-proof directory. A child can
+    /// pre-create <c>%ProgramData%\Curfew\update</c> as a junction/symlink so the SYSTEM service stages (and
+    /// later runs) the installer through a path the child redirects — LPE to SYSTEM. We delete any reparse
+    /// link found (this removes the link only, never a target's contents), recreate a real directory, lock it
+    /// down, then re-check and fail closed if it is still/again a reparse point.</summary>
+    /// <returns><see langword="true"/> when the folder is a real, locked directory safe to stage into.</returns>
+    private static bool TryPrepareStagingDir(string dir)
+    {
+        try
+        {
+            var info = new DirectoryInfo(dir);
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+                Directory.Delete(dir); // removes the junction/symlink link itself, not the target
+
+            Directory.CreateDirectory(dir);
+            // fail closed: if ACL hardening fails the dir keeps the inherited Users=Modify ACE, leaving the
+            // TOCTOU window open, so abort rather than stage into it
+            if (!ProtectFromChild(dir, isDirectory: true))
+            {
+                ServiceLog.Write("update staging dir prepare: could not lock down staging directory");
+                return false;
+            }
+
+            // re-check after lockdown: a child racing to swap a junction back in between delete and create
+            // would be caught here, so we never stage through a redirected path
+            info.Refresh();
+            return !(info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0);
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"update staging dir prepare: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Lock down staging folder (and staged installer) so limited child cannot write/swap/delete the file SYSTEM later runs. Drop ACL inheritance (else folder keeps Users=Modify ACE installer grants on %ProgramData%\Curfew) and grant Users no ACE at all, while SYSTEM + Administrators keep full control. Mirrors <see cref="ConfigFileGuard"/>; best-effort, Windows-only, failure logged.</summary>
     /// <param name="path">Directory or file to protect.</param>
     /// <param name="isDirectory">When true deny is inheritable so files later created in folder (swapped-in payload, install-result marker) cannot be child-written; SYSTEM scheduled task still writes its marker because SYSTEM keeps full control.</param>
-    private static void ProtectFromChild(string path, bool isDirectory)
+    /// <returns><see langword="true"/> when the ACL was applied (or non-Windows, nothing to do);
+    /// <see langword="false"/> when hardening failed, so callers can fail closed instead of staging through a
+    /// still-child-writable path.</returns>
+    private static bool ProtectFromChild(string path, bool isDirectory)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsWindows()) return true;
 
         try
         {
             var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
-            var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
 
-            // dir allow/deny rules propagate to files inside; a file's do not inherit anywhere. match inheritance scope to target kind
+            // dir allow rules propagate to files inside; a file's do not inherit anywhere. match inheritance scope to target kind
             var inherit = isDirectory
                 ? InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit
                 : InheritanceFlags.None;
@@ -259,11 +304,10 @@ internal static class UpdateService
                 security.SetOwner(system);
                 security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
                 security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
-                // deny wins over allow: child can neither replace staged exe nor create new files to redirect install
-                security.AddAccessRule(new FileSystemAccessRule(
-                    users,
-                    FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,
-                    inherit, PropagationFlags.None, AccessControlType.Deny));
+                // inheritance is off so the parent dir's Users-write ACE doesn't propagate; granting Users no
+                // ACE at all means the child can neither replace the staged exe nor create files to redirect
+                // the install. NO explicit Deny on Users: the parent's admin account is a member of Users and
+                // a Deny would win over the Administrators Allow above, blocking admin cleanup/uninstall.
                 new DirectoryInfo(path).SetAccessControl(security);
             }
             else
@@ -273,16 +317,16 @@ internal static class UpdateService
                 security.SetOwner(system);
                 security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
                 security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
-                security.AddAccessRule(new FileSystemAccessRule(
-                    users,
-                    FileSystemRights.Write | FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership,
-                    AccessControlType.Deny));
+                // no Users ACE (inheritance off) -> child can't write/swap/delete the staged exe. No explicit
+                // Deny on Users, which would also block the parent's admin account (member of Users, Deny wins).
                 new FileInfo(path).SetAccessControl(security);
             }
+            return true;
         }
         catch (Exception ex)
         {
             ServiceLog.Write($"update staging guard: {Path.GetFileName(path)}: {ex.Message}");
+            return false;
         }
     }
 }

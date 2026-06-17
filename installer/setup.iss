@@ -44,6 +44,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 Source: "service\*"; DestDir: "{app}\service"; Flags: recursesubdirs ignoreversion
 Source: "app\*";     DestDir: "{app}\app";     Flags: recursesubdirs ignoreversion
+; headless PIN-gated config CLI, installed alongside the app as {app}\app\curfew-cli.exe
+Source: "cli\*";     DestDir: "{app}\app";     Flags: recursesubdirs ignoreversion
 Source: "overlay\*"; DestDir: "{app}\overlay"; Flags: recursesubdirs ignoreversion
 ; uninstall guard: verify parent passcode before uninstall proceeds
 ; lands in {app}, ACL'd ReadAndExecute for Users, so child cant edit it

@@ -40,7 +40,7 @@ try {
     }
 
     # Fresh publish dirs so a stale binary from a previous version never ships.
-    foreach ($d in 'service', 'overlay', 'app') {
+    foreach ($d in 'service', 'overlay', 'app', 'cli') {
         $p = Join-Path $repo "installer\$d"
         if (Test-Path $p) { Remove-Item $p -Recurse -Force }
     }
@@ -58,6 +58,8 @@ try {
     # installed copy runs without a separate runtime dependency.
     Publish-Project 'src\Curfew.App\Curfew.App.csproj' 'app' `
         @('-p:Platform=x64', '-p:WindowsAppSDKSelfContained=true')
+    # Headless PIN-gated config CLI. Plain console exe (no Windows App SDK), ships next to the app.
+    Publish-Project 'src\Curfew.Cli\Curfew.Cli.csproj' 'cli' @('-p:Platform=x64')
 
     Write-Host "==> compiling installer with $iscc"
     & $iscc "/DMyAppVersion=$Version" (Join-Path $repo 'installer\setup.iss')
