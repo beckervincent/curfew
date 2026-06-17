@@ -76,14 +76,21 @@ jobs:
           -p:Version=${{ steps.ver.outputs.VERSION }}
           -o installer/overlay
 
+      - name: Publish CLI (self-contained x64)
+        run: >
+          dotnet publish src/Curfew.Cli/Curfew.Cli.csproj
+          -c Release -r win-x64 --self-contained -p:Platform=x64
+          -p:Version=${{ steps.ver.outputs.VERSION }}
+          -o installer/cli
+
       - name: Sign binaries
         if: ${{ env.SIGN_PFX_BASE64 != '' }}
         shell: pwsh
         run: |
           $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
             "${{ steps.cert.outputs.PFX_PATH }}", $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
-          $targets = Get-ChildItem -Path installer/service, installer/app, installer/overlay `
-            -Recurse -Include Curfew*.exe
+          $targets = Get-ChildItem -Path installer/service, installer/app, installer/overlay, installer/cli `
+            -Recurse -Include Curfew*.exe, curfew-cli.exe
           foreach ($f in $targets) {
             $res = Set-AuthenticodeSignature -FilePath $f.FullName -Certificate $cert `
               -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
