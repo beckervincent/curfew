@@ -88,10 +88,14 @@ public static class ConfigClient
     public static bool SetConfig(string key, string value, string? passcode) =>
         Send(new ConfigRequest(ConfigPipe.OpSet, Key: key, Value: value, Passcode: passcode)).Ok;
 
-    /// <summary>set up new Windows user given parent passcode: write per-user daily limit (<paramref name="limitMinutes"/>) + add SID to set-up list. one verified service call</summary>
-    public static bool Provision(string sid, string? passcode, int limitMinutes) =>
+    /// <summary>set up new Windows user given parent passcode: write per-user daily limit (<paramref name="limitMinutes"/>) + add SID to set-up list. one verified service call.
+    /// <para>Returns the full response, not just a bool, because the caller must tell a REJECTED passcode
+    /// (service already recorded the failure and is the authority on the lockout counter) apart from an
+    /// UNREACHABLE service (nothing was recorded, and the parent's PIN may well have been correct). Folding
+    /// both into <c>false</c> is what made the overlay punish correct PINs during a service restart.</para></summary>
+    public static ConfigResponse Provision(string sid, string? passcode, int limitMinutes) =>
         Send(new ConfigRequest(ConfigPipe.OpProvision, Sid: sid, Passcode: passcode,
-            Value: limitMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture))).Ok;
+            Value: limitMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
     /// <summary>record failed unlock attempt (advances lockout counter)</summary>
     public static bool RecordFailure() =>

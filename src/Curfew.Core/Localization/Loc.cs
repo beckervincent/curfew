@@ -81,6 +81,12 @@ public static class Loc
             ["lock.activate"] = "Save & unlock",
             ["lock.lockedout"] = "Too many attempts — wait {0}s.",
             ["lock.action.failed"] = "Couldn't apply that — try again.",
+            ["lock.working"] = "Working…",
+            ["lock.setup.zero"] = "A limit of 0 locks this user out again straight away.",
+            ["lock.err.stillblocked"] = "That wasn't enough to unlock — another limit still applies.",
+            ["lock.err.coderejected"] = "That unlock code was rejected — it may already have been used.",
+            ["lock.err.nobreak"] = "No break time left right now.",
+            ["lock.err.setupfailed"] = "Setup failed — check the PIN and try again.",
 
             // tray + warnings
             ["tray.settings"] = "Settings…",
@@ -345,6 +351,12 @@ public static class Loc
             ["lock.activate"] = "Speichern & entsperren",
             ["lock.lockedout"] = "Zu viele Versuche – {0}s warten.",
             ["lock.action.failed"] = "Konnte nicht angewendet werden – erneut versuchen.",
+            ["lock.working"] = "Wird ausgeführt…",
+            ["lock.setup.zero"] = "Ein Limit von 0 sperrt diesen Benutzer sofort wieder aus.",
+            ["lock.err.stillblocked"] = "Das hat zum Entsperren nicht gereicht – eine andere Grenze gilt weiterhin.",
+            ["lock.err.coderejected"] = "Entsperrcode abgelehnt – er wurde möglicherweise bereits verwendet.",
+            ["lock.err.nobreak"] = "Derzeit keine Pausenzeit mehr verfügbar.",
+            ["lock.err.setupfailed"] = "Einrichtung fehlgeschlagen – PIN prüfen und erneut versuchen.",
 
             ["tray.settings"] = "Einstellungen…",
             ["tray.left"] = "Curfew · {0} übrig",

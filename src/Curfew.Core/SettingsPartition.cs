@@ -26,6 +26,9 @@ public static class SettingsPartition
         // replay counter.
         "lock_active", "lock_reason", "lock_deadline_unix", "lock_action",
         "lock_action_at", "lock_sid", "lock_code", "lock_setup_limit", "lock_break_minutes",
+        // overlay -> surface rejection reason for the action it just consumed, so a refused
+        // unlock/redeem/break/setup shows a message instead of the surface silently vanishing
+        "lock_error", "lock_error_at",
         "tray_",
     };
 

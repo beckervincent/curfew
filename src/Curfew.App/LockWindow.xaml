@@ -60,6 +60,8 @@
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                HorizontalAlignment="Center" />
+                    <!-- InvalidInputOverwritten: junk typed here reverts to the last good value instead of
+                         reading back as NaN, which is how a blank box used to become a 0-minute limit. -->
                     <NumberBox x:Name="SetupLimitHours"
                                Width="160"
                                HorizontalAlignment="Center"
@@ -67,8 +69,17 @@
                                Maximum="24"
                                SmallChange="0.5"
                                LargeChange="1"
+                               ValidationMode="InvalidInputOverwritten"
                                SpinButtonPlacementMode="Inline"
                                AutomationProperties.Name="{local:Loc Key=lock.setup.caption}" />
+                    <!-- Warn on a zero limit: legal, but it locks this user out again immediately. -->
+                    <TextBlock x:Name="SetupZeroWarning"
+                               Text="{local:Loc Key=lock.setup.zero}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               Visibility="Collapsed" />
                 </StackPanel>
 
                 <!-- Passcode entry -->
@@ -93,6 +104,19 @@
                          IsClosable="False"
                          Message="{local:Loc Key=lock.incorrect}" />
 
+                <!-- Shown while an action sits with the overlay awaiting its verdict. -->
+                <StackPanel x:Name="BusyPanel"
+                            Orientation="Horizontal"
+                            Spacing="10"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Center">
+                    <ProgressRing x:Name="BusyRing" Width="18" Height="18" IsActive="False" />
+                    <TextBlock Text="{local:Loc Key=lock.working}"
+                               Style="{StaticResource BodyTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
                 <!-- Actions -->
                 <StackPanel Spacing="8">
                     <!-- child self-service break (budget lock only); shown when the overlay offers break time -->
@@ -100,7 +124,7 @@
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
                             Visibility="Collapsed"
-                            TabIndex="0"
+                            TabIndex="3"
                             Click="OnBreak" />
                     <Button x:Name="UnlockButton"
                             HorizontalAlignment="Stretch"

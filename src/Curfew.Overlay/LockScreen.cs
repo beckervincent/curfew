@@ -28,7 +28,7 @@ internal static class LockScreen
     private static int _shutdownCountdown = -1;
 
     // new-user setup = blocking ConfigClient.Provision pipe call; must NOT run on pump thread (would freeze hook, leak escape shortcuts). runs on background task, outcome applied next tick. _provisionTask = in-flight call (null=idle); single-threaded so no locking
-    private static Task<bool>? _provisionTask;
+    private static Task<ConfigResponse>? _provisionTask;
 
     public static void Register(IntPtr hInstance)
     {
@@ -42,11 +42,29 @@ internal static class LockScreen
         };
         RegisterClassW(ref wc);
 
+        var (x, y, w, h) = VirtualScreen();
         _hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             ClassName, "Curfew", WS_POPUP,
-            0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
+            x, y, w, h,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+    }
+
+    /// <summary>bounding box of every monitor. the black cover is the hard enforcement floor, so it has to
+    /// span the whole virtual desktop: sized to SM_CX/CYSCREEN it covered the primary monitor only, leaving
+    /// every secondary display showing the live desktop whenever the WinUI surface was slow, killed, or
+    /// crashed — the exact gap the cover exists to close. re-read on each reassert tick so hot-plugging or
+    /// rearranging a monitor mid-lock cannot open that gap either.</summary>
+    private static (int X, int Y, int Width, int Height) VirtualScreen()
+    {
+        var w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        var h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+        // metrics report 0 on the rare failure path; fall back to the primary monitor rather than a 0x0 cover
+        if (w <= 0 || h <= 0)
+            return (0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+
+        return (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), w, h);
     }
 
     public static void Show()
@@ -66,15 +84,22 @@ internal static class LockScreen
             : OverlayState.BudgetBlocked || OverlayState.WeeklyBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         OverlayState.Settings.Set("lock_action", string.Empty); // clear stale action
+        OverlayState.Settings.Set("lock_code", string.Empty);   // and any code left behind by a torn-down cycle
+        ClearActionError();                                     // stale rejection must not greet a fresh lock
         OverlayState.Settings.Set("lock_sid", CurrentUserSid());
         PublishBreakOffer();
         OverlayState.Settings.Set("lock_active", "1");
         LockAppHost.Launch();
 
+        // log the reason actually being enforced. previously this collapsed to "schedule" for a new-user
+        // setup lock, so the audit trail disagreed with lock_reason published two lines above
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked,
-            OverlayState.BudgetBlocked ? "budget" : "schedule");
+            OverlayState.NewUserBlocked ? "newuser"
+            : OverlayState.BudgetBlocked || OverlayState.WeeklyBlocked ? "budget" : "schedule");
 
-        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
+        // re-apply bounds on every show: the monitor layout may have changed since Register()
+        var (vx, vy, vw, vh) = VirtualScreen();
+        SetWindowPos(_hwnd, HWND_TOPMOST, vx, vy, vw, vh, SWP_SHOWWINDOW);
         ShowWindow(_hwnd, SW_SHOW);
         SetForegroundWindow(_hwnd);
         SetTaskbarHidden(true);
@@ -149,12 +174,14 @@ internal static class LockScreen
                 OverlayState.WeeklyOverride = true; // parent authorized more time past the weekly cap this session
                 EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "passcode");
                 if (!OverlayState.ShouldBlock) Hide();
+                else PublishActionError("lock.err.stillblocked");
                 break;
             case "ignore_schedule":
                 OverlayState.IgnoreScheduleUntilRestart = true;
                 OverlayState.ScheduleOverride = true;
                 EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ScheduleIgnored, "until restart");
                 if (!OverlayState.ShouldBlock) Hide();
+                else PublishActionError("lock.err.stillblocked");
                 break;
             case "redeem":
                 var code = OverlayState.Settings.Get("lock_code") ?? string.Empty;
@@ -163,6 +190,13 @@ internal static class LockScreen
                 {
                     EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, "unlock code");
                     if (!OverlayState.ShouldBlock) Hide();
+                    else PublishActionError("lock.err.stillblocked");
+                }
+                else
+                {
+                    // the surface accepted the code locally but the service is the authority and refused it
+                    // (already redeemed, or unreachable). say so — silence just relaunched a blank lock.
+                    PublishActionError("lock.err.coderejected");
                 }
                 break;
             case "provision":
@@ -181,6 +215,12 @@ internal static class LockScreen
                 {
                     EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.BreakTaken, $"+{grantedSeconds / 60} min");
                     if (!OverlayState.ShouldBlock) Hide();
+                    else PublishActionError("lock.err.stillblocked");
+                }
+                else
+                {
+                    // break budget spent or still in cooldown: tell the child, don't just blink the lock
+                    PublishActionError("lock.err.nobreak");
                 }
                 break;
             case "logoff":
@@ -201,7 +241,13 @@ internal static class LockScreen
         OverlayState.Settings.Set("lock_break_minutes", minutes.ToString());
     }
 
-    /// <summary>run new-user setup pipe call off pump thread, reset/record lockout counter on same bg thread. one at a time; second request while in-flight ignored</summary>
+    /// <summary>run new-user setup pipe call off pump thread, reset lockout counter on same bg thread. one at a time; second request while in-flight ignored.
+    /// <para>This deliberately does NOT call <c>RecordFailure()</c> on a rejected setup. The service's
+    /// provision handler already verifies the passcode and records the failure itself, so bumping the
+    /// counter here counted every wrong PIN twice — and worse, the handler rejects while locked out, so each
+    /// retry during a lockout extended that same lockout. A parent who mistyped once could then be refused
+    /// for an ever-growing backoff without ever entering another wrong PIN. The service owns this counter;
+    /// the overlay only reports the outcome.</para></summary>
     private static void StartProvision(string code, int limitMinutes)
     {
         if (_provisionTask is { IsCompleted: false }) return;
@@ -209,31 +255,51 @@ internal static class LockScreen
         {
             try
             {
-                if (ConfigClient.Provision(OverlayState.CurrentSid, code, limitMinutes))
-                {
-                    ConfigClient.ResetFailures(code);
-                    return true;
-                }
-                ConfigClient.RecordFailure();
-                return false;
+                var response = ConfigClient.Provision(OverlayState.CurrentSid, code, limitMinutes);
+                if (response.Ok) ConfigClient.ResetFailures(code);
+                return response;
             }
-            catch { return false; }
+            catch (Exception ex) { return new ConfigResponse(false, ex.Message); }
         });
     }
 
-    /// <summary>apply completed new-user setup on pump thread: success -> re-read enforcement (budget seeds new per-user limit) + tear lock down. failure -> lock stays, surface relaunched by <see cref="WhileLockedTick"/> for retry</summary>
+    /// <summary>apply completed new-user setup on pump thread: success -> re-read enforcement (budget seeds new per-user limit) + tear lock down. failure -> publish the reason so the surface can show it, and the lock stays up for a retry</summary>
     private static void ApplyProvisionResult()
     {
         if (_provisionTask is not { IsCompleted: true } task) return;
-        var ok = task.Result;
+        var response = task.Result;
         _provisionTask = null;
 
-        if (ok)
+        if (response.Ok)
         {
             OverlayState.LoadEnforcement();
             EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user set up");
             if (!OverlayState.ShouldBlock) Hide();
+            else PublishActionError("lock.err.stillblocked");
+            return;
         }
+
+        // a failed setup used to be entirely silent: the surface had already exited on the action, so the
+        // parent saw the window vanish and come back empty with no idea whether the PIN was wrong, the
+        // service was down, or the lockout was in force. report it.
+        OverlayLog.Write($"user setup rejected: {response.Error ?? "unknown"}");
+        PublishActionError("lock.err.setupfailed", response.Error);
+    }
+
+    /// <summary>publish a rejection for the WinUI surface to display. <paramref name="key"/> is a localisation
+    /// key the surface resolves in its own language; <paramref name="detail"/> is optional untranslated context
+    /// from the service. Timestamped so the surface can ignore anything left over from an earlier lock.</summary>
+    private static void PublishActionError(string key, string? detail = null)
+    {
+        var message = string.IsNullOrWhiteSpace(detail) ? key : $"{key}|{detail}";
+        OverlayState.Settings.Set("lock_error_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
+        OverlayState.Settings.Set("lock_error", message); // written last: surface polls this, then reads the stamp
+    }
+
+    private static void ClearActionError()
+    {
+        OverlayState.Settings.Set("lock_error", string.Empty);
+        OverlayState.Settings.Set("lock_error_at", string.Empty);
     }
 
     private static void ExtendApply(int minutes)
@@ -244,6 +310,7 @@ internal static class LockScreen
         OverlayState.Persist();
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"+{minutes} min");
         if (!OverlayState.ShouldBlock) Hide();
+        else PublishActionError("lock.err.stillblocked");   // e.g. added minutes but a bedtime schedule still bites
     }
 
     /// <summary>redeem valid offline unlock code (TOTP): grant bonus minutes, lift schedule + weekly blocks.
@@ -299,9 +366,13 @@ internal static class LockScreen
     {
         if (id == TimerReassert)
         {
-            // clamp to top of Z-order, but NOT while WinUI surface up (would slam cover over it). surface absent -> cover IS visible lock, keep on top
+            // clamp to top of Z-order, but NOT while WinUI surface up (would slam cover over it). surface absent -> cover IS visible lock, keep on top.
+            // bounds re-applied at the same time so a monitor plugged in mid-lock is covered too
             if (!LockAppHost.IsRunning)
-                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            {
+                var (vx, vy, vw, vh) = VirtualScreen();
+                SetWindowPos(hwnd, HWND_TOPMOST, vx, vy, vw, vh, SWP_NOACTIVATE);
+            }
 
             // keep shell taskbar down: re-asserts topmost on shell events, would float above lock + be clickable
             SetTaskbarHidden(true);

@@ -22,6 +22,15 @@ internal sealed class LockController
     private DispatcherTimer? _timer;
     private bool _closing;
 
+    /// <summary>Unix seconds when the current action was handed to the overlay; 0 when idle. While non-zero
+    /// the form is disabled and waiting for the overlay to either lift the lock or publish a refusal.</summary>
+    private long _pendingSinceUnix;
+
+    /// <summary>How long to wait for the overlay's verdict before re-enabling the form. Comfortably longer
+    /// than the config pipe's own 3s timeout plus the overlay's one-second tick, so a slow-but-working
+    /// new-user setup is not cut short, yet a dead overlay never leaves the parent stuck.</summary>
+    private const int ActionTimeoutSeconds = 15;
+
     public LockController(SettingsStore settings) => _settings = settings;
 
     /// <summary>build + show lock windows; returns primary window</summary>
@@ -113,6 +122,58 @@ internal sealed class LockController
 
         UpdateCountdown();
         UpdateBreakOffer();
+        UpdateActionOutcome();
+    }
+
+    /// <summary>Settle a submitted action. The overlay is the authority: it either lifts the lock (which
+    /// clears <c>lock_active</c> and closes us on the branch above) or publishes why it refused. Until one of
+    /// those lands the window stays up in its pending state, so a refusal is visible instead of the surface
+    /// exiting on its own and being relaunched a second later as a blank lock — the behaviour that made a
+    /// rejected unlock look like the lock screen had simply eaten the passcode.</summary>
+    private void UpdateActionOutcome()
+    {
+        if (_primary is null || _pendingSinceUnix == 0) return;
+
+        string? error;
+        try { error = _settings.Get("lock_error"); }
+        catch { return; }
+
+        if (!string.IsNullOrEmpty(error))
+        {
+            // ignore anything stamped before we submitted: it belongs to an earlier attempt
+            long stamp;
+            try { stamp = long.TryParse(_settings.Get("lock_error_at"), out var at) ? at : 0; }
+            catch { return; }
+
+            if (stamp >= _pendingSinceUnix)
+            {
+                try { _settings.Set("lock_error", string.Empty); } catch { /* re-shown next tick if it fails */ }
+                _pendingSinceUnix = 0;
+                _primary.EndPending(ResolveActionError(error));
+                return;
+            }
+        }
+
+        // overlay gone or wedged: never strand the parent on a dead "working…" form
+        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _pendingSinceUnix > ActionTimeoutSeconds)
+        {
+            _pendingSinceUnix = 0;
+            _primary.EndPending(Loc.T("lock.action.failed"));
+        }
+    }
+
+    /// <summary>Turn the overlay's <c>key</c> or <c>key|detail</c> payload into display text. An unknown key is
+    /// shown through the generic failure string rather than leaking a raw identifier at the parent.</summary>
+    private static string ResolveActionError(string payload)
+    {
+        var separator = payload.IndexOf('|');
+        var key = separator < 0 ? payload : payload[..separator];
+        var detail = separator < 0 ? string.Empty : payload[(separator + 1)..];
+
+        var text = Loc.T(key);
+        if (string.IsNullOrEmpty(text) || text == key) text = Loc.T("lock.action.failed");
+
+        return string.IsNullOrWhiteSpace(detail) ? text : $"{text} ({detail})";
     }
 
     private static void ReassertTopmost(Window? window)
@@ -184,6 +245,10 @@ internal sealed class LockController
         // writes land in state.db, child can hold locked: write throwing SqliteException would escape ActionConfirmed handler unhandled (crashing lock process) AND silently discard parent's authenticated unlock/extend/redeem. catch it, keep lock window up, surface retry prompt instead of acting on half-written handshake. lock_action still written last, so failure before it leaves overlay nothing to consume (no fresh action paired with stale timestamp)
         try
         {
+            // drop any earlier rejection first: a stale one left by a timed-out attempt would otherwise sit
+            // there with an older stamp, be ignored as pre-dating this submission, and make this action wait
+            // out the full timeout instead of settling on the overlay's actual answer
+            _settings.Set("lock_error", string.Empty);
             _settings.Set("lock_action_at", now.ToString());
             // redeem carries unlock code; provision carries parent PIN (so service can re-verify) plus chosen per-user daily limit
             if (code is not null && action is "redeem" or "provision") _settings.Set("lock_code", code);
@@ -197,7 +262,14 @@ internal sealed class LockController
             _primary?.ShowActionError(Loc.T("lock.action.failed"));
             return;
         }
-        Close();
+
+        // Do NOT close here. The action is only a request; the overlay decides. Closing on submit is what
+        // made every refusal invisible — the process exited, the overlay relaunched it a second later, and
+        // the parent was left staring at a fresh empty lock with no error and no idea the attempt had been
+        // rejected. Wait instead: OnTick closes us when the overlay clears lock_active (granted) or shows the
+        // published reason (refused).
+        _pendingSinceUnix = now;
+        _primary?.BeginPending();
     }
 
     private void Close()

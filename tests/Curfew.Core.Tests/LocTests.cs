@@ -68,6 +68,10 @@ public class LocTests : IDisposable
         {
             "lock.title.budget", "lock.title.schedule", "lock.unlock",
             "lock.shutdown", "lock.incorrect", "lock.exceeded",
+            // lock-surface feedback strings: shown only on a rejected action, so a missing
+            // translation here is easy to ship unnoticed
+            "lock.working", "lock.setup.zero", "lock.err.stillblocked",
+            "lock.err.coderejected", "lock.err.nobreak", "lock.err.setupfailed",
         };
 
         foreach (var lang in Loc.AvailableLanguages)

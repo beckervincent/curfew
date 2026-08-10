@@ -2,6 +2,7 @@ using Curfew.Core;
 using Curfew.Core.Localization;
 using Curfew.Core.Security;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
 
@@ -20,6 +21,9 @@ public sealed partial class LockWindow : Window
 
     /// <summary>fail-closed cooldown deadline (Unix seconds, UTC) used when SYSTEM service couldnt record a failure. persisted counter lives in config.db + is the only thing driving <see cref="LockoutPolicy"/> backoff; WinUI lock can only advance it via best-effort config pipe, which returns false (never throws) when service down/restarting/pipe busy. re-accepting input in that window would make lock an unthrottled oracle, so failed RecordFailure() arms this local floor instead — re-checked by <see cref="IsLockedOut"/> every attempt + cleared once wall clock passes it</summary>
     private long _localCooldownUntilUnix;
+
+    /// <summary>true while an action is with the overlay awaiting its verdict; blocks further submissions</summary>
+    private bool _pending;
 
     /// <summary>raised on confirmed action (extend15/30/60 / unlock / ignore_schedule / redeem / provision / logoff). second arg = entered code for redeem/provision, otherwise null</summary>
     public event Action<string, string?>? ActionConfirmed;
@@ -45,6 +49,9 @@ public sealed partial class LockWindow : Window
             AddTimePanel.Visibility = Visibility.Collapsed;
             SetupPanel.Visibility = Visibility.Visible;
             SetupLimitHours.Value = DefaultSetupHours();
+            // subscribed after the initial value is seeded, so the warning reflects parent edits only
+            SetupLimitHours.ValueChanged += OnSetupLimitChanged;
+            OnSetupLimitChanged(SetupLimitHours, null!);   // reflect a device default that is itself zero
         }
         else
         {
@@ -84,7 +91,48 @@ public sealed partial class LockWindow : Window
 
     /// <summary>Child takes a self-service break: ungated (no passcode), bounded by the parent's pause
     /// policy in the overlay. Records the action for the overlay to grant and tears the lock down.</summary>
-    private void OnBreak(object sender, RoutedEventArgs e) => ActionConfirmed?.Invoke("break", null);
+    private void OnBreak(object sender, RoutedEventArgs e)
+    {
+        if (_pending) return;
+        ActionConfirmed?.Invoke("break", null);
+    }
+
+    /// <summary>Action handed to the overlay: disable the form and show the working indicator so the parent
+    /// gets feedback and cannot fire a second action (or a second setup pipe call) while the first is in
+    /// flight. Cleared by <see cref="EndPending"/>, or the window is closed outright once the overlay lifts
+    /// the lock.</summary>
+    public void BeginPending()
+    {
+        _pending = true;
+        ErrorBar.IsOpen = false;
+        BusyPanel.Visibility = Visibility.Visible;
+        BusyRing.IsActive = true;
+        SetFormEnabled(false);
+    }
+
+    /// <summary>Overlay refused the action (or never answered): re-enable the form, show why, put the cursor
+    /// back in the passcode box so the parent can retry immediately.</summary>
+    public void EndPending(string message)
+    {
+        _pending = false;
+        BusyRing.IsActive = false;
+        BusyPanel.Visibility = Visibility.Collapsed;
+        SetFormEnabled(true);
+        ShowError(message);
+    }
+
+    /// <summary>enable/disable every input while an action is in flight</summary>
+    private void SetFormEnabled(bool enabled)
+    {
+        PinBox.IsEnabled = enabled;
+        UnlockButton.IsEnabled = enabled;
+        LogoffButton.IsEnabled = enabled;
+        BreakButton.IsEnabled = enabled;
+        Add15.IsEnabled = enabled;
+        Add30.IsEnabled = enabled;
+        Add60.IsEnabled = enabled;
+        SetupLimitHours.IsEnabled = enabled;
+    }
 
     private string BudgetMessage()
     {
@@ -92,12 +140,23 @@ public sealed partial class LockWindow : Window
         return string.IsNullOrWhiteSpace(configured) ? Loc.T("lock.default.message") : configured;
     }
 
-    /// <summary>daily limit (minutes, clamped 0..24h) parent entered for new user</summary>
+    /// <summary>daily limit (minutes, clamped 0..24h) parent entered for new user.
+    /// <para>An empty or unparseable box reads back as NaN, which used to fold to a 0-minute limit: setup
+    /// "succeeded", the user was provisioned with no time at all, and the very next enforcement tick locked
+    /// them straight back out with the setup screen gone. Blank now means the prefilled device default —
+    /// matching the first-run wizard, which has always resolved NaN to its default rather than to zero. A
+    /// deliberately typed 0 is still honoured.</para></summary>
     private int ChosenSetupMinutes()
     {
-        var hours = double.IsNaN(SetupLimitHours.Value) ? 0 : SetupLimitHours.Value;
+        var hours = double.IsNaN(SetupLimitHours.Value) ? DefaultSetupHours() : SetupLimitHours.Value;
         return Math.Clamp((int)Math.Round(hours * 60), 0, 24 * 60);
     }
+
+    /// <summary>Flag a zero daily limit as the parent types it. Zero is a legitimate choice (a day this user
+    /// gets no screen time), but it is also what a mistyped entry lands on, and the consequence — the user is
+    /// re-locked the moment setup completes — is severe enough to warrant saying so up front.</summary>
+    private void OnSetupLimitChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
+        SetupZeroWarning.Visibility = ChosenSetupMinutes() == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private void OnAdd15(object sender, RoutedEventArgs e) => TryAction("extend15");
     private void OnAdd30(object sender, RoutedEventArgs e) => TryAction("extend30");
@@ -106,8 +165,11 @@ public sealed partial class LockWindow : Window
     private void OnUnlock(object sender, RoutedEventArgs e) =>
         TryAction(_newUser ? "provision" : _budgetMode ? "unlock" : "ignore_schedule");
 
-    private void OnLogoff(object sender, RoutedEventArgs e) =>
+    private void OnLogoff(object sender, RoutedEventArgs e)
+    {
+        if (_pending) return;
         ActionConfirmed?.Invoke("logoff", null);
+    }
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -121,6 +183,8 @@ public sealed partial class LockWindow : Window
     /// <summary>enforce lockout, verify entry, on success raise action (reset failed-attempt counter); on failure record attempt</summary>
     private void TryAction(string action)
     {
+        if (_pending) return;   // one action at a time; the overlay has not ruled on the last one yet
+
         if (IsLockedOut(out var wait))
         {
             ShowError(Loc.T("lock.lockedout", wait));
