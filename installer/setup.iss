@@ -296,6 +296,13 @@ begin
     '# auto-restart on crash (5s, 5s, then every 60s); reset count daily' + #13#10 +
     'sc.exe failure $svc reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null' + #13#10 +
     '' + #13#10 +
+    '# treat a clean exit with a non-zero code as a failure too. WITHOUT this the recovery' + #13#10 +
+    '# actions above only fire when the process dies without reporting SERVICE_STOPPED --' + #13#10 +
+    '# i.e. a hard crash. A .NET generic host that fails to start (bad config, locked DB,' + #13#10 +
+    '# unhandled startup exception) exits cleanly with a non-zero code instead, so SCM left' + #13#10 +
+    '# enforcement down until the next reboot. This is the SCM knob that covers it.' + #13#10 +
+    'sc.exe failureflag $svc 1 | Out-Null' + #13#10 +
+    '' + #13#10 +
     '# lock down install dir (read-only for users); DB dir writable for app' + #13#10 +
     'function AclRule($sidStr,$rights,$inherit,$prop,$type){' + #13#10 +
     '    $sid=New-Object System.Security.Principal.SecurityIdentifier($sidStr)' + #13#10 +
@@ -317,7 +324,19 @@ begin
     '$dbAcl.AddAccessRule((AclRule "S-1-5-32-545" "Modify"      "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     'Set-Acl $dbDir $dbAcl' + #13#10 +
     '' + #13#10 +
-    'Start-Service $svc' + #13#10 +
+    '# start, then confirm it actually reached Running. Start-Service failing here used to be' + #13#10 +
+    '# swallowed, so a service that could not start still produced a "successful" install and a' + #13#10 +
+    '# machine with no enforcement. retry once, then report so the caller can surface it.' + #13#10 +
+    'Start-Service $svc -ErrorAction SilentlyContinue' + #13#10 +
+    'try { (Get-Service $svc).WaitForStatus("Running", "00:00:20") } catch { }' + #13#10 +
+    'if ((Get-Service $svc -ErrorAction SilentlyContinue).Status -ne "Running") {' + #13#10 +
+    '    Start-Sleep -Seconds 2' + #13#10 +
+    '    Start-Service $svc -ErrorAction SilentlyContinue' + #13#10 +
+    '    try { (Get-Service $svc).WaitForStatus("Running", "00:00:20") } catch { }' + #13#10 +
+    '}' + #13#10 +
+    '# recorded, not thrown: the remaining ACL work below must still run. surfaced as a' + #13#10 +
+    '# non-zero exit at the very end, which the caller already reports to the user.' + #13#10 +
+    '$svcFailed = ((Get-Service $svc -ErrorAction SilentlyContinue).Status -ne "Running")' + #13#10 +
     '' + #13#10 +
     '# overlay launches via logon scheduled task: .NET app fails to start' + #13#10 +
     '# under service CreateProcessAsUser, but starts cleanly from Task' + #13#10 +
@@ -358,7 +377,10 @@ begin
     '$upAcl.SetAccessRuleProtection($true, $false)' + #13#10 +
     '$upAcl.AddAccessRule((AclRule "S-1-5-32-544" "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     '$upAcl.AddAccessRule((AclRule "S-1-5-18"     "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
-    'Set-Acl $up $upAcl' + #13#10;
+    'Set-Acl $up $upAcl' + #13#10 +
+    '' + #13#10 +
+    '# last: report a service that never reached Running, after all other setup has happened' + #13#10 +
+    'if ($svcFailed) { exit 1 }' + #13#10;
 
   if not WriteScript(ScriptPath, Script) then
   begin
