@@ -26,6 +26,10 @@ public static class ConfigPipe
     /// <summary>verify an offline unlock (TOTP) code and advance the replay counter, all SYSTEM-side. The
     /// counter lives in write-protected config.db so a child can't reset it to replay a known code.</summary>
     public const string OpRedeem = "redeem";
+
+    /// <summary>liveness probe. Answered Ok for any caller and changes nothing, so it reveals only that the
+    /// SYSTEM service is up and hosting the pipe — which the client has already confirmed is session 0.</summary>
+    public const string OpPing = "ping";
 }
 
 /// <summary>config-IPC request. unused fields null for a given op</summary>
@@ -96,6 +100,11 @@ public static class ConfigClient
     public static ConfigResponse Provision(string sid, string? passcode, int limitMinutes) =>
         Send(new ConfigRequest(ConfigPipe.OpProvision, Sid: sid, Passcode: passcode,
             Value: limitMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+    /// <summary>whether the SYSTEM config service is up and answering. Distinguishes "service down" from
+    /// "service refused me", which a plain <c>Ok == false</c> cannot.</summary>
+    public static bool Ping(int timeoutMs = 1500) =>
+        Send(new ConfigRequest(ConfigPipe.OpPing), timeoutMs).Ok;
 
     /// <summary>record failed unlock attempt (advances lockout counter)</summary>
     public static bool RecordFailure() =>

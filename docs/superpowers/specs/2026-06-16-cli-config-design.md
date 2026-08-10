@@ -46,8 +46,16 @@ Typed helpers (validation + friendly errors, wrap the generic path):
 - `set-timeout <minutes>` — `lock_screen_timeout`, clamp 1–720, stored ×60 as seconds
 - `set-passcode <newPin>` — validate ≥8 chars, hash via `PasscodeHash.Hash`, write `passcode`
 
-Introspection:
+- `provision --user <name|sid> <minutes>` — set a Windows user up without the lock
+  screen: writes their daily limit for every weekday and adds them to
+  `provisioned_users`, in one `OpProvision` call
+- `reset-lockout` — clear `failed_attempts`; the recovery path when a parent has
+  locked themselves out of the lock screen
+
+Introspection (read-only, no elevation):
 - `list-users` — print provisioned SIDs + resolved display names
+- `status` — summarise what is currently enforced (service reachable, elevation,
+  passcode set, today's limit, schedule, lock state, failed attempts)
 - `--help` extended to document `--config`
 
 ### Modifiers
@@ -56,18 +64,41 @@ Introspection:
   via `SecurityIdentifier`/`NTAccount.Translate`) or a raw SID. When set, reads/writes
   target `u:{sid}:{key}`. Rejected (exit 2) for device-wide-only keys
   (`SettingsPartition` global keys, e.g. `passcode`, `provisioned_users`).
-- PIN input precedence: `stdin` → `CURFEW_PIN` env var → `--pin <pin>` arg.
-  First non-empty source wins. Documented that `--pin` is visible in process list/
-  history; stdin/env preferred for secure scripts.
+- `--json` — machine-readable output for `status`, `get` and `list-users`.
+
+### Authorisation (superseded 2026-08-11: elevation, not PIN)
+
+The CLI originally took a PIN (`stdin` → `CURFEW_PIN` → `--pin`). That is gone.
+`--pin` is now rejected with an explanatory error rather than ignored, so scripts
+written against the old surface fail loudly.
+
+Write verbs (`set*`, `provision`, `reset-lockout`) require an **elevated
+administrator**; read verbs require nothing. The rationale: the installer grants
+`S-1-5-32-544` FullControl on the Curfew data directory, so anyone able to run
+elevated can already rewrite `config.db` by hand. Requiring a PIN on top of that
+protected nothing, while pushing the secret through argv, environment variables and
+shell history — where it is far easier to capture than to guess.
+
+The check that counts is **server-side**: `ConfigPipeServer` impersonates the pipe
+client (`NamedPipeServerStream.RunAsClient`) and tests for an elevated administrator
+token, failing closed on any error. A filtered (non-elevated) admin token reports
+false, so "administrator" means actually elevated. The CLI's own check is only a
+courtesy so scripts fail fast — patching the binary gains nothing.
+
+Non-administrators are unaffected: they keep the full passcode + brute-force lockout
+treatment, so the lock screen's guarantees are unchanged. `OpRedeem` is deliberately
+*not* admin-bypassed (a one-time-code path an admin has no need of).
 
 ## Data Flow
 
 1. `Program.Main` (in `Curfew.Cli`) calls `CliCommandParser.Parse(args)` (in `Curfew.Core`).
 2. Parser validates and produces a `CliCommand` (writes + flags), or a typed error → exit 2.
-3. `Program` resolves `--user` to a SID and the PIN (precedence `--pin` → `CURFEW_PIN` → stdin).
+3. `Program` refuses a write verb unless the process is elevated (exit 4), then resolves
+   `--user` to a SID.
 4. Validation happens in the parser **before** any write (clamp ranges, schedule shape,
    passcode length, key writability). Invalid → exit 2, nothing written.
-5. Writes via `ConfigClient.Send(ConfigPipe.OpSet, …, pin)` (one call per key; `set-limit all`
+5. Writes via `ConfigClient.Send(ConfigPipe.OpSet, …)` with no passcode — the service
+   authorises from the connection (one call per key; `set-limit all`
    loops weekdays — non-atomic, partial failure reported). Reads open `SettingsStore` directly
    with per-user scope honored.
 6. Maps IPC outcome to exit code and prints a one-line result.

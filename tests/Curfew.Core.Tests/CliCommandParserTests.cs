@@ -209,18 +209,20 @@ public class CliCommandParserTests
         Assert.False(Parse("--user", "alice", "get", "passcode").Ok);
     }
 
+    /// <summary>authorisation moved from the PIN to elevation; a script still passing --pin must be told
+    /// clearly rather than have the flag silently swallowed as a positional argument.</summary>
     [Fact]
-    public void Pin_flag_extracted()
+    public void Pin_flag_is_rejected()
     {
         var r = Parse("set-limit", "monday", "60", "--pin", "69696969");
-        Assert.True(r.Ok);
-        Assert.Equal("69696969", r.Command!.PinArg);
+        Assert.False(r.Ok);
+        Assert.Equal(CliExit.Invalid, r.ErrorCode);
+        Assert.Contains("--pin", r.Error!);
     }
 
     [Fact]
     public void Flag_without_value_is_invalid()
     {
-        Assert.False(Parse("set-limit", "monday", "60", "--pin").Ok);
         Assert.False(Parse("--user").Ok);
     }
 
@@ -230,21 +232,52 @@ public class CliCommandParserTests
         Assert.False(Parse("--user", "a", "--user", "b", "get", "limit_monday").Ok);
     }
 
-    [Theory]
-    [InlineData("  5\n", null, null, "5")]
-    [InlineData(null, "env-pin", null, "env-pin")]
-    [InlineData(null, null, "arg-pin", "arg-pin")]
-    [InlineData("stdin", "env", "arg", "arg")]   // explicit --pin wins over env + stdin
-    [InlineData("stdin", "env", null, "env")]    // env wins over stdin
-    [InlineData("", "", "arg", "arg")]
-    public void Resolve_pin_precedence(string? stdin, string? env, string? arg, string expected)
+    [Fact]
+    public void Json_flag_extracted()
     {
-        Assert.Equal(expected, CliCommandParser.ResolvePin(stdin, env, arg));
+        var r = Parse("status", "--json");
+        Assert.True(r.Ok);
+        Assert.True(r.Command!.Json);
+        Assert.Equal(CliVerb.Status, r.Command.Verb);
     }
 
     [Fact]
-    public void Resolve_pin_none()
+    public void Status_and_list_users_need_no_elevation()
     {
-        Assert.Null(CliCommandParser.ResolvePin(null, null, null));
+        Assert.False(CliCommandParser.RequiresElevation(CliVerb.Status));
+        Assert.False(CliCommandParser.RequiresElevation(CliVerb.Get));
+        Assert.False(CliCommandParser.RequiresElevation(CliVerb.ListUsers));
+        Assert.False(CliCommandParser.RequiresElevation(CliVerb.Help));
+    }
+
+    [Fact]
+    public void Every_write_verb_requires_elevation()
+    {
+        Assert.True(CliCommandParser.RequiresElevation(CliVerb.Set));
+        Assert.True(CliCommandParser.RequiresElevation(CliVerb.Provision));
+        Assert.True(CliCommandParser.RequiresElevation(CliVerb.ResetLockout));
+    }
+
+    [Fact]
+    public void Provision_requires_user_and_valid_minutes()
+    {
+        Assert.False(Parse("provision", "120").Ok);                        // no --user
+        Assert.False(Parse("--user", "alice", "provision").Ok);            // no minutes
+        Assert.False(Parse("--user", "alice", "provision", "1441").Ok);    // out of range
+        Assert.False(Parse("--user", "alice", "provision", "abc").Ok);
+
+        var r = Parse("--user", "alice", "provision", "120");
+        Assert.True(r.Ok);
+        Assert.Equal(CliVerb.Provision, r.Command!.Verb);
+        Assert.Equal(120, r.Command.Minutes);
+        Assert.Equal("alice", r.Command.UserArg);
+    }
+
+    [Fact]
+    public void Reset_lockout_takes_no_arguments_and_no_user()
+    {
+        Assert.True(Parse("reset-lockout").Ok);
+        Assert.False(Parse("reset-lockout", "extra").Ok);
+        Assert.False(Parse("--user", "alice", "reset-lockout").Ok);
     }
 }

@@ -7,7 +7,9 @@ using Curfew.Core.Security;
 
 namespace Curfew.Service;
 
-/// <summary>Host config-write named pipe as SYSTEM. Every write passcode-gated (except first-run bootstrap before <c>config.db</c> passcode exists); connecting buys nothing.</summary>
+/// <summary>Host config-write named pipe as SYSTEM. Connecting buys nothing: a write needs either the parent
+/// passcode, or a caller the service has confirmed is an elevated administrator (see
+/// <c>CallerIsElevatedAdmin</c>), or the first-run bootstrap window before a passcode exists.</summary>
 internal sealed class ConfigPipeServer
 {
     private readonly SettingsStore _config;
@@ -95,8 +97,41 @@ internal sealed class ConfigPipeServer
         }
         if (line is null) return; // over MaxRequestBytes — refuse, no more buffering
 
-        var response = Handle(line);
+        // Determine the caller's authority from the CONNECTION, not from anything in the request: an
+        // elevated administrator is trusted without a passcode, everyone else keeps the full passcode +
+        // lockout treatment. Nothing about this is forgeable by the request body.
+        var callerIsAdmin = CallerIsElevatedAdmin(server);
+
+        var response = Handle(line, callerIsAdmin);
         await writer.WriteLineAsync(JsonSerializer.Serialize(response, Json).AsMemory(), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether the connected client holds an elevated administrator token.
+    /// <para>Impersonating the pipe client is the only trustworthy way to ask this. A flag in the request, or
+    /// a check performed by the CLI before connecting, would prove nothing — a child can write their own pipe
+    /// client and claim anything. Here the answer comes from the token the OS attached to the connection.</para>
+    /// <para>A filtered (non-elevated) administrator token carries Administrators as deny-only, so
+    /// <see cref="WindowsPrincipal.IsInRole(WindowsBuiltInRole)"/> returns false for it. That is deliberate:
+    /// "administrator" here means actually elevated, not merely a member of the group.</para>
+    /// <para>Fails closed. Any error — impersonation refused, token unavailable — is treated as "not an
+    /// administrator", which falls back to the passcode gate rather than opening one.</para></summary>
+    private static bool CallerIsElevatedAdmin(NamedPipeServerStream server)
+    {
+        try
+        {
+            var isAdmin = false;
+            server.RunAsClient(() =>
+            {
+                using var identity = WindowsIdentity.GetCurrent();
+                isAdmin = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+            });
+            return isAdmin;
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"config pipe: could not identify caller ({ex.Message}); treating as unprivileged");
+            return false;
+        }
     }
 
     /// <summary>Read one newline-terminated request; return <c>null</c> once bytes exceed <see cref="MaxRequestBytes"/>. Char-at-a-time, not <see cref="StreamReader.ReadLineAsync()"/>, which buffers whole line before cap applies.</summary>
@@ -119,7 +154,7 @@ internal sealed class ConfigPipeServer
         return null;
     }
 
-    private ConfigResponse Handle(string? line)
+    private ConfigResponse Handle(string? line, bool callerIsAdmin)
     {
         if (string.IsNullOrWhiteSpace(line)) return new ConfigResponse(false, "empty request");
 
@@ -130,10 +165,14 @@ internal sealed class ConfigPipeServer
 
         return request.Op switch
         {
-            ConfigPipe.OpSet => HandleSet(request),
-            ConfigPipe.OpProvision => HandleProvision(request),
+            ConfigPipe.OpSet => HandleSet(request, callerIsAdmin),
+            ConfigPipe.OpProvision => HandleProvision(request, callerIsAdmin),
+            // liveness only: no auth, no state touched, so it cannot be used to probe or grind anything
+            ConfigPipe.OpPing => new ConfigResponse(true),
             ConfigPipe.OpRecordFailure => HandleRecordFailure(),
-            ConfigPipe.OpResetFailures => HandleResetFailures(request),
+            ConfigPipe.OpResetFailures => HandleResetFailures(request, callerIsAdmin),
+            // deliberately NOT admin-bypassed: redeeming is a one-time-code operation, and an
+            // administrator has no need of it (they can write the underlying keys directly).
             ConfigPipe.OpRedeem => HandleRedeem(request),
             _ => new ConfigResponse(false, $"unknown op '{request.Op}'"),
         };
@@ -162,17 +201,24 @@ internal sealed class ConfigPipeServer
         return new ConfigResponse(true);
     }
 
-    /// <summary>Set up new Windows user after parent passcode verified: write per-user daily limit (all weekdays) and add SID to set-up list. Brute-force lockout enforced here, not just lock UI.</summary>
-    private ConfigResponse HandleProvision(ConfigRequest request)
+    /// <summary>Set up new Windows user: write per-user daily limit (all weekdays) and add SID to set-up list.
+    /// Authorised by the parent passcode, or by an elevated administrator (the CLI's <c>provision</c> path).
+    /// For the passcode route the brute-force lockout is enforced here, not just in the lock UI.</summary>
+    private ConfigResponse HandleProvision(ConfigRequest request, bool callerIsAdmin)
     {
         if (string.IsNullOrEmpty(request.Sid))
             return new ConfigResponse(false, "sid required");
 
-        if (IsLockedOut(out var locked)) return locked;
+        // an elevated administrator provisions without the passcode (and without being subject to, or
+        // contributing to, the brute-force counter — there is nothing to brute-force on this path).
+        if (!callerIsAdmin)
+        {
+            if (IsLockedOut(out var locked)) return locked;
 
-        var passcode = _config.Get("passcode");
-        if (string.IsNullOrEmpty(passcode) || !PasscodeHash.Verify(request.Passcode, passcode))
-            return RecordFailureAndReject();
+            var passcode = _config.Get("passcode");
+            if (string.IsNullOrEmpty(passcode) || !PasscodeHash.Verify(request.Passcode, passcode))
+                return RecordFailureAndReject();
+        }
 
         // persist per-user daily limit (every weekday) so budget seeds from it not device default. clamp sane range; skip if absent
         if (int.TryParse(request.Value, out var limitMinutes))
@@ -226,12 +272,14 @@ internal sealed class ConfigPipeServer
     }
 
     /// <summary>Clear failed-attempt counter after success. Gated on parent passcode: unauthenticated reset would let child zero counter between guesses and defeat lockout.</summary>
-    private ConfigResponse HandleResetFailures(ConfigRequest request)
+    private ConfigResponse HandleResetFailures(ConfigRequest request, bool callerIsAdmin)
     {
         var passcode = _config.Get("passcode");
 
         // bootstrap: no passcode yet, reset trivially allowed, no touch counter (nothing to brute-force)
-        if (string.IsNullOrEmpty(passcode))
+        // an elevated administrator may also clear it: this is the recovery path for a parent who has
+        // locked themselves out, and it grants nothing they could not do by editing config.db directly.
+        if (string.IsNullOrEmpty(passcode) || callerIsAdmin)
         {
             _config.Set("failed_attempts", "0");
             return new ConfigResponse(true);
@@ -246,18 +294,19 @@ internal sealed class ConfigPipeServer
         return new ConfigResponse(true);
     }
 
-    private ConfigResponse HandleSet(ConfigRequest request)
+    private ConfigResponse HandleSet(ConfigRequest request, bool callerIsAdmin)
     {
         if (string.IsNullOrEmpty(request.Key) || request.Value is null)
             return new ConfigResponse(false, "key/value required");
 
-        // only config keys writable via pipe; state is child-writable
+        // only config keys writable via pipe; state is child-writable. this bound applies to
+        // administrators too — the partition is about which store owns a key, not about authority.
         if (SettingsPartition.StoreFor(request.Key) != SettingsStoreKind.Config)
             return new ConfigResponse(false, "not a config key");
 
         // gate on parent passcode, except first-run bootstrap (no passcode yet)
         var stored = _config.Get("passcode");
-        if (!string.IsNullOrEmpty(stored))
+        if (!string.IsNullOrEmpty(stored) && !callerIsAdmin)
         {
             // enforce lockout and count wrong guesses here so direct pipe client no grind passcode by skipping client-side check
             if (IsLockedOut(out var locked)) return locked;
