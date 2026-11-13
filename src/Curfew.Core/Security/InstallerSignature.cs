@@ -17,7 +17,7 @@ public static class InstallerSignature
 {
     /// <summary>SHA-256 of signing cert SubjectPublicKeyInfo (uppercase hex). pin for Curfew self-signed code-signing key. must match public key of cert release workflow signs installers with</summary>
     public const string PinnedPublicKeySha256 =
-        "BFE95CE974EB1059325D1504310CA554565DFD4D7393B9CAFB5B74D8FE90909B";
+        "87EAED83ED686B8EBEBE871A6875CEEB9621C2147A6B3A79BBD0C4D434339C16";
 
     // WinVerifyTrust status values
     private const uint TrustSuccess = 0;                 // ERROR_SUCCESS
