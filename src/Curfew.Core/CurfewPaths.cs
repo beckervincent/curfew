@@ -63,7 +63,13 @@ public static class CurfewPaths
     /// <summary>absolute path to activity/tamper event log (<c>%ProgramData%\Curfew\events.log</c>), written by service + overlay, shown to parent in Settings</summary>
     public static string EventLogFile => Path.Combine(DataDirectory, EventLogFileName);
 
-    /// <summary>absolute path to update staging folder (<c>%ProgramData%\Curfew\update</c>). access ensures parent <see cref="DataDirectory"/> exists but doesn't create the update folder</summary>
+    /// <summary>service-private subfolder (SYSTEM + Administrators only; ordinary users can't even list it): secrets + blocklist cache</summary>
+    public static string SecureDirectory => Path.Combine(DataDirectory, "secure");
+
+    /// <summary>service-private credential store (passcode hash, unlock seed, lockout counters)</summary>
+    public static string SecretsFile => Path.Combine(SecureDirectory, "secrets.db");
+
+        /// <summary>absolute path to update staging folder (<c>%ProgramData%\Curfew\update</c>). access ensures parent <see cref="DataDirectory"/> exists but doesn't create the update folder</summary>
     public static string UpdateDirectory => Path.Combine(DataDirectory, UpdateFolderName);
 
     /// <summary>machine-wide app-data root (<c>%ProgramData%</c>), falling back to a default when unresolvable</summary>

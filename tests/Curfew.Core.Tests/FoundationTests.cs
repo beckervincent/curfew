@@ -6,17 +6,13 @@ namespace Curfew.Core.Tests;
 public class SettingsPartitionTests
 {
     [Theory]
-    [InlineData("remaining_time_2026-06-11", SettingsStoreKind.State)]
-    [InlineData("used_time_2026-06-11", SettingsStoreKind.State)]
-    [InlineData("pause_used_2026-06-11", SettingsStoreKind.State)]
+    [InlineData("remaining_time_2026-06-11", SettingsStoreKind.Ledger)]
+    [InlineData("used_time_2026-06-11", SettingsStoreKind.Ledger)]
+    [InlineData("pause_used_2026-06-11", SettingsStoreKind.Ledger)]
     [InlineData("lock_active", SettingsStoreKind.State)]
     [InlineData("lock_action", SettingsStoreKind.State)]
-    [InlineData("lock_action_at", SettingsStoreKind.State)]
     [InlineData("lock_reason", SettingsStoreKind.State)]
     [InlineData("lock_deadline_unix", SettingsStoreKind.State)]
-    [InlineData("lock_sid", SettingsStoreKind.State)]
-    [InlineData("lock_code", SettingsStoreKind.State)]
-    [InlineData("lock_setup_limit", SettingsStoreKind.State)]
     [InlineData("tray_command", SettingsStoreKind.State)]
     // replay counter for offline codes: write-protected config, NOT child-writable state — else a child
     // who knows the code could reset it in state.db and replay the code to farm bonus time

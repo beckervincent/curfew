@@ -57,7 +57,9 @@ internal sealed class SessionManager
         {
             try
             {
-                sessions.Add((uint)process.SessionId);
+                // only the genuine overlay counts: a child can run any exe NAMED Curfew.Overlay to fake coverage.
+                // the real one lives in the admin-only install dir, so the image path can't be spoofed
+                if (IsGenuineOverlay(process)) sessions.Add((uint)process.SessionId);
             }
             catch
             {
@@ -70,6 +72,29 @@ internal sealed class SessionManager
         }
 
         return sessions;
+    }
+
+    /// <summary>Expected overlay image path: <c>&lt;install root&gt;\overlay\Curfew.Overlay.exe</c> (service runs from <c>&lt;install root&gt;\service</c>).</summary>
+    private static readonly string GenuineOverlayPath = Path.GetFullPath(
+        Path.Combine(AppContext.BaseDirectory, "..", "overlay", "Curfew.Overlay.exe"));
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern bool QueryFullProcessImageName(IntPtr process, int flags, System.Text.StringBuilder name, ref int size);
+
+    /// <summary>Whether <paramref name="process"/> runs the installed overlay binary (full image path match).</summary>
+    private static bool IsGenuineOverlay(Process process)
+    {
+        try
+        {
+            var buffer = new System.Text.StringBuilder(1024);
+            var size = buffer.Capacity;
+            return QueryFullProcessImageName(process.Handle, 0, buffer, ref size)
+                   && string.Equals(Path.GetFullPath(buffer.ToString()), GenuineOverlayPath, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>Ask Task Scheduler to run overlay task on demand. Task name quoted to survive spaces; exit code inspected so failures hit the log.</summary>

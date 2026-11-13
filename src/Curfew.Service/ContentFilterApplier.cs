@@ -30,7 +30,7 @@ internal static class ContentFilterApplier
         var blockDoh = mode != FilterMode.Off && settings.GetBool(BlockDohKey, true);
         RunStep(
             blockDoh ? "DoH bypass block" : "DoH bypass clear",
-            blockDoh ? DohGuard.BuildBlockScript() : DohGuard.BuildClearScript());
+            blockDoh ? DohGuard.BuildBlockScript(mode) : DohGuard.BuildClearScript());
     }
 
     /// <summary>Run one PowerShell reconciliation step; log non-zero/failed exit without aborting remaining steps.</summary>

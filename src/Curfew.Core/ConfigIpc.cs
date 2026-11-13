@@ -17,15 +17,59 @@ public static class ConfigPipe
     /// <summary>set up new Windows user (passcode-gated): write per-user daily limit + add SID to set-up list, one verified call</summary>
     public const string OpProvision = "provision";
 
-    /// <summary>record failed unlock attempt (advances lockout counter)</summary>
-    public const string OpRecordFailure = "fail";
-
     /// <summary>clear failed-attempt lockout counter after a success</summary>
     public const string OpResetFailures = "reset";
 
     /// <summary>verify an offline unlock (TOTP) code and advance the replay counter, all SYSTEM-side. The
     /// counter lives in write-protected config.db so a child can't reset it to replay a known code.</summary>
     public const string OpRedeem = "redeem";
+
+    /// <summary>verify parent passcode SYSTEM-side (secret never leaves the service). lockout enforced + failures recorded there</summary>
+    public const string OpVerify = "verify";
+
+    /// <summary>authorize a lock/tray action (Key) for the CALLER's SID + session: passcode, unlock code or
+    /// ungated per action. On success the service publishes a one-shot grant <c>grant_&lt;sid&gt;_&lt;session&gt;</c>
+    /// in write-protected config.db that only that session's overlay consumes.</summary>
+    public const string OpAuthorize = "authorize";
+
+    /// <summary>overlay consumes its pending grant (Value = grant id); service applies any time credit to the ledger and returns the new balance</summary>
+    public const string OpConsume = "consume";
+
+    /// <summary>overlay accounting write (Key/Value). service accepts only keys for the caller's SID and only monotonic changes (remaining down, usage up)</summary>
+    public const string OpLedger = "ledger";
+
+    /// <summary>overlay reports lock up/down (Value "1"/"0"); service binds it to the caller's SID for the Task Manager lockdown</summary>
+    public const string OpLockState = "lockstate";
+
+    /// <summary>return (Value "rotate" = regenerate first) the offline unlock seed for enrolment display; passcode-gated</summary>
+    public const string OpSecret = "secret";
+
+    /// <summary>check for and install an update now from service-protected staging; passcode-gated</summary>
+    public const string OpUpdate = "update";
+
+    /// <summary>lock/tray actions any session user may trigger for THEMSELVES without a passcode</summary>
+    public static readonly IReadOnlySet<string> UngatedActions = new HashSet<string> { "break", "logoff" };
+
+    /// <summary>actions that require the parent passcode (or, on the lock screen, an offline unlock code)</summary>
+    public static readonly IReadOnlySet<string> GatedActions = new HashSet<string>
+    {
+        "extend15", "extend30", "extend45", "extend60", "unlock", "ignore_schedule", "pause", "resume", "quit", "provision",
+    };
+
+    /// <summary>Format of a published grant value: <c>id|action|issuedUnix</c>.</summary>
+    public static bool TryParseGrant(string? raw, out string id, out string action, out long issuedUnix)
+    {
+        id = action = string.Empty;
+        issuedUnix = 0;
+        var parts = raw?.Split('|');
+        if (parts is not { Length: 3 } || !long.TryParse(parts[2], out issuedUnix)) return false;
+        id = parts[0];
+        action = parts[1];
+        return id.Length > 0 && action.Length > 0;
+    }
+
+    /// <summary>config.db key holding the grant for <paramref name="sid"/> in <paramref name="session"/>.</summary>
+    public static string GrantKey(string sid, int session) => $"{SettingsPartition.GrantPrefix}{sid}_{session}";
 }
 
 /// <summary>config-IPC request. unused fields null for a given op</summary>
@@ -49,7 +93,9 @@ public static class ConfigClient
     {
         try
         {
-            using var pipe = new NamedPipeClientStream(".", ConfigPipe.PipeName, PipeDirection.InOut);
+            // Identification: service may learn our SID (it binds grants/ledger writes to it) but not act as us
+            using var pipe = new NamedPipeClientStream(".", ConfigPipe.PipeName, PipeDirection.InOut,
+                PipeOptions.None, System.Security.Principal.TokenImpersonationLevel.Identification);
             pipe.Connect(timeoutMs);
 
             // requests carry parent passcode in the clear — confirm other end is the SYSTEM service (session 0), not a user-session process squatting the pipe name to harvest it
@@ -93,10 +139,6 @@ public static class ConfigClient
         Send(new ConfigRequest(ConfigPipe.OpProvision, Sid: sid, Passcode: passcode,
             Value: limitMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture))).Ok;
 
-    /// <summary>record failed unlock attempt (advances lockout counter)</summary>
-    public static bool RecordFailure() =>
-        Send(new ConfigRequest(ConfigPipe.OpRecordFailure)).Ok;
-
     /// <summary>clear lockout counter after success. the code that just unlocked (passcode or device code) authenticates the reset — without it any local user could zero the counter between guesses and brute-force</summary>
     public static bool ResetFailures(string? code) =>
         Send(new ConfigRequest(ConfigPipe.OpResetFailures, Passcode: code)).Ok;
@@ -106,4 +148,32 @@ public static class ConfigClient
     /// overlay then applies the bonus. The code travels in the passcode field (it is the authenticator).</summary>
     public static ConfigResponse Redeem(string? code) =>
         Send(new ConfigRequest(ConfigPipe.OpRedeem, Passcode: code));
+
+    /// <summary>verify parent passcode in the service. Error "locked out, retry in Ns" while throttled</summary>
+    public static ConfigResponse Verify(string? passcode) =>
+        Send(new ConfigRequest(ConfigPipe.OpVerify, Passcode: passcode));
+
+    /// <summary>authorize <paramref name="action"/> for the calling user's session (see <see cref="ConfigPipe.OpAuthorize"/>). Value of an ok response = granted action (e.g. "redeem" when an unlock code was used)</summary>
+    public static ConfigResponse Authorize(string action, string? code = null, string? value = null) =>
+        Send(new ConfigRequest(ConfigPipe.OpAuthorize, Key: action, Passcode: code, Value: value));
+
+    /// <summary>consume the caller session's grant <paramref name="id"/>; Value = "action|remainingSeconds" (balance empty when unchanged)</summary>
+    public static ConfigResponse Consume(string id) =>
+        Send(new ConfigRequest(ConfigPipe.OpConsume, Value: id), timeoutMs: 1500);
+
+    /// <summary>forward an accounting write to the service (short timeout: called from overlay pump thread)</summary>
+    public static bool Ledger(string key, string value) =>
+        Send(new ConfigRequest(ConfigPipe.OpLedger, Key: key, Value: value), timeoutMs: 500).Ok;
+
+    /// <summary>report lock up/down for the caller's account</summary>
+    public static bool LockState(bool active) =>
+        Send(new ConfigRequest(ConfigPipe.OpLockState, Value: active ? "1" : "0"), timeoutMs: 1000).Ok;
+
+    /// <summary>fetch (or rotate then fetch) the offline unlock seed for display; passcode-gated</summary>
+    public static ConfigResponse UnlockSecret(string? passcode, bool rotate) =>
+        Send(new ConfigRequest(ConfigPipe.OpSecret, Passcode: passcode, Value: rotate ? "rotate" : string.Empty));
+
+    /// <summary>ask the service to update now; passcode-gated. long timeout: download + verify happen before the reply</summary>
+    public static ConfigResponse UpdateNow(string? passcode) =>
+        Send(new ConfigRequest(ConfigPipe.OpUpdate, Passcode: passcode), timeoutMs: 120_000);
 }

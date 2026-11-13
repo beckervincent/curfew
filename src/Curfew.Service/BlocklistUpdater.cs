@@ -28,7 +28,7 @@ internal static class BlocklistUpdater
 
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromSeconds(60);
 
-    private static string CachePath => Path.Combine(CurfewPaths.DataDirectory, CacheFileName);
+    private static string CachePath => Path.Combine(CurfewPaths.SecureDirectory, CacheFileName); // service-only dir: child can't edit what SYSTEM writes into hosts
 
     /// <summary>Cached blocked domains (one per line), or empty when disabled / never fetched.</summary>
     public static IReadOnlyList<string> LoadCachedDomains()
@@ -37,7 +37,9 @@ internal static class BlocklistUpdater
         {
             var path = CachePath;
             if (!File.Exists(path)) return Array.Empty<string>();
-            return File.ReadAllLines(path).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            // bounded read + same domain validation as downloads, so a tampered/garbage cache can't inject odd hosts lines or cost unbounded CPU
+            if (new FileInfo(path).Length > 64L * 1024 * 1024) return Array.Empty<string>();
+            return BlocklistParser.Parse(File.ReadAllText(path), 1_000_000, out _);
         }
         catch (Exception ex)
         {

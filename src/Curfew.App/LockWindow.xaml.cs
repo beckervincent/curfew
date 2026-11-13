@@ -18,8 +18,6 @@ public sealed partial class LockWindow : Window
     /// <summary>daily limit (minutes) parent chose on new-user setup lock, read by <see cref="LockController"/> when it records a "provision" action. only meaningful while <see cref="_newUser"/></summary>
     public int SetupLimitMinutes { get; private set; }
 
-    /// <summary>fail-closed cooldown deadline (Unix seconds, UTC) used when SYSTEM service couldnt record a failure. persisted counter lives in config.db + is the only thing driving <see cref="LockoutPolicy"/> backoff; WinUI lock can only advance it via best-effort config pipe, which returns false (never throws) when service down/restarting/pipe busy. re-accepting input in that window would make lock an unthrottled oracle, so failed RecordFailure() arms this local floor instead — re-checked by <see cref="IsLockedOut"/> every attempt + cleared once wall clock passes it</summary>
-    private long _localCooldownUntilUnix;
 
     /// <summary>raised on confirmed action (extend15/30/60 / unlock / ignore_schedule / redeem / provision / logoff). second arg = entered code for redeem/provision, otherwise null</summary>
     public event Action<string, string?>? ActionConfirmed;
@@ -118,58 +116,42 @@ public sealed partial class LockWindow : Window
         }
     }
 
-    /// <summary>enforce lockout, verify entry, on success raise action (reset failed-attempt counter); on failure record attempt</summary>
+    /// <summary>send entry to the SYSTEM service, which verifies the passcode (or an offline unlock code for time
+    /// actions), enforces lockout, and publishes a grant bound to THIS session that the overlay consumes. nothing
+    /// secret is read or stored client-side</summary>
     private void TryAction(string action)
     {
-        if (IsLockedOut(out var wait))
-        {
-            ShowError(Loc.T("lock.lockedout", wait));
-            return;
-        }
-
         var entered = PinBox.Password;
-
-        // parent passcode authorizes everything. for new-user setup it also carries chosen daily limit (captured here) + PIN itself through to service, which re-verifies before writing limit + setting up
-        if (PasscodeHash.Verify(entered, _settings.Get("passcode")))
+        string? limit = null;
+        if (_newUser)
         {
-            ConfigClient.ResetFailures(entered);
-            if (_newUser)
-            {
-                SetupLimitMinutes = ChosenSetupMinutes();
-                ActionConfirmed?.Invoke(action, entered);
-            }
-            else
-            {
-                ActionConfirmed?.Invoke(action, null);
-            }
+            SetupLimitMinutes = ChosenSetupMinutes();
+            limit = SetupLimitMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        var response = ConfigClient.Authorize(action, entered, limit);
+        if (response.Ok)
+        {
+            ActionConfirmed?.Invoke(response.Value ?? action, null);
             return;
         }
 
-        // offline unlock code grants bonus time on ordinary lock, but cant skip new user's setup
-        if (!_newUser && IsValidUnlockCode(entered))
+        var error = response.Error ?? string.Empty;
+        var match = System.Text.RegularExpressions.Regex.Match(error, @"locked out, retry in (\d+)s");
+        if (match.Success)
         {
-            // do NOT touch the failed-attempt counter here. the service only resets it on a
-            // verified PASSCODE, so calling ResetFailures with the unlock code makes the service
-            // verify the code as the PIN, fail, and RECORD A FAILURE — every valid redemption
-            // would then climb toward a lockout that eventually refuses all input. leave the
-            // counter as-is; a later correct passcode clears it.
-            ActionConfirmed?.Invoke("redeem", entered);
+            ShowError(Loc.T("lock.lockedout", int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)));
             return;
         }
-
-        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, _reason);
-
-        // persisted counter throttles guessing; advancing it is best-effort pipe round-trip to SYSTEM service that returns false (never throws) when service stopped/restarting or pipe busy. if we cant advance it, re-prompting would let child grind freely for whole outage window — including brief restart windows child can provoke. fail closed: arm local cooldown (policy's first throttle step) so IsLockedOut keeps refusing input until server counter advances or local floor expires
-        if (ConfigClient.RecordFailure())
+        if (error == "wrong code")
         {
+            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.FailedUnlock, _reason);
             ShowError(Loc.T("lock.incorrect"));
+            return;
         }
-        else
-        {
-            _localCooldownUntilUnix =
-                DateTimeOffset.UtcNow.ToUnixTimeSeconds() + LockoutPolicy.BaseBackoffSeconds;
-            ShowError(Loc.T("lock.lockedout", LockoutPolicy.BaseBackoffSeconds));
-        }
+
+        // service unreachable/refused: fail closed, nothing granted
+        ShowError(Loc.T("lock.action.failed"));
     }
 
     private void ShowError(string message)
@@ -188,38 +170,5 @@ public sealed partial class LockWindow : Window
         PinBox.Focus(FocusState.Programmatic);
     }
 
-    private bool IsLockedOut(out int retryAfterSeconds)
-    {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-        var state = new LockoutState(
-            _settings.GetInt("failed_attempts", 0),
-            long.TryParse(_settings.Get("failed_attempt_at"), out var at) ? at : 0);
-        if (LockoutPolicy.IsLockedOut(state, now, out retryAfterSeconds))
-            return true;
-
-        // local floor armed when service couldnt advance persisted counter (see TryAction): hold input shut until it expires so service outage cant turn lock into unthrottled oracle
-        var localRemaining = (int)(_localCooldownUntilUnix - now);
-        if (localRemaining > 0)
-        {
-            retryAfterSeconds = localRemaining;
-            return true;
-        }
-
-        retryAfterSeconds = 0;
-        return false;
-    }
-
-    private bool IsValidUnlockCode(string entered)
-    {
-        var secret = _settings.Get("unlock_secret");
-        if (string.IsNullOrWhiteSpace(secret)) return false;
-
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var minCounter = long.TryParse(_settings.Get("unlock_last_counter"), out var last)
-            ? last
-            : long.MinValue;
-
-        return UnlockCode.Verify(secret, entered, now, 10, minCounter, out _);
-    }
 }

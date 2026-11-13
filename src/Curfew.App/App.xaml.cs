@@ -187,9 +187,8 @@ public partial class App : Application
         {
             if (verified)
             {
-                // write timestamp BEFORE command. overlay polls tray_command then reads tray_command_at to reject stale; if command landed first overlay could pair fresh command with leftover old timestamp + silently drop it
-                settings.Set("tray_command_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
-                settings.Set("tray_command", command);
+                // service re-verifies the passcode and publishes a grant bound to this session for the overlay
+                ConfigClient.Authorize(command, ConfigBridge.Passcode);
             }
             Exit();
         };

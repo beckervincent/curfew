@@ -27,8 +27,6 @@ internal static class LockScreen
     /// <summary>seconds until logoff; counts down once a second while locked</summary>
     private static int _shutdownCountdown = -1;
 
-    // new-user setup = blocking ConfigClient.Provision pipe call; must NOT run on pump thread (would freeze hook, leak escape shortcuts). runs on background task, outcome applied next tick. _provisionTask = in-flight call (null=idle); single-threaded so no locking
-    private static Task<bool>? _provisionTask;
 
     public static void Register(IntPtr hInstance)
     {
@@ -45,7 +43,8 @@ internal static class LockScreen
         _hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             ClassName, "Curfew", WS_POPUP,
-            0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
+            GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN),
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
     }
 
@@ -65,8 +64,7 @@ internal static class LockScreen
             OverlayState.NewUserBlocked ? "newuser"
             : OverlayState.BudgetBlocked || OverlayState.WeeklyBlocked ? "budget" : "schedule");
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
-        OverlayState.Settings.Set("lock_action", string.Empty); // clear stale action
-        OverlayState.Settings.Set("lock_sid", CurrentUserSid());
+        ReportLockState(true);
         PublishBreakOffer();
         OverlayState.Settings.Set("lock_active", "1");
         LockAppHost.Launch();
@@ -74,7 +72,7 @@ internal static class LockScreen
         EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked,
             OverlayState.BudgetBlocked ? "budget" : "schedule");
 
-        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
+        CoverAllDisplays(_hwnd, SWP_SHOWWINDOW);
         ShowWindow(_hwnd, SW_SHOW);
         SetForegroundWindow(_hwnd);
         SetTaskbarHidden(true);
@@ -92,6 +90,7 @@ internal static class LockScreen
 
         // tell WinUI surface to exit, stop relaunching
         OverlayState.Settings.Set("lock_active", "0");
+        ReportLockState(false);
         LockAppHost.Kill();
 
         KillTimer(_hwnd, new IntPtr(TimerReassert));
@@ -105,21 +104,19 @@ internal static class LockScreen
         if (OverlayState.MiniHwnd != IntPtr.Zero) ShowWindow(OverlayState.MiniHwnd, SW_SHOWNOACTIVATE);
     }
 
-    /// <summary>current session user SID, for service Task Manager lockdown</summary>
-    private static string CurrentUserSid()
+    /// <summary>tell the service (authenticated pipe; it takes our SID from the token) whether we're locked, for the Task Manager lockdown. off the pump thread</summary>
+    public static void ReportLockState(bool active) =>
+        Task.Run(() => { try { ConfigClient.LockState(active); } catch { /* best effort */ } });
+
+    /// <summary>tear the lock down once a grant (or reload) leaves nothing blocking</summary>
+    public static void HideIfUnblocked()
     {
-        try { return System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty; }
-        catch { return string.Empty; }
+        if (OverlayState.Locked && !OverlayState.ShouldBlock) Hide();
     }
 
     /// <summary>per-second work while locked: apply WinUI surface action, keep surface alive (relaunch if died). black cover + hook enforce underneath. called from overlay tick</summary>
     public static void WhileLockedTick()
     {
-        // apply background new-user setup finished since last tick, before it tears lock down
-        ApplyProvisionResult();
-
-        ConsumeLockAction();
-
         if (!OverlayState.Locked) return;
 
         // keep the lock's break offer current as the budget/cooldown change while it sits up
@@ -127,66 +124,6 @@ internal static class LockScreen
 
         // WinUI surface IS the lock UI; if dies relaunch. cover black-locks the gap, nothing leaks
         if (!LockAppHost.IsRunning) LockAppHost.Launch();
-    }
-
-    /// <summary>apply one-shot action WinUI lock recorded after verifying passcode/code. cleared immediately (runs once), ignored if stale. forging it needs settings DB write -- same exposure as tray command, closed by DB-ACL work</summary>
-    private static void ConsumeLockAction()
-    {
-        var action = OverlayState.Settings.Get("lock_action");
-        if (string.IsNullOrEmpty(action)) return;
-
-        OverlayState.Settings.Set("lock_action", string.Empty); // consume once
-        long.TryParse(OverlayState.Settings.Get("lock_action_at"), out var at);
-        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - at > 60) return; // stale
-
-        switch (action)
-        {
-            case "extend15": ExtendApply(15); break;
-            case "extend30": ExtendApply(30); break;
-            case "extend60": ExtendApply(60); break;
-            case "unlock":
-                OverlayState.ScheduleOverride = true;
-                OverlayState.WeeklyOverride = true; // parent authorized more time past the weekly cap this session
-                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "passcode");
-                if (!OverlayState.ShouldBlock) Hide();
-                break;
-            case "ignore_schedule":
-                OverlayState.IgnoreScheduleUntilRestart = true;
-                OverlayState.ScheduleOverride = true;
-                EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ScheduleIgnored, "until restart");
-                if (!OverlayState.ShouldBlock) Hide();
-                break;
-            case "redeem":
-                var code = OverlayState.Settings.Get("lock_code") ?? string.Empty;
-                OverlayState.Settings.Set("lock_code", string.Empty);
-                if (TryRedeemCode(code))
-                {
-                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, "unlock code");
-                    if (!OverlayState.ShouldBlock) Hide();
-                }
-                break;
-            case "provision":
-                // new-user setup: surface verified parent PIN + chose daily limit (min). hand both to service on bg thread (re-verifies, writes per-user limit, marks set up); outcome lands in ApplyProvisionResult
-                var provCode = OverlayState.Settings.Get("lock_code") ?? string.Empty;
-                OverlayState.Settings.Set("lock_code", string.Empty);
-                int.TryParse(OverlayState.Settings.Get("lock_setup_limit"), out var provLimit);
-                OverlayState.Settings.Set("lock_setup_limit", string.Empty);
-                StartProvision(provCode, provLimit);
-                break;
-            case "break":
-                // ungated child self-service: spend remaining daily break budget for bonus minutes.
-                // no passcode — abuse is bounded by the pause policy (budget + cooldown) in TryRedeemBreak.
-                var grantedSeconds = OverlayState.TryRedeemBreak();
-                if (grantedSeconds > 0)
-                {
-                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.BreakTaken, $"+{grantedSeconds / 60} min");
-                    if (!OverlayState.ShouldBlock) Hide();
-                }
-                break;
-            case "logoff":
-                LockNative.Logoff();
-                break;
-        }
     }
 
     /// <summary>Publish the break time (whole minutes) the child may redeem now, so the lock surface can show
@@ -201,75 +138,12 @@ internal static class LockScreen
         OverlayState.Settings.Set("lock_break_minutes", minutes.ToString());
     }
 
-    /// <summary>run new-user setup pipe call off pump thread, reset/record lockout counter on same bg thread. one at a time; second request while in-flight ignored</summary>
-    private static void StartProvision(string code, int limitMinutes)
-    {
-        if (_provisionTask is { IsCompleted: false }) return;
-        _provisionTask = Task.Run(() =>
-        {
-            try
-            {
-                if (ConfigClient.Provision(OverlayState.CurrentSid, code, limitMinutes))
-                {
-                    ConfigClient.ResetFailures(code);
-                    return true;
-                }
-                ConfigClient.RecordFailure();
-                return false;
-            }
-            catch { return false; }
-        });
-    }
-
-    /// <summary>apply completed new-user setup on pump thread: success -> re-read enforcement (budget seeds new per-user limit) + tear lock down. failure -> lock stays, surface relaunched by <see cref="WhileLockedTick"/> for retry</summary>
-    private static void ApplyProvisionResult()
-    {
-        if (_provisionTask is not { IsCompleted: true } task) return;
-        var ok = task.Result;
-        _provisionTask = null;
-
-        if (ok)
-        {
-            OverlayState.LoadEnforcement();
-            EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user set up");
-            if (!OverlayState.ShouldBlock) Hide();
-        }
-    }
-
-    private static void ExtendApply(int minutes)
-    {
-        OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
-        OverlayState.ScheduleOverride = true;
-        OverlayState.WeeklyOverride = true; // granted minutes must be usable past the weekly cap too
-        OverlayState.Persist();
-        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"+{minutes} min");
-        if (!OverlayState.ShouldBlock) Hide();
-    }
-
-    /// <summary>redeem valid offline unlock code (TOTP): grant bonus minutes, lift schedule + weekly blocks.
-    /// Verification and the replay-counter advance happen in the SYSTEM service (config.db is write-protected),
-    /// so a child who knows the code can't reset the counter to replay it. false if the service rejects the
-    /// code (wrong/reused) or is unreachable.</summary>
-    private static bool TryRedeemCode(string entered)
-    {
-        if (string.IsNullOrWhiteSpace(entered)) return false;
-
-        // service owns the secret + replay counter (config.db); it verifies and advances the counter atomically
-        if (!ConfigClient.Redeem(entered).Ok) return false;
-
-        // bonus minutes come from write-protected config (a child can't inflate them)
-        var bonus = OverlayState.Settings.GetInt("unlock_bonus_minutes", 30);
-        OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), bonus);
-        // lift every session-scoped block the granted time should bypass, exactly like ExtendApply and the
-        // passcode "unlock": schedule (bedtime) AND the weekly cap. Without WeeklyOverride a redeemed code
-        // while weekly-capped added minutes but left WeeklyBlocked true, so the lock never came down and the
-        // ticket looked dead whenever a weekly limit was set.
-        OverlayState.ScheduleOverride = true;
-        OverlayState.WeeklyOverride = true;
-        OverlayState.Persist();
-        OverlayLog.Write($"unlock code redeemed (+{bonus} min)");
-        return true;
-    }
+    /// <summary>size cover to the whole virtual desktop (every display), topmost. persistent fallback must block
+    /// secondary displays too, even while the WinUI lock surface (and its per-monitor covers) is being relaunched</summary>
+    private static void CoverAllDisplays(IntPtr hwnd, uint flags) =>
+        SetWindowPos(hwnd, HWND_TOPMOST,
+            GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN), flags);
 
     private static IntPtr LockProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
@@ -301,7 +175,8 @@ internal static class LockScreen
         {
             // clamp to top of Z-order, but NOT while WinUI surface up (would slam cover over it). surface absent -> cover IS visible lock, keep on top
             if (!LockAppHost.IsRunning)
-                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                // re-fit every tick: monitors plugged in / rearranged while locked must be covered too
+                CoverAllDisplays(hwnd, SWP_NOACTIVATE);
 
             // keep shell taskbar down: re-asserts topmost on shell events, would float above lock + be clickable
             SetTaskbarHidden(true);

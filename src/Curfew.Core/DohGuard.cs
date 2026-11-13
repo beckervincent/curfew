@@ -45,12 +45,26 @@ public static class DohGuard
         "2a0d:2a00:1::2", "2a0d:2a00:2::2",
     };
 
+    /// <summary>Cloudflare malware-only resolvers (no adult filtering). Usable in <see cref="FilterMode.Malware"/>, but a
+    /// weaker-filtering bypass in family modes, so blocked there.</summary>
+    public static readonly string[] MalwareOnlyResolvers =
+    {
+        "1.1.1.2", "1.0.0.2", "2606:4700:4700::1112", "2606:4700:4700::1002",
+    };
+
+    /// <summary>resolvers blocked for <paramref name="mode"/>: the fixed list plus any endpoint filtering less than the selected mode</summary>
+    public static IReadOnlyList<string> ResolversFor(FilterMode mode) =>
+        mode is FilterMode.Family or FilterMode.FamilyOpenDns
+            ? BlockedResolvers.Concat(MalwareOnlyResolvers).ToArray()
+            : BlockedResolvers;
+
     /// <summary>build PowerShell blocking outbound traffic to every <see cref="BlockedResolvers"/> address on encrypted-DNS ports</summary>
     /// <remarks>rules carry a content stamp (hash of resolver list + ports) in Description. if rules with current stamp exist, script exits untouched: tear-down + recreate every reconcile opens a brief allow window, and a transient create failure after removal leaves encrypted DNS wide open until next pass. only removed + rebuilt when stamp differs (release changed resolver list) or a rule is missing. separate TCP + UDP rules because <c>New-NetFirewallRule</c> takes one protocol per rule</remarks>
-    public static string BuildBlockScript()
+    public static string BuildBlockScript(FilterMode mode = FilterMode.Malware)
     {
-        var addresses = string.Join(",", BlockedResolvers.Select(Quote));
-        var stamp = RuleStamp;
+        var resolvers = ResolversFor(mode);
+        var addresses = string.Join(",", resolvers.Select(Quote));
+        var stamp = StampFor(resolvers);
         var sb = new StringBuilder();
         // fail closed: failure to (re)create block rules must surface as non-zero exit, not be swallowed. only removal — which may find no rules — continues on error
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
@@ -74,14 +88,13 @@ public static class DohGuard
     }
 
     /// <summary>stable fingerprint of blocked-resolver list + ports, stored in rules' Description so a reconcile pass tells "current" from "predates a resolver-list change" without rebuilding</summary>
-    public static string RuleStamp
+    public static string RuleStamp => StampFor(BlockedResolvers);
+
+    private static string StampFor(IReadOnlyList<string> resolvers)
     {
-        get
-        {
-            var content = string.Join(",", BlockedResolvers) + "|" + BlockedPorts;
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(content));
-            return "curfew-" + Convert.ToHexString(hash)[..16];
-        }
+        var content = string.Join(",", resolvers) + "|" + BlockedPorts;
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(content));
+        return "curfew-" + Convert.ToHexString(hash)[..16];
     }
 
     /// <summary>build PowerShell removing every firewall rule this guard added, restoring access to third-party resolvers</summary>

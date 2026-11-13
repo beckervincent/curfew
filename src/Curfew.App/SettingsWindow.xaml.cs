@@ -362,20 +362,14 @@ public sealed partial class SettingsWindow : Window
 
     private void LoadUnlock()
     {
-        var secret = _settings.Get("unlock_secret");
-        if (string.IsNullOrEmpty(secret))
+        // seed lives in the service-private store; fetched (seeded if absent) only with the verified parent passcode
+        var response = ConfigClient.UnlockSecret(ConfigBridge.Passcode, rotate: false);
+        if (!response.Ok || string.IsNullOrEmpty(response.Value))
         {
-            // seed routes through SYSTEM service. if write never lands, device has no secret — don't show a generated one the parent would enrol but lock screen rejects
-            ConfigBridge.ResetWriteStatus();
-            secret = UnlockCode.GenerateSecret();
-            _settings.Set("unlock_secret", secret);
-            if (!ConfigBridge.LastWriteOk)
-            {
-                ShowError(Loc.T("settings.err.savefailed"));
-                return;
-            }
+            ShowError(Loc.T("settings.err.savefailed"));
+            return;
         }
-        ShowUnlockSecret(secret);
+        ShowUnlockSecret(response.Value);
         UnlockBonus.Value = _settings.GetInt("unlock_bonus_minutes", 30);
     }
 
@@ -439,18 +433,14 @@ public sealed partial class SettingsWindow : Window
     {
         ClearError();
 
-        // write goes through SYSTEM service. on fail the stored secret has NOT rotated — don't show the new one (parent would enrol a secret device never accepted) and don't zero replay counter against an unchanged secret
-        ConfigBridge.ResetWriteStatus();
-        var secret = UnlockCode.GenerateSecret();
-        _settings.Set("unlock_secret", secret);
-        if (!ConfigBridge.LastWriteOk)
+        // service rotates the seed + resets the replay counter atomically; only show what it actually stored
+        var response = ConfigClient.UnlockSecret(ConfigBridge.Passcode, rotate: true);
+        if (!response.Ok || string.IsNullOrEmpty(response.Value))
         {
             ShowError(Loc.T("settings.err.savefailed"));
             return;
         }
-
-        _settings.Set("unlock_last_counter", string.Empty);
-        ShowUnlockSecret(secret);
+        ShowUnlockSecret(response.Value);
     }
 
     /// <summary>build seven per-day hour spinners, append to panel</summary>
@@ -598,109 +588,17 @@ public sealed partial class SettingsWindow : Window
         CheckUpdateButton.IsEnabled = false;
         UpdateNowButton.IsEnabled = false;
         UpdateStatus.Text = Loc.T("settings.update.downloading");
-        try
-        {
-            var installer = await DownloadInstallerAsync(_pendingUpdate.Value.InstallerUrl);
-            if (installer is null)
-            {
-                UpdateStatus.Text = Loc.T("settings.update.failed");
-                CheckUpdateButton.IsEnabled = true;
-                UpdateNowButton.IsEnabled = true;
-                return;
-            }
 
-            // UseShellExecute + runas raises the UAC prompt installer needs
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = installer,
-                Arguments = "/SILENT /SUPPRESSMSGBOXES",
-                UseShellExecute = true,
-                Verb = "runas",
-            });
-            Close();
-        }
-        catch
+        // the SYSTEM service downloads, verifies the signature and launches the installer from its own protected
+        // staging dir - never elevate a path in this user's (child-writable) temp folder
+        var response = await Task.Run(() => ConfigClient.UpdateNow(ConfigBridge.Passcode));
+        if (!response.Ok)
         {
-            // download error or user dismissed UAC prompt
             UpdateStatus.Text = Loc.T("settings.update.failed");
             CheckUpdateButton.IsEnabled = true;
             UpdateNowButton.IsEnabled = true;
         }
     }
-
-    /// <summary>stream installer to temp, reject untrusted host / too big / too small / not a Windows exe. returns path, null on fail (partial deleted)</summary>
-    /// <remarks>asset fetched over HTTPS from GitHub (authenticates source). not Authenticode-signed, no published hash, so <see cref="IsTrustedInstallerUrl"/> + size + PE-header checks are the available defences</remarks>
-    private static async Task<string?> DownloadInstallerAsync(string url)
-    {
-        // initial URL must be THIS repo's pinned HTTPS release path, not just any github.com address — else another account's asset named curfew-setup*.exe gets launched elevated. post-redirect URL re-checked host-only below (lands on asset CDN)
-        if (!ReleaseInfo.IsInstallerUrl(url)) return null;
-
-        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("curfew-updater");
-
-        // stage under app-specific dir with unguessable name so a same-user process can't pre-create or swap the file between download and elevated launch (TOCTOU). CreateNew fails on name clash
-        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Curfew");
-        Directory.CreateDirectory(tempDir);
-        var path = System.IO.Path.Combine(tempDir, $"curfew-update-{Guid.NewGuid():N}.exe");
-        try
-        {
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-
-            // HttpClient follows redirects (github.com -> *.githubusercontent.com) — re-validate the URL actually fetched, not just input
-            if (response.RequestMessage?.RequestUri is { } finalUri && !IsTrustedInstallerUrl(finalUri.ToString()))
-                return null;
-
-            if (response.Content.Headers.ContentLength is long advertised && advertised > MaxInstallerBytes)
-                return null;
-
-            // stream straight to disk (capped), don't buffer ~95MB in memory
-            await using (var source = await response.Content.ReadAsStreamAsync())
-            await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                var chunk = new byte[81_920];
-
-                // validate "MZ" PE signature on first chunk before writing more
-                var first = await source.ReadAsync(chunk);
-                if (first < 2 || chunk[0] != 0x4D || chunk[1] != 0x5A)
-                    throw new InvalidDataException("not a Windows executable");
-                await file.WriteAsync(chunk.AsMemory(0, first));
-
-                long total = first;
-                int read;
-                while ((read = await source.ReadAsync(chunk)) > 0)
-                {
-                    total += read;
-                    if (total > MaxInstallerBytes)
-                        throw new InvalidDataException("installer exceeds size cap");
-                    await file.WriteAsync(chunk.AsMemory(0, read));
-                }
-
-                if (total < 500_000)
-                    throw new InvalidDataException("download too small to be the installer");
-            }
-
-            // refuse elevated launch unless Authenticode-signed by Curfew's own key. URL/host pinning guards where it came from; this guards what it is
-            if (!Curfew.Core.Security.InstallerSignature.Verify(path))
-                throw new InvalidDataException("installer is not signed by Curfew's key");
-
-            return path;
-        }
-        catch
-        {
-            // network/HTTP error, oversize, or failed validation: drop partial file
-            try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ }
-            return null;
-        }
-    }
-
-    /// <summary>whether installer URL is an HTTPS GitHub address, so elevated launch only runs something from the release host</summary>
-    private static bool IsTrustedInstallerUrl(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var uri)
-        && uri.Scheme == Uri.UriSchemeHttps
-        && (uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Save handler. validate optional passcode change first; on fail dialog stays open, nothing persisted</summary>
     private void OnSave(object sender, RoutedEventArgs e)
@@ -840,7 +738,7 @@ public sealed partial class SettingsWindow : Window
         var confirm = ConfirmPin.Password;
         if (newPin.Length == 0 && confirm.Length == 0) return true;
 
-        if (!PasscodeHash.Verify(CurrentPin.Password, _settings.Get("passcode")))
+        if (!ConfigClient.Verify(CurrentPin.Password).Ok)
         {
             ShowError(Loc.T("settings.err.currentwrong"));
             return false;
@@ -857,6 +755,8 @@ public sealed partial class SettingsWindow : Window
         }
 
         _settings.Set("passcode", PasscodeHash.Hash(newPin));
+        // later writes in this save must authenticate with the NEW passcode
+        if (ConfigBridge.LastWriteOk) ConfigBridge.Passcode = newPin;
         return true;
     }
 

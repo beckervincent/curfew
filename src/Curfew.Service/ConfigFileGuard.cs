@@ -27,6 +27,86 @@ internal static class ConfigFileGuard
         ProtectFile(configPath + "-journal");
     }
 
+    /// <summary>Create (if needed) and lock the service-private directory: SYSTEM owner, SYSTEM + Administrators only, no inheritance. Ordinary users can't read secrets.db or touch the blocklist cache. Returns false if isolation couldn't be established (caller must not store secrets there).</summary>
+    public static bool ProtectSecureDirectory(string dir)
+    {
+        if (!OperatingSystem.IsWindows()) { Directory.CreateDirectory(dir); return true; }
+        try
+        {
+            var info = new DirectoryInfo(dir);
+            // a pre-existing reparse point (child-planted junction) is never trusted
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                info.Refresh();
+            }
+
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.SetOwner(system);
+            const InheritanceFlags inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+            security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+
+            if (!info.Exists) info = System.IO.FileSystemAclExtensions.CreateDirectory(security, dir);
+            info.SetAccessControl(security);
+
+            // children (anything a child pre-planted) re-inherit the fresh DACL + get SYSTEM owner
+            foreach (var entry in info.EnumerateFileSystemInfos("*", SearchOption.AllDirectories))
+            {
+                if (entry is FileInfo f)
+                {
+                    var fs = new FileSecurity();
+                    fs.SetOwner(system);
+                    fs.SetAccessRuleProtection(false, false);
+                    f.SetAccessControl(fs);
+                }
+            }
+
+            // verify: owner + no ACE for anyone but SYSTEM/Administrators
+            var check = info.GetAccessControl();
+            if (check.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner || !owner.Equals(system)) return false;
+            foreach (FileSystemAccessRule rule in check.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+                if (rule.AccessControlType == AccessControlType.Allow && !rule.IdentityReference.Equals(system) && !rule.IdentityReference.Equals(admins))
+                    return false;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"config guard: secure dir: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>events.log: users may READ and APPEND (overlay/app record events) but not overwrite, truncate, rename or delete - the audited account can't erase its own tamper history. Inheritance dropped so the data dir's Users-Modify (which carries Delete) doesn't apply.</summary>
+    public static void ProtectEventLog(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            if (!File.Exists(path)) File.Create(path).Dispose();
+
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+
+            var security = new FileSecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.SetOwner(system);
+            security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(users,
+                FileSystemRights.Read | FileSystemRights.AppendData | FileSystemRights.Synchronize, AccessControlType.Allow));
+            new FileInfo(path).SetAccessControl(security);
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Write($"config guard: events.log: {ex.Message}");
+        }
+    }
+
     private static void ProtectFile(string path)
     {
         if (!File.Exists(path)) return;
