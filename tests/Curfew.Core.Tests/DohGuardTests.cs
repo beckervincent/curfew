@@ -215,4 +215,15 @@ public class DohGuardTests
         Assert.Equal(DohGuard.BuildBlockScript(), DohGuard.BuildBlockScript());
         Assert.Equal(DohGuard.BuildClearScript(), DohGuard.BuildClearScript());
     }
+
+    [Fact]
+    public void Family_modes_also_block_malware_only_cloudflare_resolvers()
+    {
+        foreach (var mode in new[] { FilterMode.Family, FilterMode.FamilyOpenDns })
+        {
+            var script = DohGuard.BuildBlockScript(mode);
+            foreach (var ip in DohGuard.MalwareOnlyResolvers) Assert.Contains($"'{ip}'", script);
+        }
+        Assert.DoesNotContain("'1.1.1.2'", DohGuard.BuildBlockScript(FilterMode.Malware));
+    }
 }

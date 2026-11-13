@@ -68,9 +68,62 @@ internal static class TimeGuardService
                 $"time guard: only {samples.Count} NTP source(s) answered and too few agreed " +
                 $"(need {TimeGuard.MinAgreeingSources} within {TimeGuard.AgreementWindow.TotalSeconds:0}s); " +
                 "skipping clock check");
+            return null;
+        }
+
+        // NTP replies are unauthenticated UDP: an on-path attacker could forge agreeing samples. require an
+        // authenticated (TLS) source to confirm the candidate before it may reach SetSystemTime
+        if (!ConfirmedOverTls(trusted.Value))
+        {
+            ServiceLog.Write("time guard: NTP time not confirmed by an authenticated HTTPS source; skipping clock check");
+            return null;
         }
 
         return trusted;
+    }
+
+    /// <summary>HTTPS endpoints whose signed-TLS <c>Date</c> header authenticates the NTP candidate.</summary>
+    private static readonly string[] TlsTimeSources = { "https://www.microsoft.com/", "https://www.cloudflare.com/" };
+
+    /// <summary>Max gap between the NTP candidate and an authenticated HTTPS Date header (1 s resolution + latency).</summary>
+    private static readonly TimeSpan TlsAgreement = TimeSpan.FromMinutes(2);
+
+    /// <summary>True when an HTTPS server, authenticated by a certificate chain valid AT the candidate time, reports a
+    /// Date within <see cref="TlsAgreement"/> of <paramref name="candidate"/>. The chain is evaluated at the candidate
+    /// (not the possibly-tampered local clock), so a skewed clock can't make genuine certificates look expired.</summary>
+    private static bool ConfirmedOverTls(DateTimeOffset candidate)
+    {
+        foreach (var url in TlsTimeSources)
+        {
+            try
+            {
+                using var handler = new HttpClientHandler
+                {
+                    AllowAutoRedirect = false,
+                    ServerCertificateCustomValidationCallback = (_, cert, chain, errors) =>
+                    {
+                        if (cert is null || (errors & ~System.Net.Security.SslPolicyErrors.RemoteCertificateChainErrors) != 0)
+                            return false;
+                        using var verify = new System.Security.Cryptography.X509Certificates.X509Chain();
+                        verify.ChainPolicy.VerificationTime = candidate.UtcDateTime;
+                        verify.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck;
+                        if (chain is not null)
+                            foreach (var element in chain.ChainElements)
+                                verify.ChainPolicy.ExtraStore.Add(element.Certificate);
+                        return verify.Build(cert);
+                    },
+                };
+                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+                using var request = new HttpRequestMessage(HttpMethod.Head, url);
+                using var response = client.Send(request);
+                if (response.Headers.Date is { } date && (date - candidate).Duration() <= TlsAgreement) return true;
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Write($"time guard: HTTPS time source '{url}' failed: {ex.Message}");
+            }
+        }
+        return false;
     }
 
     /// <summary>Check local clock vs trusted time, correct on tamper. No-op when NTP unreachable (offline not penalised) or clock within tolerance.</summary>
@@ -125,17 +178,37 @@ internal static class TimeGuardService
             ServiceLog.Write($"time guard: time zone changed to '{current}' (expected '{expected}'); reverting");
             EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ClockTamper, $"timezone {current}");
 
-            // tzutil needs id quoted (names have spaces). id from registry via TimeZoneInfo, never user input, but reject quotes anyway vs arg injection
-            if (!expected.Contains('"'))
+            // expected_timezone is a parent-writable config value: only accept a real installed zone id, and run
+            // tzutil.exe directly with an argument list (no shell/PowerShell string interpolation at all)
+            if (!IsInstalledTimeZone(expected))
             {
-                PowerShellRunner.Run($"tzutil /s \"{expected}\"");
-                TimeZoneInfo.ClearCachedData();
+                ServiceLog.Write("time guard: expected time zone is not an installed zone id; not reverting");
+                return;
             }
+            RunTzutil(expected);
+            TimeZoneInfo.ClearCachedData();
         }
         catch (Exception ex)
         {
             ServiceLog.Write($"time guard: time zone check failed: {ex.Message}");
         }
+    }
+
+    private static bool IsInstalledTimeZone(string id) =>
+        TimeZoneInfo.GetSystemTimeZones().Any(z => string.Equals(z.Id, id, StringComparison.Ordinal));
+
+    private static void RunTzutil(string zoneId)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.SystemDirectory, "tzutil.exe"),
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add("/s");
+        psi.ArgumentList.Add(zoneId);
+        using var process = System.Diagnostics.Process.Start(psi);
+        if (process is not null && !process.WaitForExit(15_000)) process.Kill();
     }
 
     /// <summary>Win32 <c>SYSTEMTIME</c>. All fields UTC when passed to <see cref="SetSystemTime"/>; <c>wDayOfWeek</c> ignored by API, left zero.</summary>

@@ -90,7 +90,15 @@ public static class EventLog
         {
             try
             {
-                using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                // Windows: request ONLY append rights - users are granted append-not-write on events.log (service ACL), so the audited child can add lines but never rewrite or erase history
+                using var stream = OperatingSystem.IsWindows()
+                    ? System.IO.FileSystemAclExtensions.Create(new FileInfo(path), FileMode.OpenOrCreate,
+                        System.Security.AccessControl.FileSystemRights.AppendData
+                        | System.Security.AccessControl.FileSystemRights.ReadAttributes
+                        | System.Security.AccessControl.FileSystemRights.Synchronize,
+                        FileShare.ReadWrite, 4096, FileOptions.None, null)
+                    : new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                if (OperatingSystem.IsWindows()) stream.Seek(0, SeekOrigin.End);
                 using var writer = new StreamWriter(stream);
                 writer.Write(line + "\n");
                 return;

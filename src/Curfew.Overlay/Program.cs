@@ -7,7 +7,9 @@ using static Curfew.Overlay.Native;
 // one overlay per session. "Local\" scopes mutex to session: each user gets one, watchdog respawn never stacks duplicates
 OverlayLog.Write("process start");
 using var instance = new Mutex(true, @"Local\CurfewOverlayInstance", out var createdNew);
-if (!createdNew)
+// the mutex is only a de-dup hint: any same-user process can hold it open after killing the real overlay.
+// bow out only if a GENUINE overlay (same installed image) is actually running in this session
+if (!createdNew && OverlayInstance.GenuineSiblingRunning())
 {
     OverlayLog.Write("another instance already running; exiting");
     return;
@@ -67,6 +69,8 @@ namespace Curfew.Overlay
             // scope per-user config + counters to this session's user
             OverlayState.CurrentSid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? string.Empty;
             OverlayState.Settings.UserSid = OverlayState.CurrentSid;
+            // accounting lives in protected config.db; the service applies our writes only if monotonic + for our SID
+            OverlayState.Settings.LedgerWriter = ConfigClient.Ledger;
             // grandfather existing users so only genuinely new (no history, not set up) hit setup lock
             OverlayState.UserHasHistory = OverlayState.Settings.HasUsageHistory(OverlayState.CurrentSid);
 
@@ -126,7 +130,11 @@ namespace Curfew.Overlay
             // pre-create lock window; show now if already blocked. else clear lock_active so respawn-while-unblocked can't leave Task Manager lockdown stuck on
             LockScreen.Register(hInstance);
             if (OverlayState.ShouldBlock) LockScreen.Show();
-            else OverlayState.Settings.Set("lock_active", "0");
+            else
+            {
+                OverlayState.Settings.Set("lock_active", "0");
+                LockScreen.ReportLockState(false);
+            }
 
             OverlayLog.Write("entering message loop");
 
@@ -164,6 +172,10 @@ namespace Curfew.Overlay
 
                 case TrayIcon.WM_TRAYICON:
                     TrayIcon.OnMessage(hwnd, lParam);
+                    return IntPtr.Zero;
+
+                case WM_CLOSE:
+                    // any same-session process can post WM_CLOSE; only the passcode-gated quit grant may end us
                     return IntPtr.Zero;
 
                 case WM_DESTROY:
@@ -345,7 +357,8 @@ namespace Curfew.Overlay
 
         private static void Tick(IntPtr hwnd)
         {
-            // apply parent-approved tray action. Curfew.App writes command only after passcode verified, so overlay needs no passcode UI
+            // apply service-issued grants (passcode-verified lock/tray actions) + our own tray break request
+            ApplyGrant(hwnd);
             ExecutePendingTrayCommand(hwnd);
 
             // time frozen while lock up, but lock still needs per-second work: apply WinUI actions + keep surface alive
@@ -405,7 +418,8 @@ namespace Curfew.Overlay
             if (OverlayState.ShouldBlock) LockScreen.Show();
         }
 
-        /// <summary>consume + apply one-shot command from passcode-gated tray menu in Curfew.App. cleared immediately (runs once), ignored if older than a minute</summary>
+        /// <summary>apply the overlay's own tray "break" request (ungated child self-service, bounded by the pause
+        /// policy). every privileged command arrives as a service-issued grant instead (see <see cref="ApplyGrant"/>)</summary>
         private static void ExecutePendingTrayCommand(IntPtr hwnd)
         {
             var cmd = OverlayState.Settings.Get("tray_command");
@@ -413,43 +427,95 @@ namespace Curfew.Overlay
 
             OverlayState.Settings.Set("tray_command", string.Empty); // consume once
             long.TryParse(OverlayState.Settings.Get("tray_command_at"), out var at);
-            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            if (now - at > 60) return; // stale
+            if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - at > 60) return; // stale
+            if (cmd == "break") StartBreak();
+        }
 
-            switch (cmd)
+        /// <summary>session this overlay serves; grants are bound to SID + session</summary>
+        private static readonly int SessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+
+        /// <summary>last grant id we tried, so a grant is consumed at most once even if the service is slow to delete it</summary>
+        private static string? _lastGrantId;
+
+        /// <summary>poll for a service-issued grant (write-protected config.db, bound to our SID + session), consume it
+        /// through the service (which applies any time credit to the ledger and returns the new balance), then apply.
+        /// a child can't forge one: grants are written only by SYSTEM after verifying the passcode/unlock code</summary>
+        private static void ApplyGrant(IntPtr hwnd)
+        {
+            var raw = OverlayState.Settings.Get(ConfigPipe.GrantKey(OverlayState.CurrentSid, SessionId));
+            if (!ConfigPipe.TryParseGrant(raw, out var id, out _, out _) || id == _lastGrantId) return;
+            _lastGrantId = id;
+
+            var response = ConfigClient.Consume(id);
+            if (!response.Ok || string.IsNullOrEmpty(response.Value)) return;
+            var parts = response.Value.Split('|');
+            var action = parts[0];
+            if (parts.Length > 1 && int.TryParse(parts[1], out var balance)) OverlayState.Remaining = balance;
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            switch (action)
             {
-                case "extend15": ApplyExtend(15); break;
-                case "extend45": ApplyExtend(45); break;
-                case "break": StartBreak(); break;
+                case "extend15": case "extend30": case "extend45": case "extend60":
+                    LiftSessionBlocks();
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, $"+{action[6..]} min");
+                    OverlayLog.Write($"granted {action}");
+                    break;
+                case "redeem":
+                    LiftSessionBlocks();
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Extended, "unlock code");
+                    OverlayLog.Write("unlock code redeemed");
+                    break;
+                case "unlock":
+                    LiftSessionBlocks();
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "passcode");
+                    break;
+                case "ignore_schedule":
+                    OverlayState.IgnoreScheduleUntilRestart = true;
+                    OverlayState.ScheduleOverride = true;
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.ScheduleIgnored, "until restart");
+                    break;
+                case "break":
+                    OverlayState.LoadPause(); // service charged the break budget + started the cooldown
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.BreakTaken, "lock screen");
+                    break;
+                case "provision":
+                    OverlayState.LoadEnforcement();
+                    EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Unlocked, "user set up");
+                    break;
+                case "logoff":
+                    LockNative.Logoff();
+                    return;
                 case "pause":
                     OverlayState.PausedUntilUnix = now + PauseDurationSeconds;
                     OverlayLog.Write("tray: paused");
-                    break;
+                    return;
                 case "resume":
                     OverlayState.PausedUntilUnix = 0;
                     OverlayLog.Write("tray: resumed");
-                    break;
+                    return;
                 case "quit":
-                    // refuse quit while locked: DestroyWindow exits loop + kills process WITHOUT LockScreen.Hide(), leaving lock_active=1 + WinUI lock orphaned, session locked-down with no enforcer until watchdog respawn. command already consumed -> dropped not replayed; parent re-issues quit after unlock when teardown runs clean
+                    // refuse quit while locked: exiting without LockScreen teardown would orphan the lock
                     if (OverlayState.Locked)
                     {
                         OverlayLog.Write("tray: quit ignored while locked");
-                        break;
+                        return;
                     }
                     OverlayLog.Write("tray: quit requested");
                     DestroyWindow(hwnd); // WM_DESTROY -> tray removal + PostQuitMessage
-                    break;
+                    return;
+                default:
+                    return;
             }
+
+            OverlayState.Persist();
+            LockScreen.HideIfUnblocked();
         }
 
-        /// <summary>add bonus minutes + lift the schedule and weekly-cap blocks, like lock-screen extend</summary>
-        private static void ApplyExtend(int minutes)
+        /// <summary>granted time must be usable past bedtime and the weekly cap this session</summary>
+        private static void LiftSessionBlocks()
         {
-            OverlayState.Remaining = TimeKeeper.Extend(Math.Max(0, OverlayState.Remaining), minutes);
             OverlayState.ScheduleOverride = true;
-            OverlayState.WeeklyOverride = true; // granted minutes must be usable past the weekly cap too
-            OverlayState.Persist();
-            OverlayLog.Write($"tray: extended +{minutes} min");
+            OverlayState.WeeklyOverride = true;
         }
 
         /// <summary>Apply a child-initiated break governed by the parent's pause policy, then tell the child
@@ -626,5 +692,37 @@ namespace Curfew.Overlay
         // invariant culture: must match OverlayState writer + store purge exactly, even under non-Gregorian region format
         private static string RemainingKey(DateOnly date) =>
             $"remaining_time_{OverlayState.CurrentSid}_{date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}";
+    }
+}
+
+/// <summary>Detect a genuine sibling overlay in this session (same installed image path, different process).</summary>
+internal static class OverlayInstance
+{
+    public static bool GenuineSiblingRunning()
+    {
+        try
+        {
+            using var self = System.Diagnostics.Process.GetCurrentProcess();
+            var selfPath = Environment.ProcessPath;
+            if (selfPath is null) return true; // can't tell: keep old behaviour
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(self.ProcessName))
+            {
+                using (p)
+                {
+                    try
+                    {
+                        if (p.Id != self.Id && p.SessionId == self.SessionId
+                            && string.Equals(p.MainModule?.FileName, selfPath, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                    catch { /* exited / access denied: not a usable sibling */ }
+                }
+            }
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
     }
 }

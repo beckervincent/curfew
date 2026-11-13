@@ -203,7 +203,7 @@ internal static class OverlayState
     /// <summary>Windows user not set up yet. in force once device has parent passcode (genuine first run still reaches setup wizard); SID not in <c>provisioned_users</c> blocked at new-user setup lock until parent enters PIN + sets daily limit</summary>
     public static bool NewUserBlocked =>
         !string.IsNullOrEmpty(CurrentSid)
-        && !string.IsNullOrEmpty(Settings.Get("passcode"))
+        && Settings.HasPasscode
         && !UserHasHistory
         && !UserProvisioning.IsProvisioned(Settings.Get("provisioned_users"), CurrentSid);
 
@@ -518,22 +518,4 @@ internal static class OverlayState
             Settings.GetInt("pause_max_duration", 20) * 60, dailyBudget, _pauseUsedSeconds);
     }
 
-    /// <summary>
-    /// Redeem the available break as bonus screen time while budget-blocked: adds the granted minutes to
-    /// <see cref="Remaining"/>, charges them against the daily break budget, and starts the cooldown.
-    /// Returns the granted seconds, or 0 when nothing is available (see <see cref="BreakOfferSeconds"/>).
-    /// </summary>
-    public static int TryRedeemBreak()
-    {
-        var granted = BreakOfferSeconds();
-        if (granted <= 0) return 0;
-
-        Remaining = TimeKeeper.Extend(Math.Max(0, Remaining), granted / 60);
-        _pauseUsedSeconds += granted;
-        PersistPauseUsed();
-        _lastPauseEndUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        Settings.Set(PauseLastEndKey(), _lastPauseEndUnix.ToString(CultureInfo.InvariantCulture));
-        Persist();
-        return granted;
-    }
 }

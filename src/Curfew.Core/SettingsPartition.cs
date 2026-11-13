@@ -6,8 +6,13 @@ public enum SettingsStoreKind
     /// <summary>Write-protected policy + secrets (Users read, only service writes).</summary>
     Config,
 
-    /// <summary>Child-writable per-day counters + runtime lock coordination.</summary>
+    /// <summary>Child-writable runtime lock coordination (display-only, never authoritative).</summary>
     State,
+
+    /// <summary>Budget/usage accounting. Lives in write-protected <c>config.db</c> (Users read); only the
+    /// SYSTEM service writes it, and only via monotonic, SID-bound pipe updates (see <c>ConfigPipe.OpLedger</c>),
+    /// so a child can't raise their own remaining time or erase usage.</summary>
+    Ledger,
 }
 
 /// <summary>Source of truth for splitting keys between write-protected <c>config.db</c> and child-writable <c>state.db</c>, and per-SID vs device-wide.</summary>
@@ -19,15 +24,31 @@ public static class SettingsPartition
     /// <summary>Prefixes in child-writable state store: per-day budget/usage counters, pause accounting, runtime lock-coordination keys. Else config.</summary>
     private static readonly string[] StatePrefixes =
     {
-        "remaining_time_", "used_time_", "app_usage_", "apps_seen_", "pause_used_", "pause_log_", "pause_last_end_", "session_active_",
+        "apps_seen_", "pause_log_", "session_active_",
         // child-side runtime coordination (not policy): lock handshake (exact keys
         // below, NOT broad "lock_" prefix — that catches policy keys like
         // lock_screen_timeout, giving child write access), tray command, offline-code
         // replay counter.
         "lock_active", "lock_reason", "lock_deadline_unix", "lock_action",
-        "lock_action_at", "lock_sid", "lock_code", "lock_setup_limit", "lock_break_minutes",
+        "lock_break_minutes",
         "tray_",
     };
+
+    /// <summary>Authoritative accounting prefixes (see <see cref="SettingsStoreKind.Ledger"/>). Every key is
+    /// <c>&lt;prefix&gt;&lt;sid&gt;_...</c> or <c>&lt;prefix&gt;&lt;sid&gt;</c>.</summary>
+    public static readonly string[] LedgerPrefixes =
+    {
+        "remaining_time_", "remaining_limit_", "used_time_", "app_usage_", "pause_used_", "pause_last_end_",
+    };
+
+    /// <summary>Credentials kept ONLY in the service-private secrets store (never in user-readable config.db).</summary>
+    public static readonly HashSet<string> SecretKeys = new(StringComparer.Ordinal)
+    {
+        "passcode", "unlock_secret", "unlock_last_counter", "failed_attempts", "failed_attempt_at",
+    };
+
+    /// <summary>Whether <paramref name="key"/> is a credential that must never be stored in or read from config.db.</summary>
+    public static bool IsSecret(string key) => SecretKeys.Contains(key);
 
     /// <summary>Device-wide config keys (not per-user): passcode, provisioned-user list, app allow-list,
     /// schema version, failed-attempt counters, update prefs, the machine-wide enforcement settings, and
@@ -44,7 +65,7 @@ public static class SettingsPartition
     /// only by the SYSTEM service via the redeem pipe op so a child can't reset it to replay a code.</para></summary>
     private static readonly HashSet<string> GlobalConfigKeys = new(StringComparer.Ordinal)
     {
-        "passcode", "provisioned_users", "app_allowlist",
+        "passcode", "passcode_set", "provisioned_users", "grandfathered_users", "app_allowlist",
         "schema_version", "auto_update_enabled", "update_channel",
         "failed_attempts", "failed_attempt_at",
         "dns_filter_mode", "block_doh_bypass", "time_guard_enabled",
@@ -67,6 +88,9 @@ public static class SettingsPartition
     /// <summary>Store a (fully-formed) key belongs to.</summary>
     public static SettingsStoreKind StoreFor(string key)
     {
+        foreach (var prefix in LedgerPrefixes)
+            if (key.StartsWith(prefix, StringComparison.Ordinal))
+                return SettingsStoreKind.Ledger;
         foreach (var prefix in StatePrefixes)
             if (key.StartsWith(prefix, StringComparison.Ordinal))
                 return SettingsStoreKind.State;
@@ -75,7 +99,11 @@ public static class SettingsPartition
 
     /// <summary>Whether a config base key is per-user. Device-wide + any state key are not.</summary>
     public static bool IsPerUser(string baseKey) =>
-        StoreFor(baseKey) == SettingsStoreKind.Config && !GlobalConfigKeys.Contains(baseKey);
+        StoreFor(baseKey) == SettingsStoreKind.Config && !GlobalConfigKeys.Contains(baseKey)
+        && !baseKey.StartsWith(GrantPrefix, StringComparison.Ordinal);
+
+    /// <summary>Prefix of service-issued, session-bound action grants (<c>grant_&lt;sid&gt;_&lt;session&gt;</c>) in config.db.</summary>
+    public const string GrantPrefix = "grant_";
 
     /// <summary>Scope a per-user config base key to <paramref name="sid"/>; device-wide + state keys pass through. Blank SID returns base key as-is.</summary>
     public static string Scope(string baseKey, string? sid) =>

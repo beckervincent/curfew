@@ -309,13 +309,26 @@ begin
     'Set-Acl $dir $acl' + #13#10 +
     '' + #13#10 +
     '$dbDir = Join-Path $env:ProgramData "{#DataFolder}"' + #13#10 +
+    '# a standard user may have pre-created the data dir (owning it / planting explicit grants or junctions).' + #13#10 +
+    '# never reuse its descriptor: a junction is removed (link only), then owner + DACL are replaced from scratch' + #13#10 +
+    '$adm=New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")' + #13#10 +
+    'if ((Test-Path -LiteralPath $dbDir) -and ((Get-Item -LiteralPath $dbDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {' + #13#10 +
+    '    [IO.Directory]::Delete($dbDir)' + #13#10 +
+    '}' + #13#10 +
     'New-Item -ItemType Directory -Path $dbDir -Force | Out-Null' + #13#10 +
-    '$dbAcl = Get-Acl $dbDir' + #13#10 +
+    '# fresh descriptor (not Get-Acl): trusted owner, no pre-existing explicit ACEs' + #13#10 +
+    '$dbAcl = New-Object System.Security.AccessControl.DirectorySecurity' + #13#10 +
+    '$dbAcl.SetOwner($adm)' + #13#10 +
     '$dbAcl.SetAccessRuleProtection($true, $false)' + #13#10 +
     '$dbAcl.AddAccessRule((AclRule "S-1-5-32-544" "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     '$dbAcl.AddAccessRule((AclRule "S-1-5-18"     "FullControl" "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
     '$dbAcl.AddAccessRule((AclRule "S-1-5-32-545" "Modify"      "ContainerInherit,ObjectInherit" "None" "Allow"))' + #13#10 +
-    'Set-Acl $dbDir $dbAcl' + #13#10 +
+    'Set-Acl -LiteralPath $dbDir $dbAcl' + #13#10 +
+    '# every existing child: Administrators owner + inherit only the fresh DACL (drops planted explicit grants).' + #13#10 +
+    '# the service re-protects config.db, events.log, secure\ and update\ with tighter ACLs on start' + #13#10 +
+    '& icacls.exe $dbDir /setowner "*S-1-5-32-544" /T /C /Q | Out-Null' + #13#10 +
+    '& icacls.exe "$dbDir\*" /reset /T /C /Q | Out-Null' + #13#10 +
+    'if ((Get-Acl -LiteralPath $dbDir).GetOwner([System.Security.Principal.SecurityIdentifier]) -ne $adm) { throw "Curfew data directory could not be secured" }' + #13#10 +
     '' + #13#10 +
     'Start-Service $svc' + #13#10 +
     '' + #13#10 +

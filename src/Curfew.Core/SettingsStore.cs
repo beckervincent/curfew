@@ -39,7 +39,7 @@ public sealed class SettingsStore : IDisposable
     /// <summary>Prefixes for single-day rows. On <see cref="Open"/>, rows not belonging to "today" get deleted so the table can't grow unbounded.</summary>
     private static readonly string[] DailyRowPrefixes =
     {
-        "remaining_time_", "pause_used_", "pause_log_", "session_active_",
+        "remaining_time_", "remaining_limit_", "pause_used_", "pause_log_", "session_active_",
     };
 
     /// <summary>Seed values on first open (only for absent keys, so parent customisations never overwritten on later opens).</summary>
@@ -82,19 +82,37 @@ public sealed class SettingsStore : IDisposable
 
     private readonly DateOnly _today;
 
-    private SettingsStore(SqliteConnection config, SqliteConnection state, DateOnly today)
+    private SettingsStore(SqliteConnection config, SqliteConnection state, DateOnly today, bool configWritable = true)
     {
         _config = config;
         _state = state;
         _today = today;
+        _configWritable = configWritable;
     }
+
+    /// <summary>Whether this process opened config.db writable (SYSTEM service / single-file tests).</summary>
+    private readonly bool _configWritable;
 
     /// <summary>Connection a key routes to.</summary>
     private SqliteConnection ConnectionFor(string key) =>
         SettingsPartition.StoreFor(key) == SettingsStoreKind.State ? _state : _config;
 
+    /// <summary>Remove a key (service-side; used to consume grants and strip migrated secrets).</summary>
+    public void Delete(string key)
+    {
+        using var cmd = ConnectionFor(key).CreateCommand();
+        cmd.CommandText = "DELETE FROM settings WHERE key = $k";
+        cmd.Parameters.AddWithValue("$k", key);
+        cmd.ExecuteNonQuery();
+    }
+
     /// <summary>Optional sink for CONFIG writes. Returns <c>true</c> = write handled (e.g. forwarded to SYSTEM service over config pipe), NOT written locally. <c>false</c>/null = direct write. State writes never use this. App sets it so config changes go through service once config.db write-protected; service + overlay leave null.</summary>
     public Func<string, string, bool>? ConfigWriter { get; set; }
+
+    /// <summary>Sink for LEDGER writes (budget/usage accounting) in a process that can't write config.db: the
+    /// overlay forwards them to the service, which applies them only if monotonic + bound to the caller's SID.
+    /// Null in a non-writable store = ledger writes dropped (never written to the child-writable state.db).</summary>
+    public Func<string, string, bool>? LedgerWriter { get; set; }
 
     /// <summary>Windows user SID: per-user config keys (see <see cref="SettingsPartition.IsPerUser"/>) scoped to that user — read prefers user value, falls back to unscoped/global; write stores user value. Device-wide + state keys never scoped. Null = no scoping (legacy/global).</summary>
     public string? UserSid { get; set; }
@@ -143,7 +161,7 @@ public sealed class SettingsStore : IDisposable
 
         var config = configWritable
             ? OpenResilient(
-                configPath, c => Prepare(c, seedDefaults: true, today, purge: false),
+                configPath, c => Prepare(c, seedDefaults: true, today, purge: true),
                 ConfigJournalMode, eventLogPath)
             : OpenConfigReadOnly(configPath, today, eventLogPath);
 
@@ -182,7 +200,71 @@ public sealed class SettingsStore : IDisposable
             catch (SqliteException) { /* best effort */ }
         }
 
-        return new SettingsStore(config, state, today);
+        if (configWritable)
+        {
+            try { MigrateLedgerFromState(config, state); }
+            catch (SqliteException) { /* best effort; retried next open */ }
+        }
+
+        return new SettingsStore(config, state, today, configWritable);
+    }
+
+    /// <summary>Marker set once ledger rows have been moved out of child-writable state.db.</summary>
+    private const string LedgerMigratedKey = "ledger_migrated";
+
+    /// <summary>One-time (service-side) move of pre-existing accounting rows from state.db into protected config.db.
+    /// Users with usage history at this point are recorded in protected <c>grandfathered_users</c> so the new-user
+    /// gate exemption no longer depends on child-writable rows afterwards.</summary>
+    private static void MigrateLedgerFromState(SqliteConnection config, SqliteConnection state)
+    {
+        if (ReferenceEquals(config, state) || GetDirect(config, LedgerMigratedKey) == "1") return;
+
+        var rows = new List<(string Key, string Value)>();
+        using (var read = state.CreateCommand())
+        {
+            read.CommandText = "SELECT key, value FROM settings";
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                var key = reader.GetString(0);
+                if (SettingsPartition.StoreFor(key) == SettingsStoreKind.Ledger) rows.Add((key, reader.GetString(1)));
+            }
+        }
+
+        var grandfathered = GetDirect(config, "grandfathered_users");
+        using (var tx = config.BeginTransaction())
+        {
+            foreach (var (key, value) in rows)
+            {
+                using var cmd = config.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = "INSERT OR IGNORE INTO settings (key, value) VALUES ($k, $v)";
+                cmd.Parameters.AddWithValue("$k", key);
+                cmd.Parameters.AddWithValue("$v", value);
+                cmd.ExecuteNonQuery();
+
+                // used_time_<sid>_<yyyy-MM-dd>: SID is everything between prefix and the date suffix
+                if (key.StartsWith(UsagePrefix, StringComparison.Ordinal) && key.Length > UsagePrefix.Length + 11)
+                {
+                    var sid = key[UsagePrefix.Length..^11];
+                    if (sid.StartsWith("S-", StringComparison.Ordinal))
+                        grandfathered = UserProvisioning.Add(grandfathered, sid);
+                }
+            }
+
+            using (var g = config.CreateCommand())
+            {
+                g.Transaction = tx;
+                g.CommandText = "INSERT OR REPLACE INTO settings (key, value) VALUES ('grandfathered_users', $v), ($m, '1')";
+                g.Parameters.AddWithValue("$v", grandfathered ?? string.Empty);
+                g.Parameters.AddWithValue("$m", LedgerMigratedKey);
+                g.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+
+        foreach (var (key, _) in rows)
+            Execute(state, "DELETE FROM settings WHERE key = $k", ("$k", key));
     }
 
     /// <summary>Marker row set when a non-privileged process bootstraps config.db (see <see cref="OpenConfigReadOnly"/>), so service can tell legacy migration hasn't happened yet even though file exists.</summary>
@@ -446,9 +528,18 @@ public sealed class SettingsStore : IDisposable
 
         var effective = EffectiveKey(key);
 
+        var kind = SettingsPartition.StoreFor(effective);
+
+        // accounting never written locally by a non-privileged process: forward to service (monotonic + SID-checked)
+        if (kind == SettingsStoreKind.Ledger && !_configWritable)
+        {
+            LedgerWriter?.Invoke(effective, value);
+            return;
+        }
+
         // route config writes through config writer (SYSTEM service) when set and it
         // accepts the write; else fall through to direct write.
-        if (SettingsPartition.StoreFor(effective) == SettingsStoreKind.Config
+        if (kind == SettingsStoreKind.Config
             && ConfigWriter is { } writer && writer(effective, value))
         {
             return;
@@ -479,7 +570,7 @@ public sealed class SettingsStore : IDisposable
             : DefaultDailyLimitMinutes;
 
     /// <summary>Whether a parental passcode is set.</summary>
-    public bool HasPasscode => !string.IsNullOrEmpty(Get("passcode"));
+    public bool HasPasscode => Get("passcode_set") == "1" || !string.IsNullOrEmpty(Get("passcode"));
 
     /// <summary>Settings-key prefix for per-day recorded active screen time (seconds).</summary>
     public const string UsagePrefix = "used_time_";
@@ -514,7 +605,7 @@ public sealed class SettingsStore : IDisposable
         var total = 0;
         try
         {
-            using var cmd = _state.CreateCommand();
+            using var cmd = _config.CreateCommand();
             cmd.CommandText = "SELECT value FROM settings WHERE key LIKE $p || '%' AND key LIKE '%' || $d";
             cmd.Parameters.AddWithValue("$p", UsagePrefix);
             cmd.Parameters.AddWithValue("$d", dateSuffix);
@@ -606,7 +697,7 @@ public sealed class SettingsStore : IDisposable
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            using var cmd = _state.CreateCommand();
+            using var cmd = _config.CreateCommand();
             cmd.CommandText = "SELECT DISTINCT key FROM settings WHERE key LIKE $p || '%'";
             cmd.Parameters.AddWithValue("$p", UsagePrefix);
             using var reader = cmd.ExecuteReader();
@@ -632,9 +723,11 @@ public sealed class SettingsStore : IDisposable
     public bool HasUsageHistory(string? sid)
     {
         if (string.IsNullOrEmpty(sid)) return false;
+        // protected record made by the service's one-time ledger migration
+        if (UserProvisioning.IsProvisioned(Get("grandfathered_users"), sid)) return true;
         try
         {
-            using var cmd = _state.CreateCommand();
+            using var cmd = _config.CreateCommand();
             // ONLY this user's scoped rows (used_time_<sid>_<date>). NOT legacy
             // unscoped used_time_<date> aggregate rows: no SID, so matching them
             // would grandfather EVERY user (incl a new one) on any device with a

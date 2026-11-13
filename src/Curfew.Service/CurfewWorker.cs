@@ -32,8 +32,6 @@ public sealed class CurfewWorker : BackgroundService
     private readonly ILogger<CurfewWorker> _logger;
     private readonly SessionManager _sessions = new();
 
-    /// <summary>Settings store to read lock state for Task Manager lockdown.</summary>
-    private SettingsStore? _policyStore;
 
     /// <summary>SID Task Manager currently disabled for, or null if none.</summary>
     private string? _policyAppliedSid;
@@ -73,8 +71,24 @@ public sealed class CurfewWorker : BackgroundService
         var pipeStore = CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
         // config.db now exists (open above made it) — lock down: users read, not write/delete
         ConfigFileGuard.Protect(CurfewPaths.ConfigFile);
-        var pipeServer = Task.Run(
-            () => new ConfigPipeServer(pipeStore, OnConfigKeyChanged).RunAsync(stoppingToken), CancellationToken.None);
+        ConfigFileGuard.ProtectEventLog(CurfewPaths.EventLogFile);
+        // credentials live in a SYSTEM/Administrators-only directory. if it can't be isolated, don't run the pipe
+        // (fail closed: no parent ops, but overlay watchdog + filters keep enforcing) rather than put secrets
+        // somewhere a child could read
+        SecretStore? secrets = null;
+        var pipeServer = Task.CompletedTask;
+        if (ConfigFileGuard.ProtectSecureDirectory(CurfewPaths.SecureDirectory))
+        {
+            secrets = new SecretStore(CurfewPaths.SecretsFile);
+            var store = secrets;
+            pipeServer = Task.Run(
+                () => new ConfigPipeServer(pipeStore, store, OnConfigKeyChanged).RunAsync(stoppingToken), CancellationToken.None);
+        }
+        else
+        {
+            _logger.LogError("Curfew secure directory could not be isolated; config pipe disabled");
+            ServiceLog.Write("secure directory could not be isolated; config pipe disabled");
+        }
 
         // MinValue forces the first clock check and slow cycle to run immediately, not after a full interval
         var lastSlow = DateTimeOffset.MinValue;
@@ -112,9 +126,9 @@ public sealed class CurfewWorker : BackgroundService
             // let config pipe drain, then release its store
             try { await Task.WhenAny(pipeServer, Task.Delay(ShutdownDrainTimeout)).ConfigureAwait(false); } catch { /* shutting down */ }
             pipeStore.Dispose();
+            secrets?.Dispose();
             // never leave Task Manager disabled when service stops
             if (_policyAppliedSid is not null) TaskManagerPolicy.Clear(_policyAppliedSid);
-            _policyStore?.Dispose();
             _logger.LogInformation("Curfew service stopped");
             ServiceLog.Write("service stopped");
         }
@@ -201,10 +215,9 @@ public sealed class CurfewWorker : BackgroundService
 
     private void ReconcileTaskManagerPolicy()
     {
-        _policyStore ??= CurfewPaths.OpenSettings(DateOnly.FromDateTime(DateTime.Now), configWritable: true);
-
-        var active = _policyStore.Get("lock_active") == "1";
-        var sid = _policyStore.Get("lock_sid");
+        // lock state + SID come only from the authenticated pipe (caller's token), never from child-writable state.db
+        var sid = LockStateRegistry.ActiveSid();
+        var active = sid is not null;
 
         if (active && !string.IsNullOrEmpty(sid))
         {
@@ -219,7 +232,7 @@ public sealed class CurfewWorker : BackgroundService
         }
 
         // not locked. clear what we applied; startup failsafe also clears SID left by prior (maybe crashed) run so Task Manager never stranded disabled
-        var stale = _policyAppliedSid ?? (string.IsNullOrEmpty(sid) ? null : sid);
+        var stale = _policyAppliedSid;
         if (stale is not null) TaskManagerPolicy.Clear(stale);
         _policyAppliedSid = null;
     }

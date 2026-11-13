@@ -79,6 +79,8 @@ public static class BlocklistParser
     private static bool IsAllowed(string domain, IReadOnlySet<string> allow)
     {
         if (allow.Contains(domain)) return true;
+        // DNS names are at most 253 chars; anything longer is junk (also bounds the suffix walk below)
+        if (domain.Length > 253) return false;
         // subdomain match: walk up the labels (cdn.ads.example.com -> ads.example.com -> example.com)
         var i = domain.IndexOf('.');
         while (i >= 0 && i < domain.Length - 1)

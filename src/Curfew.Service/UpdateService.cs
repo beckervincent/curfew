@@ -42,11 +42,12 @@ internal static class UpdateService
     /// <param name="currentVersion">Currently installed version (e.g. "2.0.0").</param>
     /// <param name="ct">Cancels check, download, and (cooperatively) the pass.</param>
     /// <exception cref="OperationCanceledException">Service shutting down.</exception>
-    public static async Task RunAsync(SettingsStore settings, string currentVersion, CancellationToken ct)
+    public static async Task RunAsync(SettingsStore settings, string currentVersion, CancellationToken ct, bool force = false)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        if (!settings.GetBool(AutoUpdateEnabledKey, true)) return;
+        // force = parent pressed "Update now" (passcode-verified over the pipe): ignore the auto-update toggle
+        if (!force && !settings.GetBool(AutoUpdateEnabledKey, true)) return;
 
         ReportPreviousInstallResult();
 

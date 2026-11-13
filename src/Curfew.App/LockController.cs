@@ -11,7 +11,7 @@ namespace Curfew.App;
 /// only visual + input layer. robust enforcement (instant black cover, low-level keyboard hook, watchdog) lives in Win32 overlay, which launches this app while session blocked + relaunches if killed. the two coordinate through settings keys:
 /// <list type="bullet">
 /// <item>read: <c>lock_reason</c> (budget|schedule), <c>lock_deadline_unix</c> (logoff countdown), <c>lock_active</c> (1 while overlay still wants lock up — this app exits when it clears)</item>
-/// <item>write: <c>lock_action</c> + <c>lock_action_at</c> (+ <c>lock_code</c> for unlock-code redemption), which overlay consumes + applies</item>
+/// <item>actions: sent to the SYSTEM service (<see cref="ConfigClient.Authorize"/>), which verifies and publishes a session-bound grant the overlay consumes - nothing actionable goes through state.db</item>
 /// </list>
 /// </remarks>
 internal sealed class LockController
@@ -180,20 +180,11 @@ internal sealed class LockController
 
     private void OnAction(string action, string? code)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        // writes land in state.db, child can hold locked: write throwing SqliteException would escape ActionConfirmed handler unhandled (crashing lock process) AND silently discard parent's authenticated unlock/extend/redeem. catch it, keep lock window up, surface retry prompt instead of acting on half-written handshake. lock_action still written last, so failure before it leaves overlay nothing to consume (no fresh action paired with stale timestamp)
-        try
+        // gated actions were already authorized by the service from LockWindow (grant published for this
+        // session). ungated self-service ones (break/logoff) still go through the service so the grant is bound
+        // to this user's session - nothing actionable is written to child-writable state.db anymore
+        if (ConfigPipe.UngatedActions.Contains(action) && !ConfigClient.Authorize(action).Ok)
         {
-            _settings.Set("lock_action_at", now.ToString());
-            // redeem carries unlock code; provision carries parent PIN (so service can re-verify) plus chosen per-user daily limit
-            if (code is not null && action is "redeem" or "provision") _settings.Set("lock_code", code);
-            if (action == "provision" && _primary is not null)
-                _settings.Set("lock_setup_limit", _primary.SetupLimitMinutes.ToString());
-            _settings.Set("lock_action", action);   // written last: overlay polls this, then reads the rest
-        }
-        catch
-        {
-            // momentary state.db lock (typically child contending for it) must not drop action — let parent retry on still-open window
             _primary?.ShowActionError(Loc.T("lock.action.failed"));
             return;
         }

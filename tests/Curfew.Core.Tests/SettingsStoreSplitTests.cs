@@ -26,21 +26,22 @@ public class SettingsStoreSplitTests : IDisposable
         {
             s.Set("passcode", "hash");                       // config
             s.Set("limit_enabled", "1");                     // config
-            s.Set("remaining_time_2026-06-11", "100");       // state
+            s.Set("remaining_time_2026-06-11", "100");       // ledger (protected config file)
             s.Set("lock_active", "1");                       // state
         }
 
-        // config file holds policy keys, not counters
+        // config file holds policy + authoritative accounting
         using (var c = SettingsStore.Open(_config, Today))
         {
             Assert.Equal("hash", c.Get("passcode"));
-            Assert.Null(c.Get("remaining_time_2026-06-11"));
+            Assert.Equal("100", c.Get("remaining_time_2026-06-11"));
+            Assert.Null(c.Get("lock_active"));
         }
 
-        // state file holds counters, not policy
+        // child-writable state file holds only runtime coordination - never budget counters
         using (var st = SettingsStore.Open(_state, Today))
         {
-            Assert.Equal("100", st.Get("remaining_time_2026-06-11"));
+            Assert.Null(st.Get("remaining_time_2026-06-11"));
             Assert.Equal("1", st.Get("lock_active"));
             Assert.Null(st.Get("passcode"));
         }
@@ -174,5 +175,68 @@ public class SettingsStoreSplitTests : IDisposable
         var prior = s.AppUsageWeekBeforeToday(Today);
         Assert.Equal(3600, prior["game"]);     // today's 1800 NOT included
         Assert.Equal(600, prior["chrome"]);
+    }
+
+    [Fact]
+    public void Non_privileged_store_forwards_ledger_writes_and_never_writes_them_locally()
+    {
+        using (SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today)) { } // service creates config.db
+
+        var forwarded = new List<(string, string)>();
+        using (var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today, configWritable: false))
+        {
+            s.LedgerWriter = (k, v) => { forwarded.Add((k, v)); return true; };
+            s.Set("remaining_time_S-1-5-21-1_2026-06-11", "99999");
+        }
+
+        Assert.Equal(new[] { ("remaining_time_S-1-5-21-1_2026-06-11", "99999") }, forwarded);
+        using var st = SettingsStore.Open(_state, Today);
+        Assert.Null(st.Get("remaining_time_S-1-5-21-1_2026-06-11"));
+    }
+
+    [Fact]
+    public void Service_open_moves_state_ledger_rows_to_config_and_grandfathers_their_users()
+    {
+        using (var st = SettingsStore.Open(_state, Today))
+            st.Set("used_time_S-1-5-21-7_2026-06-10", "600");
+
+        using (var s = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today))
+        {
+            Assert.Equal("600", s.Get("used_time_S-1-5-21-7_2026-06-10"));
+            Assert.True(s.HasUsageHistory("S-1-5-21-7"));
+            Assert.False(s.HasUsageHistory("S-1-5-21-8"));
+        }
+
+        using var state = SettingsStore.Open(_state, Today);
+        Assert.Null(state.Get("used_time_S-1-5-21-7_2026-06-10"));
+    }
+
+    [Fact]
+    public void Secret_store_migration_strips_credentials_from_config_and_hashes_plaintext()
+    {
+        var secretsPath = TempPath();
+        try
+        {
+            using var config = SettingsStore.OpenSplit(_config, _state, legacyPath: null, Today);
+            config.Set("passcode", "legacy-plain-123");
+            config.Set("unlock_secret", "JBSWY3DPEHPK3PXP");
+
+            using (var secrets = new SecretStore(secretsPath))
+            {
+                secrets.MigrateFrom(config);
+                Assert.True(Curfew.Core.Security.PasscodeHash.IsHashed(secrets.Get("passcode")));
+                Assert.True(Curfew.Core.Security.PasscodeHash.Verify("legacy-plain-123", secrets.Get("passcode")));
+                Assert.Equal("JBSWY3DPEHPK3PXP", secrets.Get("unlock_secret"));
+            }
+
+            Assert.Null(config.Get("passcode"));
+            Assert.Null(config.Get("unlock_secret"));
+            Assert.True(config.HasPasscode);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var x in new[] { "", "-journal" }) try { File.Delete(secretsPath + x); } catch { }
+        }
     }
 }
