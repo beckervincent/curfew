@@ -16,6 +16,8 @@ jobs:
   release:
     name: Build installer and publish release
     runs-on: windows-latest
+    # signing secrets live in the "release" environment, which only v* tags may deploy to
+    environment: release
 
     # self-signed Authenticode cert in repo secrets. no SmartScreen reputation (not chained to trusted CA, Windows still warns), but stamps stable publisher identity + makes tampering detectable. as env so signing steps skip cleanly when absent
     env:
@@ -116,6 +118,11 @@ jobs:
             -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
           Write-Host "${installer}: $($res.Status) $($res.StatusMessage)"
           if ($null -eq $res.SignerCertificate) { throw "Installer was not signed" }
+
+      - name: Remove signing certificate
+        if: ${{ always() && steps.cert.outputs.PFX_PATH != '' }}
+        shell: pwsh
+        run: Remove-Item -Force -ErrorAction SilentlyContinue "${{ steps.cert.outputs.PFX_PATH }}"
 
       - name: Publish release
         shell: pwsh
