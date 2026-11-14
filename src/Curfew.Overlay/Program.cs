@@ -31,12 +31,15 @@ namespace Curfew.Overlay
     {
         private const string ClassName = "CurfewOverlayClass";
 
-        // pill geometry; compact = gentle reminder not banner. left accent bar carries colour state
+        // pill geometry in 96-DPI DIPs; scaled per-window via _scale = dpi/96
         private const int Width = 168;
         private const int Height = 46;
         private const int Margin = 12;
         private const int AccentBarWidth = 5;
         private const int TextInset = 16;
+
+        private static double _scale = 1.0;
+        private static int Scale(int dip) => (int)Math.Round(dip * _scale);
 
         // layered-window opacity (0-255). legible over busy wallpaper, still unobtrusive
         private const byte Opacity = 225;
@@ -115,6 +118,7 @@ namespace Curfew.Overlay
 
             // semi-transparent: gentle reminder not a wall
             SetLayeredWindowAttributes(hwnd, 0, Opacity, LWA_ALPHA);
+            Layout(hwnd);
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             SetTimer(hwnd, new IntPtr(1), 1000, IntPtr.Zero);
@@ -146,6 +150,29 @@ namespace Curfew.Overlay
             OverlayLog.Write("message loop exited");
         }
 
+        /// <summary>compute DPI scale for <paramref name="hwnd"/> and position/size the pill at the top-right of the primary screen</summary>
+        private static void Layout(IntPtr hwnd)
+        {
+            var scale = 1.0;
+            try
+            {
+                var dpi = GetDpiForWindow(hwnd);
+                if (dpi > 0) scale = dpi / 96.0;
+            }
+            catch
+            {
+                // older Windows without per-window DPI: keep 100%
+            }
+            _scale = scale;
+
+            var w = Scale(Width);
+            var h = Scale(Height);
+            var m = Scale(Margin);
+            var screenWidth = GetSystemMetrics(SM_CXSCREEN);
+            SetWindowPos(hwnd, HWND_TOPMOST, screenWidth - w - m, m, w, h, SWP_NOACTIVATE);
+            InvalidateRect(hwnd, IntPtr.Zero, false);
+        }
+
         private static IntPtr WindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
             // Re-add the tray icon when the shell (re)creates the notification area.
@@ -164,6 +191,11 @@ namespace Curfew.Overlay
 
                 case WM_PAINT:
                     Paint(hwnd);
+                    return IntPtr.Zero;
+
+                case WM_DISPLAYCHANGE:
+                case WM_DPICHANGED:
+                    Layout(hwnd);
                     return IntPtr.Zero;
 
                 case WM_TIMER:
@@ -357,6 +389,8 @@ namespace Curfew.Overlay
 
         private static void Tick(IntPtr hwnd)
         {
+            OverlayState.RollDayIfNeeded();
+
             // apply service-issued grants (passcode-verified lock/tray actions) + our own tray break request
             ApplyGrant(hwnd);
             ExecutePendingTrayCommand(hwnd);
@@ -563,16 +597,13 @@ namespace Curfew.Overlay
             var warn2 = OverlayState.Settings.GetInt("warning2_minutes", 5);
 
             if (TimeKeeper.WarningFires(OverlayState.Remaining, warn1))
-                TrayIcon.ShowBalloon(Loc.T("tray.idle"), WarningMessage("warning1_message"));
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), WarningMessage("warning1_message", warn1));
             else if (TimeKeeper.WarningFires(OverlayState.Remaining, warn2))
-                TrayIcon.ShowBalloon(Loc.T("tray.idle"), WarningMessage("warning2_message"));
+                TrayIcon.ShowBalloon(Loc.T("tray.idle"), WarningMessage("warning2_message", warn2));
         }
 
-        private static string WarningMessage(string key)
-        {
-            var message = OverlayState.Settings.Get(key);
-            return string.IsNullOrWhiteSpace(message) ? Loc.T("warn.default") : message;
-        }
+        private static string WarningMessage(string key, int minutes) =>
+            OverlayState.Settings.CustomMessage(key) ?? Loc.T("warn.minutes", minutes);
 
         /// <summary>Minute-of-day of the bedtime block we last warned about, so the wind-down balloon fires
         /// once per upcoming block rather than every tick. -1 = no pending warning.</summary>
@@ -623,22 +654,25 @@ namespace Curfew.Overlay
             if (OverlayState.LimitEnabled)
             {
                 value = TimeMath.FormatCompact(OverlayState.Remaining);
-                caption = "TIME LEFT";
+                caption = OverlayState.IsPaused ? Loc.T("overlay.caption.paused") : Loc.T("overlay.caption.left");
                 accent = ColorForRemaining(OverlayState.Remaining);
             }
             else
             {
                 value = DateTime.Now.ToString("HH:mm");
-                caption = "SCHEDULE";
+                caption = OverlayState.IsPaused ? Loc.T("overlay.caption.paused") : Loc.T("overlay.caption.schedule");
                 accent = ColorWhite;
             }
+
+            var barWidth = Scale(AccentBarWidth);
+            var textInset = Scale(TextInset);
 
             // 2. accent bar left edge -- at-a-glance status colour
             var barRect = new RECT
             {
                 left = rect.left,
                 top = rect.top,
-                right = rect.left + AccentBarWidth,
+                right = rect.left + barWidth,
                 bottom = rect.bottom,
             };
             var accentBrush = CreateSolidBrush(accent);
@@ -648,18 +682,18 @@ namespace Curfew.Overlay
             SetBkMode(hdc, TRANSPARENT);
 
             // text column: inset from accent bar, padded right
-            var textLeft = rect.left + AccentBarWidth + TextInset;
-            var textRight = rect.right - 10;
+            var textLeft = rect.left + barWidth + textInset;
+            var textRight = rect.right - Scale(10);
 
             // 3. caption: small muted label above value
-            DrawText(hdc, caption, textLeft, rect.top + 6, textRight, rect.top + 22,
-                fontSize: 12, weight: 600, color: ColorLabel,
+            DrawText(hdc, caption, textLeft, rect.top + Scale(6), textRight, rect.top + Scale(22),
+                fontSize: Scale(12), weight: 600, color: ColorLabel,
                 format: DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
             // 4. value: large semibold, status-coloured (red critical, amber warning, else off-white)
             var valueColor = OverlayState.LimitEnabled ? accent : ColorWhite;
-            DrawText(hdc, value, textLeft, rect.top + 18, textRight, rect.bottom - 4,
-                fontSize: 26, weight: 700, color: valueColor,
+            DrawText(hdc, value, textLeft, rect.top + Scale(18), textRight, rect.bottom - Scale(4),
+                fontSize: Scale(26), weight: 700, color: valueColor,
                 format: DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
             EndPaint(hwnd, ref ps);

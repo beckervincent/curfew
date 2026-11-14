@@ -12,7 +12,11 @@ internal static class TrayIcon
     public const uint WM_TRAYICON = 0x8000 + 1;
 
     /// <summary>list debug/test items ("Show Warning", "Show Blocking Overlay") in menu; <c>false</c> for release build</summary>
+#if DEBUG
     internal const bool ShowDebugItems = true;
+#else
+    internal const bool ShowDebugItems = false;
+#endif
 
     /// <summary>repo opened by About item</summary>
     private const string GitHubUrl = "https://github.com/beckervincent/curfew";
@@ -245,12 +249,18 @@ internal static class TrayIcon
             try
             {
                 var version = typeof(TrayIcon).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
-                var release = await Updater.CheckForUpdateAsync(version, Updater.HttpFetchAsync);
+                var failed = false;
+                var release = await Updater.CheckForUpdateAsync(
+                    version, Updater.HttpFetchAsync,
+                    includePrereleases: OverlayState.Settings.Get("update_channel") == "prerelease",
+                    onCheckFailure: _ => failed = true);
                 ShowBalloon(
                     Loc.T("tray.idle"),
-                    release is null
-                        ? Loc.T("tray.update.none")
-                        : Loc.T("tray.update.available", release.Value.Tag.TrimStart('v', 'V')));
+                    failed
+                        ? Loc.T("tray.update.failed")
+                        : release is null
+                            ? Loc.T("tray.update.none")
+                            : Loc.T("tray.update.available", release.Value.Tag.TrimStart('v', 'V')));
             }
             catch
             {

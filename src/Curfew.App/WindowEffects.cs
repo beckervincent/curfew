@@ -37,6 +37,42 @@ internal static class WindowEffects
         CenterOnScreen(window);
     }
 
+    /// <summary>size window in device-independent pixels. <c>AppWindow.Resize</c> takes physical pixels, so an unscaled size shrinks the window (and clips its content) on a scaled display. capped to the display's work area</summary>
+    public static void ResizeDip(Window window, int widthDip, int heightDip)
+    {
+        var scale = 1.0;
+        try
+        {
+            var dpi = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(window));
+            if (dpi > 0) scale = dpi / 96.0;
+        }
+        catch
+        {
+            // older Windows without per-window DPI: keep 100%
+        }
+
+        var width = (int)Math.Round(widthDip * scale);
+        var height = (int)Math.Round(heightDip * scale);
+        try
+        {
+            var area = DisplayArea.GetFromWindowId(window.AppWindow.Id, DisplayAreaFallback.Nearest);
+            if (area is not null)
+            {
+                width = Math.Min(width, area.WorkArea.Width);
+                height = Math.Min(height, area.WorkArea.Height);
+            }
+        }
+        catch
+        {
+            // no display info: use the scaled size as is
+        }
+
+        window.AppWindow.Resize(new SizeInt32(width, height));
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
     /// <summary>centre window on its current display's work area (middle, not top-left). assumes already sized (callers Resize before Apply)</summary>
     public static void CenterOnScreen(Window? window)
     {

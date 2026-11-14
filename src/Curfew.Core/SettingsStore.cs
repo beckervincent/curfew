@@ -52,11 +52,9 @@ public sealed class SettingsStore : IDisposable
         ("limit_friday", "180"),
         ("limit_saturday", "240"),
         ("limit_sunday", "240"),
+        // warning/blocking messages are not seeded: blank means "use the localized default"
         ("warning1_minutes", "10"),
-        ("warning1_message", "10 minutes remaining!"),
         ("warning2_minutes", "5"),
-        ("warning2_message", "5 minutes remaining!"),
-        ("blocking_message", "Your screen time limit has been reached."),
         ("pause_enabled", "1"),
         ("pause_daily_budget", "45"),
         ("pause_max_duration", "20"),
@@ -79,6 +77,19 @@ public sealed class SettingsStore : IDisposable
         // weekly allowed-time schedule on/off. default off; absent = all allowed
         ("schedule_enabled", "0"),
     };
+
+    /// <summary>English texts older builds seeded for the warning/blocking messages. A stored value equal to one of these was never typed by the parent, so callers show the localized default instead (see <see cref="CustomMessage"/>).</summary>
+    private static readonly HashSet<string> SeededMessages = new(StringComparer.Ordinal)
+    {
+        "10 minutes remaining!", "5 minutes remaining!", "Your screen time limit has been reached.",
+    };
+
+    /// <summary>Parent-written message under <paramref name="key"/>, or <see langword="null"/> when unset, blank, or still the text an older build seeded.</summary>
+    public string? CustomMessage(string key)
+    {
+        var value = Get(key)?.Trim();
+        return string.IsNullOrEmpty(value) || SeededMessages.Contains(value) ? null : value;
+    }
 
     private readonly DateOnly _today;
 
@@ -510,6 +521,13 @@ public sealed class SettingsStore : IDisposable
         // override, so existing (global) settings keep applying to every user.
         if (value is null && effective != key) value = GetRaw(key);
         return value;
+    }
+
+    /// <summary>Value stored under exactly <paramref name="storedKey"/> (already scoped, e.g. <c>u:&lt;sid&gt;:limit_monday</c>): no per-user scoping, no global fallback.</summary>
+    public string? GetExact(string storedKey)
+    {
+        ArgumentNullException.ThrowIfNull(storedKey);
+        return GetRaw(storedKey);
     }
 
     private string? GetRaw(string key)

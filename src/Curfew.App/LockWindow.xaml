@@ -100,7 +100,7 @@
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
                             Visibility="Collapsed"
-                            TabIndex="0"
+                            TabIndex="3"
                             Click="OnBreak" />
                     <Button x:Name="UnlockButton"
                             HorizontalAlignment="Stretch"

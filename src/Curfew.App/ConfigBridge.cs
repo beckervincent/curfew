@@ -18,7 +18,17 @@ internal static class ConfigBridge
     public static void Attach(SettingsStore settings) =>
         settings.ConfigWriter = (key, value) =>
         {
+            // every write costs a pipe round trip plus a passcode verification in the service; a Save
+            // touches ~70 keys, so resending unchanged ones froze the window for seconds. the passcode
+            // is never readable here (GetExact returns null), so it is always sent
+            if (IsUnchanged(settings, key, value)) return true;
             if (!ConfigClient.SetConfig(key, value, Passcode)) LastWriteOk = false;
             return true;
         };
+
+    private static bool IsUnchanged(SettingsStore settings, string key, string value)
+    {
+        try { return settings.GetExact(key) == value; }
+        catch { return false; } // unreadable store: send the write
+    }
 }

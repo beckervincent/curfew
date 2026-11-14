@@ -444,6 +444,60 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.False(store.HasUsageHistory(sid2));
     }
 
+    [Theory]
+    [InlineData("warning1_message")]
+    [InlineData("warning2_message")]
+    [InlineData("blocking_message")]
+    public void Open_does_not_seed_message_keys(string key)
+    {
+        using var store = OpenStore();
+        Assert.Null(store.Get(key));
+        Assert.Null(store.CustomMessage(key));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("10 minutes remaining!")]
+    [InlineData("5 minutes remaining!")]
+    [InlineData("Your screen time limit has been reached.")]
+    [InlineData("  10 minutes remaining!  ")]
+    public void CustomMessage_returns_null_for_unset_blank_or_old_seeded_text(string? stored)
+    {
+        using var store = OpenStore();
+        if (stored is not null) store.Set("warning1_message", stored);
+
+        Assert.Null(store.CustomMessage("warning1_message"));
+    }
+
+    [Fact]
+    public void CustomMessage_returns_trimmed_parent_text()
+    {
+        using var store = OpenStore();
+        store.Set("blocking_message", "  Homework first!  ");
+
+        Assert.Equal("Homework first!", store.CustomMessage("blocking_message"));
+    }
+
+    [Fact]
+    public void GetExact_reads_exact_key_without_per_user_scoping_or_fallback()
+    {
+        using var store = OpenStore();
+        const string sid = "S-1-5-21-1234567890-1234567890-1234567890-1001";
+
+        // global limit_monday is seeded to "120"; user has no override yet
+        store.UserSid = sid;
+        Assert.Equal("120", store.Get("limit_monday"));
+        Assert.Null(store.GetExact($"u:{sid}:limit_monday"));
+        Assert.Equal("120", store.GetExact("limit_monday"));
+
+        // set per-user override; GetExact reads each key directly
+        store.Set("limit_monday", "60");
+        Assert.Equal("60", store.GetExact($"u:{sid}:limit_monday"));
+        Assert.Equal("120", store.GetExact("limit_monday"));
+    }
+
     public void Dispose()
     {
         // best-effort cleanup of database + WAL/SHM side files

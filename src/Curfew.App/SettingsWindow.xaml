@@ -134,7 +134,7 @@
                             <ToggleSwitch x:Name="LimitEnabled" Grid.Column="1" VerticalAlignment="Center"
                                           MinWidth="0"
                                           AutomationProperties.Name="Enforce daily time limit"
-                                          ToolTipService.ToolTip="Enforce a maximum amount of screen time each day" />
+                                          ToolTipService.ToolTip="{local:Loc Key=tip.limit.toggle}" />
                         </Grid>
                     </Expander.Header>
                     <StackPanel Spacing="12" Padding="0,4,0,4">
@@ -145,7 +145,7 @@
                             <NumberBox x:Name="WeeklyLimit" Header="{local:Loc Key=settings.weekly.hours}"
                                        Minimum="0" Maximum="168" Width="220" HorizontalAlignment="Left"
                                        SpinButtonPlacementMode="Inline" SmallChange="0.5"
-                                       ToolTipService.ToolTip="Total screen-time cap for the whole week (Mon–Sun)" />
+                                       ToolTipService.ToolTip="{local:Loc Key=tip.weekly}" />
                         </StackPanel>
                         <StackPanel Spacing="4">
                             <TextBlock Text="{local:Loc Key=settings.allowlist.title}" Style="{StaticResource BodyTextBlockStyle}" />
@@ -177,10 +177,10 @@
                         </StackPanel>
                         <ToggleSwitch x:Name="BlockVpnApps" Header="{local:Loc Key=settings.blockvpnapps}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                      ToolTipService.ToolTip="Also close known VPN / Tor apps (NordVPN, ProtonVPN, Tor, etc.)" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.vpnapps}" />
                         <ToggleSwitch x:Name="BlockRemoteAccessApps" Header="{local:Loc Key=settings.blockremoteapps}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                      ToolTipService.ToolTip="Close remote-control apps (TeamViewer, AnyDesk, Quick Assist, VNC, etc.) — anti-scam" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.remoteapps}" />
                     </StackPanel>
                 </Expander>
 
@@ -200,7 +200,7 @@
                             <ToggleSwitch x:Name="ScheduleEnabled" Grid.Column="1" VerticalAlignment="Center"
                                           MinWidth="0"
                                           AutomationProperties.Name="Enforce weekly schedule"
-                                          ToolTipService.ToolTip="Restrict usage to the allowed time windows below" />
+                                          ToolTipService.ToolTip="{local:Loc Key=tip.schedule.toggle}" />
                         </Grid>
                     </Expander.Header>
                     <StackPanel Padding="0,4,0,4" Spacing="12">
@@ -244,8 +244,8 @@
                         <NumberBox x:Name="Warn1Min" Minimum="0" Maximum="600" Grid.Row="1" Grid.Column="1"
                                    TabIndex="0"
                                    AutomationProperties.Name="First warning, minutes before limit"
-                                   ToolTipService.ToolTip="Minutes before the limit to show the first warning" />
-                        <TextBox x:Name="Warn1Msg" PlaceholderText="e.g. 10 minutes left" Grid.Row="1" Grid.Column="2"
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.warn.first}" />
+                        <TextBox x:Name="Warn1Msg" PlaceholderText="{local:Loc Key=settings.warn.placeholder1}" Grid.Row="1" Grid.Column="2"
                                  TabIndex="1"
                                  AutomationProperties.Name="First warning message" />
 
@@ -254,8 +254,8 @@
                         <NumberBox x:Name="Warn2Min" Minimum="0" Maximum="600" Grid.Row="2" Grid.Column="1"
                                    TabIndex="2"
                                    AutomationProperties.Name="Second warning, minutes before limit"
-                                   ToolTipService.ToolTip="Minutes before the limit to show the second warning" />
-                        <TextBox x:Name="Warn2Msg" PlaceholderText="e.g. 5 minutes left" Grid.Row="2" Grid.Column="2"
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.warn.second}" />
+                        <TextBox x:Name="Warn2Msg" PlaceholderText="{local:Loc Key=settings.warn.placeholder2}" Grid.Row="2" Grid.Column="2"
                                  TabIndex="3"
                                  AutomationProperties.Name="Second warning message" />
                     </Grid>
@@ -278,26 +278,26 @@
                         <NumberBox x:Name="LockTimeout" Header="{local:Loc Key=settings.lock.shutdown}"
                                    Minimum="1" Maximum="720" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="How long the lock screen waits before shutting down" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.lock.timeout}" />
                         <ToggleSwitch x:Name="IdleEnabled" Header="{local:Loc Key=settings.idle.toggle}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
                         <NumberBox x:Name="IdleTimeout" Header="{local:Loc Key=settings.idle.timeout}"
                                    Minimum="1" Maximum="600" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="Inactivity required before screen time is paused" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.idle.timeout}" />
                         <NumberBox x:Name="WindDown" Header="{local:Loc Key=settings.winddown}"
                                    Minimum="0" Maximum="120" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="Warn this many minutes before a schedule (bedtime) block; 0 = off" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.winddown}" />
                         <ToggleSwitch x:Name="EyeStrainEnabled" Header="{local:Loc Key=settings.eyestrain.toggle}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
                         <NumberBox x:Name="EyeStrainInterval" Header="{local:Loc Key=settings.eyestrain.interval}"
                                    Minimum="5" Maximum="120" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="Minutes of continuous use between eye-rest reminders (20-20-20 rule)" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.eyestrain}" />
                         <ToggleSwitch x:Name="NewAppAlerts" Header="{local:Loc Key=settings.newapp.toggle}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                      ToolTipService.ToolTip="Log an entry in Recent activity the first time a new app is used" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.newapp}" />
                     </StackPanel>
                 </Expander>
 
@@ -316,19 +316,19 @@
                         <NumberBox x:Name="PauseDailyBudget" Header="{local:Loc Key=settings.pause.budget}"
                                    Minimum="0" Maximum="600" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="Total break minutes the child may take per day" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.pause.budget}" />
                         <NumberBox x:Name="PauseMaxDuration" Header="{local:Loc Key=settings.pause.max}"
                                    Minimum="1" Maximum="240" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="Longest single break" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.pause.max}" />
                         <NumberBox x:Name="PauseCooldown" Header="{local:Loc Key=settings.pause.cooldown}"
                                    Minimum="0" Maximum="240" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="Minimum wait between breaks" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.pause.cooldown}" />
                         <NumberBox x:Name="PauseMinActive" Header="{local:Loc Key=settings.pause.minactive}"
                                    Minimum="0" Maximum="240" Width="220" HorizontalAlignment="Left"
                                    SpinButtonPlacementMode="Inline"
-                                   ToolTipService.ToolTip="Active time required before the first break" />
+                                   ToolTipService.ToolTip="{local:Loc Key=tip.pause.minactive}" />
                     </StackPanel>
                 </Expander>
 
@@ -350,16 +350,16 @@
                         </StackPanel>
                         <ToggleSwitch x:Name="BlockDoh" Header="{local:Loc Key=settings.doh}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                      ToolTipService.ToolTip="Prevent apps from bypassing the DNS filter with encrypted DNS" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.doh}" />
                         <ToggleSwitch x:Name="SafeSearch" Header="{local:Loc Key=settings.safesearch}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                      ToolTipService.ToolTip="Force SafeSearch on Google, Bing and YouTube" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.safesearch}" />
                         <ToggleSwitch x:Name="BlockPrivateBrowsing" Header="{local:Loc Key=settings.privatebrowsing}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                      ToolTipService.ToolTip="Disable incognito / private windows in Chrome, Edge and Firefox" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.privatebrowsing}" />
                         <Button x:Name="StrictModeButton" Click="OnApplyStrict"
                                 Content="{local:Loc Key=settings.strict.button}"
-                                ToolTipService.ToolTip="Turn on family DNS, SafeSearch, DoH block, adult+VPN/proxy blocking and private-browsing block in one tap" />
+                                ToolTipService.ToolTip="{local:Loc Key=tip.strict}" />
                         <StackPanel Spacing="4">
                             <TextBlock Text="{local:Loc Key=settings.categories.title}" Style="{StaticResource BodyTextBlockStyle}" />
                             <CheckBox x:Name="CatSocial" Content="{local:Loc Key=settings.categories.social}" />
@@ -371,7 +371,7 @@
                         <TextBox x:Name="BlockedDomains" Header="{local:Loc Key=settings.blocked.header}"
                                  PlaceholderText="{local:Loc Key=settings.blocked.placeholder}"
                                  TextWrapping="Wrap" AcceptsReturn="True" Height="96"
-                                 ToolTipService.ToolTip="One domain per line; blocked machine-wide via the hosts file" />
+                                 ToolTipService.ToolTip="{local:Loc Key=tip.blocked}" />
                         <StackPanel Spacing="4">
                             <ToggleSwitch x:Name="BlocklistEnabled" Header="{local:Loc Key=settings.blocklist.toggle}"
                                           OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
@@ -385,11 +385,11 @@
                             <TextBox x:Name="BlocklistCustomUrls" Header="{local:Loc Key=settings.blocklist.customurls}"
                                      PlaceholderText="https://example.com/hosts.txt"
                                      TextWrapping="Wrap" AcceptsReturn="True" Height="72"
-                                     ToolTipService.ToolTip="Your own blocklist URLs (https only, one per line); hosts or bare-domain format" />
+                                     ToolTipService.ToolTip="{local:Loc Key=tip.blocklist.urls}" />
                             <TextBox x:Name="BlocklistAllow" Header="{local:Loc Key=settings.blocklist.allow}"
                                      PlaceholderText="school.example.edu&#x0A;cdn.example.com"
                                      TextWrapping="Wrap" AcceptsReturn="True" Height="72"
-                                     ToolTipService.ToolTip="Domains to never block even if a subscribed list contains them (one per line; covers subdomains)" />
+                                     ToolTipService.ToolTip="{local:Loc Key=tip.blocklist.allow}" />
                         </StackPanel>
                     </StackPanel>
                 </Expander>
@@ -406,7 +406,7 @@
                     <StackPanel Padding="0,4,0,4" Spacing="16">
                         <ToggleSwitch x:Name="TimeGuard" Header="{local:Loc Key=setup.timeguard.title}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}"
-                                      ToolTipService.ToolTip="Detect and block attempts to change the system clock" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.timeguard}" />
 
                         <ToggleSwitch x:Name="AutoUpdate" Header="{local:Loc Key=settings.autoupdate}"
                                       OnContent="{local:Loc Key=common.on}" OffContent="{local:Loc Key=common.off}" />
@@ -487,7 +487,6 @@
                                      AutomationProperties.Name="Current passcode" />
                         <PasswordBox x:Name="NewPin" Header="{local:Loc Key=settings.passcode.new}" MaxLength="64" Grid.Column="1"
                                      TabIndex="1" PlaceholderText="• • • •"
-                                     AutomationProperties.HelpText="{local:Loc Key=settings.passcode.help.new}"
                                      AutomationProperties.Name="New passcode" />
                         <PasswordBox x:Name="ConfirmPin" Header="{local:Loc Key=settings.passcode.confirm}" MaxLength="64" Grid.Column="2"
                                      TabIndex="2"  PlaceholderText="• • • •"

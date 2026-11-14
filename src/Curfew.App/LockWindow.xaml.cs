@@ -84,11 +84,8 @@ public sealed partial class LockWindow : Window
     /// policy in the overlay. Records the action for the overlay to grant and tears the lock down.</summary>
     private void OnBreak(object sender, RoutedEventArgs e) => ActionConfirmed?.Invoke("break", null);
 
-    private string BudgetMessage()
-    {
-        var configured = _settings.Get("blocking_message");
-        return string.IsNullOrWhiteSpace(configured) ? Loc.T("lock.default.message") : configured;
-    }
+    private string BudgetMessage() =>
+        _settings.CustomMessage("blocking_message") ?? Loc.T("lock.default.message");
 
     /// <summary>daily limit (minutes, clamped 0..24h) parent entered for new user</summary>
     private int ChosenSetupMinutes()

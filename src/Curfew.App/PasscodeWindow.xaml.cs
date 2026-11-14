@@ -1,5 +1,5 @@
 using Curfew.Core;
-using Curfew.Core.Security;
+using Curfew.Core.Localization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
@@ -10,7 +10,8 @@ namespace Curfew.App;
 public sealed partial class PasscodeWindow : Window
 {
     /// <summary>initial window size in device-independent pixels</summary>
-    private static readonly Windows.Graphics.SizeInt32 WindowSize = new(440, 380);
+    private const int WindowWidth = 440;
+    private const int WindowHeight = 400;
 
     private readonly SettingsStore _settings;
 
@@ -27,7 +28,7 @@ public sealed partial class PasscodeWindow : Window
 
         InitializeComponent();
 
-        AppWindow.Resize(WindowSize);
+        WindowEffects.ResizeDip(this, WindowWidth, WindowHeight);
         WindowEffects.Apply(this, "Curfew", TitleBar);
 
         // dismissed by anything other than OK/Cancel (e.g. title-bar X) -> treat as cancellation so caller never waits for a result that wont arrive
@@ -41,7 +42,8 @@ public sealed partial class PasscodeWindow : Window
     {
         var entered = PinBox.Password;
         // the SYSTEM service verifies (the hash is not readable by this process) and enforces lockout itself
-        if (ConfigClient.Verify(entered).Ok)
+        var response = ConfigClient.Verify(entered);
+        if (response.Ok)
         {
             // remember verified passcode so config writes can be authorised by service (config.db read-only for app)
             ConfigBridge.Passcode = entered;
@@ -50,7 +52,7 @@ public sealed partial class PasscodeWindow : Window
         }
         else
         {
-            ShowError();
+            ShowError(response.Error);
         }
     }
 
@@ -73,8 +75,27 @@ public sealed partial class PasscodeWindow : Window
 
 
     /// <summary>reveal error message + reset input for another attempt</summary>
-    private void ShowError()
+    private void ShowError(string? error)
     {
+        // say what actually went wrong: a throttled or unreachable service is not a wrong passcode
+        var lockout = System.Text.RegularExpressions.Regex.Match(error ?? string.Empty, @"locked out, retry in (\d+)s");
+        if (lockout.Success)
+        {
+            ErrorText.Title = Loc.T("passcode.error.lockedout.title");
+            ErrorText.Message = Loc.T("passcode.error.lockedout.msg",
+                int.Parse(lockout.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
+        }
+        else if (error == "wrong code")
+        {
+            ErrorText.Title = Loc.T("passcode.error.title");
+            ErrorText.Message = Loc.T("passcode.error.msg");
+        }
+        else
+        {
+            ErrorText.Title = Loc.T("passcode.error.service.title");
+            ErrorText.Message = Loc.T("passcode.error.service.msg");
+        }
+
         ErrorText.Visibility = Visibility.Visible;
         PinBox.Password = string.Empty;
         PinBox.Focus(FocusState.Programmatic);

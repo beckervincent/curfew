@@ -65,7 +65,9 @@ public sealed partial class SettingsWindow : Window
         // config writes go through SYSTEM service (config.db read-only here)
         ConfigBridge.Attach(_settings);
 
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(WindowWidth, WindowHeight));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(NewPin, Loc.T("settings.passcode.help.new", PasscodeLength));
+
+        WindowEffects.ResizeDip(this, WindowWidth, WindowHeight);
         WindowEffects.Apply(this, Loc.T("settings.title"), TitleBar);
 
         InitCards();
@@ -328,7 +330,8 @@ public sealed partial class SettingsWindow : Window
         foreach (var ev in events)
         {
             var isAlert = ev.Kind is CurfewEventKind.ClockTamper
-                or CurfewEventKind.FailedUnlock or CurfewEventKind.FilterFailure;
+                or CurfewEventKind.FailedUnlock or CurfewEventKind.FilterFailure
+                or CurfewEventKind.StoreRecreated;
 
             var row = new StackPanel
             {
@@ -338,7 +341,7 @@ public sealed partial class SettingsWindow : Window
             };
             row.Children.Add(new TextBlock
             {
-                Text = ev.Time.ToLocalTime().ToString("dd.MM HH:mm"),
+                Text = ev.Time.ToLocalTime().ToString("g", System.Globalization.CultureInfo.CurrentCulture),
                 FontSize = 12,
                 Foreground = muted,
                 Width = 96,
@@ -362,15 +365,16 @@ public sealed partial class SettingsWindow : Window
 
     private void LoadUnlock()
     {
+        UnlockBonus.Value = _settings.GetInt("unlock_bonus_minutes", 30);
+
         // seed lives in the service-private store; fetched (seeded if absent) only with the verified parent passcode
         var response = ConfigClient.UnlockSecret(ConfigBridge.Passcode, rotate: false);
         if (!response.Ok || string.IsNullOrEmpty(response.Value))
         {
-            ShowError(Loc.T("settings.err.savefailed"));
+            ShowError(Loc.T("settings.unlock.unavailable"));
             return;
         }
         ShowUnlockSecret(response.Value);
-        UnlockBonus.Value = _settings.GetInt("unlock_bonus_minutes", 30);
     }
 
     private void ShowUnlockSecret(string secret)
@@ -478,10 +482,10 @@ public sealed partial class SettingsWindow : Window
     private void LoadWarnings()
     {
         Warn1Min.Value = _settings.GetInt("warning1_minutes", 10);
-        Warn1Msg.Text = _settings.Get("warning1_message") ?? "";
+        Warn1Msg.Text = _settings.CustomMessage("warning1_message") ?? "";
         Warn2Min.Value = _settings.GetInt("warning2_minutes", 5);
-        Warn2Msg.Text = _settings.Get("warning2_message") ?? "";
-        BlockingMsg.Text = _settings.Get("blocking_message") ?? "";
+        Warn2Msg.Text = _settings.CustomMessage("warning2_message") ?? "";
+        BlockingMsg.Text = _settings.CustomMessage("blocking_message") ?? "";
     }
 
     private void LoadLockScreen()
@@ -557,10 +561,16 @@ public sealed partial class SettingsWindow : Window
         UpdateStatus.Text = Loc.T("settings.update.checking");
         try
         {
+            var failed = false;
             var release = await Updater.CheckForUpdateAsync(
-                CurrentVersion, Updater.HttpFetchAsync, includePrereleases: SelectedChannel() == "prerelease");
+                CurrentVersion, Updater.HttpFetchAsync, includePrereleases: SelectedChannel() == "prerelease",
+                onCheckFailure: _ => failed = true);
             _pendingUpdate = release;
-            if (release is null)
+            if (failed)
+            {
+                UpdateStatus.Text = Loc.T("settings.update.checkfailed");
+            }
+            else if (release is null)
             {
                 UpdateStatus.Text = Loc.T("settings.update.uptodate", CurrentVersion);
             }
@@ -572,7 +582,7 @@ public sealed partial class SettingsWindow : Window
         }
         catch
         {
-            UpdateStatus.Text = Loc.T("settings.update.failed");
+            UpdateStatus.Text = Loc.T("settings.update.checkfailed");
         }
         finally
         {
@@ -589,10 +599,16 @@ public sealed partial class SettingsWindow : Window
         UpdateNowButton.IsEnabled = false;
         UpdateStatus.Text = Loc.T("settings.update.downloading");
 
+        _settings.Set("update_channel", SelectedChannel());
+
         // the SYSTEM service downloads, verifies the signature and launches the installer from its own protected
         // staging dir - never elevate a path in this user's (child-writable) temp folder
         var response = await Task.Run(() => ConfigClient.UpdateNow(ConfigBridge.Passcode));
-        if (!response.Ok)
+        if (response.Ok)
+        {
+            UpdateStatus.Text = Loc.T("settings.update.started");
+        }
+        else
         {
             UpdateStatus.Text = Loc.T("settings.update.failed");
             CheckUpdateButton.IsEnabled = true;
