@@ -23,8 +23,9 @@ public sealed partial class SetupWindow : Window
 
     private const int MinutesPerHour = 60;
 
-    /// <summary>initial wizard client size, in DIPs</summary>
-    private static readonly Windows.Graphics.SizeInt32 WindowSize = new(560, 720);
+    /// <summary>initial wizard size, in DIPs</summary>
+    private const int WindowWidth = 560;
+    private const int WindowHeight = 720;
 
     /// <summary>editable weekdays (Mon..Sun)</summary>
     private const int DayCount = 7;
@@ -114,7 +115,7 @@ public sealed partial class SetupWindow : Window
     /// <summary>apply title, Mica backdrop, custom title bar, rounded corners</summary>
     private void ApplyWindowChrome()
     {
-        AppWindow.Resize(WindowSize);
+        WindowEffects.ResizeDip(this, WindowWidth, WindowHeight);
         WindowEffects.Apply(this, Loc.T("setup.title"), TitleBar);
     }
 
@@ -162,10 +163,15 @@ public sealed partial class SetupWindow : Window
     private void PersistConfiguration(string pin)
     {
         // first run writes config through service too (config.db read-only). new PIN authorises writes; service lets the very first passcode through before any exists (bootstrap)
-        ConfigBridge.Passcode = pin;
+        // re-running setup on a device that already has a passcode: the gate stored the CURRENT passcode in
+        // ConfigBridge and the service checks every write against it. sending the new PIN as the credential
+        // was rejected, counted as a failed attempt per key and locked the parent out
+        ConfigBridge.Passcode ??= pin;
         ConfigBridge.Attach(_settings);
 
         _settings.Set("passcode", PasscodeHash.Hash(pin));
+        if (!ConfigBridge.LastWriteOk) return; // passcode not stored: nothing else may claim success
+        ConfigBridge.Passcode = pin;           // later writes authenticate with the new passcode
         _settings.Set("limit_enabled", ToFlag(LimitEnabled.IsOn));
         _settings.Set("schedule_enabled", ToFlag(ScheduleEnabled.IsOn));
         _settings.Set("schedule", ScheduleGridControl.ToSchedule().Serialize());

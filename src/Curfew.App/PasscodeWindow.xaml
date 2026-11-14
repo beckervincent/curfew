@@ -54,7 +54,7 @@
                              KeyDown="OnKeyDown"
                              AutomationProperties.Name="Passcode"
                              AutomationProperties.HelpText="Enter your passcode, then press Enter or select OK."
-                             ToolTipService.ToolTip="Passcode" />
+                             ToolTipService.ToolTip="{local:Loc Key=tip.passcode}" />
 
                 <!-- Inline error -->
                 <InfoBar x:Name="ErrorText"

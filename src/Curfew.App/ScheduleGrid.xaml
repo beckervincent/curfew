@@ -35,13 +35,13 @@
                                  GroupName="tool"
                                  IsChecked="True"
                                  TabIndex="0"
-                                 ToolTipService.ToolTip="Drag to allow usage (shown in blue)."
+                                 ToolTipService.ToolTip="{local:Loc Key=tip.grid.allow}"
                                  AutomationProperties.HelpText="Drag on the grid to allow usage during those times." />
                     <RadioButton x:Name="ToolBlock"
                                  Content="{local:Loc Key=schedule.block}"
                                  GroupName="tool"
                                  TabIndex="1"
-                                 ToolTipService.ToolTip="Drag to block usage (shown in gray)."
+                                 ToolTipService.ToolTip="{local:Loc Key=tip.grid.block}"
                                  AutomationProperties.HelpText="Drag on the grid to block usage during those times." />
                 </StackPanel>
             </StackPanel>
@@ -54,7 +54,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Rectangle Width="14" Height="14" RadiusX="3" RadiusY="3">
                         <Rectangle.Fill>
-                            <SolidColorBrush Color="#FF54ADF2" />
+                            <SolidColorBrush Color="#FF4CA0F0" />
                         </Rectangle.Fill>
                     </Rectangle>
                     <TextBlock Text="{local:Loc Key=schedule.allowed}"
@@ -65,7 +65,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Rectangle Width="14" Height="14" RadiusX="3" RadiusY="3">
                         <Rectangle.Fill>
-                            <SolidColorBrush Color="#28808080" />
+                            <SolidColorBrush Color="#1C808080" />
                         </Rectangle.Fill>
                     </Rectangle>
                     <TextBlock Text="{local:Loc Key=schedule.blocked}"
@@ -82,13 +82,13 @@
                        Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             <Button Content="{local:Loc Key=schedule.preset.allowall}" Click="OnPresetAllowAll"
-                    ToolTipService.ToolTip="Allow usage at every time of every day" />
+                    ToolTipService.ToolTip="{local:Loc Key=tip.grid.allowall}" />
             <Button Content="{local:Loc Key=schedule.preset.blockall}" Click="OnPresetBlockAll"
-                    ToolTipService.ToolTip="Block usage at every time of every day" />
+                    ToolTipService.ToolTip="{local:Loc Key=tip.grid.blockall}" />
             <Button Content="{local:Loc Key=schedule.preset.weeknights}" Click="OnPresetWeeknights"
-                    ToolTipService.ToolTip="Allow Mon–Fri 4 PM to 8 PM only; everything else blocked" />
+                    ToolTipService.ToolTip="{local:Loc Key=tip.grid.weeknights}" />
             <Button Content="{local:Loc Key=schedule.preset.weekends}" Click="OnPresetWeekends"
-                    ToolTipService.ToolTip="Allow all day Sat–Sun; weekdays blocked" />
+                    ToolTipService.ToolTip="{local:Loc Key=tip.grid.weekends}" />
         </StackPanel>
 
         <!-- Schedule surface: a Mica-friendly card holding the day labels + paintable canvas -->
@@ -104,7 +104,7 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="44" />
+                    <ColumnDefinition Width="32" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
@@ -115,7 +115,6 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="0:00"
                                Style="{StaticResource CaptionTextBlockStyle}"
@@ -133,7 +132,7 @@
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                HorizontalAlignment="Left" />
-                    <TextBlock Grid.Column="4" Text="24:00"
+                    <TextBlock Grid.Column="3" Text="24:00"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                HorizontalAlignment="Right" />
@@ -149,7 +148,7 @@
                         Background="Transparent"
                         AutomationProperties.Name="Weekly schedule grid"
                         AutomationProperties.HelpText="A grid of seven days by 24 hours. Click and drag to apply the selected paint tool."
-                        ToolTipService.ToolTip="Click and drag to allow or block time."
+                        ToolTipService.ToolTip="{local:Loc Key=tip.grid.canvas}"
                         PointerPressed="OnPointerPressed"
                         PointerMoved="OnPointerMoved"
                         PointerReleased="OnPointerReleased"

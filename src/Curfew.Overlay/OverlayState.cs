@@ -142,6 +142,13 @@ internal static class OverlayState
     private static DateOnly _lastLimitDate;
     private static bool _limitTracked;
 
+    /// <summary>reload enforcement immediately on midnight rollover so the new day gets a fresh allowance before any periodic persist runs</summary>
+    public static void RollDayIfNeeded()
+    {
+        if (_limitTracked && DateOnly.FromDateTime(DateTime.Now) != _lastLimitDate)
+            LoadEnforcement();
+    }
+
     /// <summary>admin changes today's limit mid-session -> shift Remaining by same delta (2:00->2:30 w/ 1:30 left -> 2:00). day rollover instead re-seeds new day so long-lived overlay (not restarted at midnight) grants fresh allowance, not yesterday's leftover. runs each enforcement reload</summary>
     private static void ApplyLimitChangeToRemaining()
     {

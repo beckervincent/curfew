@@ -57,7 +57,7 @@
                                  PlaceholderText="••••"
                                  AutomationProperties.Name="Administrator PIN"
                                  AutomationProperties.HelpText="Enter a PIN or password"
-                                 ToolTipService.ToolTip="Enter a PIN or password" />
+                                 ToolTipService.ToolTip="{local:Loc Key=tip.pin}" />
                     <PasswordBox x:Name="ConfirmBox"
                                  Header="{local:Loc Key=setup.pin.confirm}"
                                  MaxLength="64"
@@ -67,7 +67,7 @@
                                  PlaceholderText="••••"
                                  AutomationProperties.Name="Confirm PIN"
                                  AutomationProperties.HelpText="Re-enter the same PIN or password to confirm"
-                                 ToolTipService.ToolTip="Re-enter the same PIN or password to confirm" />
+                                 ToolTipService.ToolTip="{local:Loc Key=tip.pin.confirm}" />
                 </StackPanel>
             </Expander>
 
@@ -113,7 +113,7 @@
                                       VerticalAlignment="Center"
                                       TabIndex="4"
                                       AutomationProperties.Name="Enforce a daily time limit"
-                                      ToolTipService.ToolTip="Enforce a daily time limit" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.setup.limit}" />
                     </Grid>
 
                     <NumberBox x:Name="HoursPerDay"
@@ -128,7 +128,7 @@
                                TabIndex="5"
                                AutomationProperties.Name="Hours allowed per day"
                                AutomationProperties.HelpText="You can fine-tune the limit for each weekday later in Settings"
-                               ToolTipService.ToolTip="Applied to every weekday — fine-tune per day later in Settings" />
+                               ToolTipService.ToolTip="{local:Loc Key=tip.setup.hours}" />
 
                     <!-- Weekly schedule toggle -->
                     <Grid ColumnSpacing="16">
@@ -148,7 +148,7 @@
                                       VerticalAlignment="Center"
                                       TabIndex="6"
                                       AutomationProperties.Name="Enforce a weekly schedule"
-                                      ToolTipService.ToolTip="Enforce a weekly schedule (paint the grid under Advanced)" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.setup.schedule}" />
                     </Grid>
 
                     <!-- Advanced: a per-day limit for each weekday plus the weekly schedule grid -->
@@ -190,16 +190,16 @@
                         <RadioButton x:Name="FilterOff"
                                      Content="{local:Loc Key=filter.none}"
                                      GroupName="filter"
-                                     ToolTipService.ToolTip="No DNS filtering" />
+                                     ToolTipService.ToolTip="{local:Loc Key=tip.filter.none}" />
                         <RadioButton x:Name="FilterMalware"
                                      Content="{local:Loc Key=filter.malware}"
                                      GroupName="filter"
-                                     ToolTipService.ToolTip="Blocks known malware domains" />
+                                     ToolTipService.ToolTip="{local:Loc Key=tip.filter.malware}" />
                         <RadioButton x:Name="FilterFamily"
                                      Content="{local:Loc Key=filter.family}"
                                      GroupName="filter"
                                      IsChecked="True"
-                                     ToolTipService.ToolTip="Blocks malware plus adult content" />
+                                     ToolTipService.ToolTip="{local:Loc Key=tip.filter.family}" />
                     </RadioButtons>
 
                     <Grid ColumnSpacing="16" Margin="0,4,0,0">
@@ -220,7 +220,7 @@
                                       VerticalAlignment="Center"
                                       TabIndex="10"
                                       AutomationProperties.Name="Block DNS-over-HTTPS bypass"
-                                      ToolTipService.ToolTip="Also block DNS-over-HTTPS bypass" />
+                                      ToolTipService.ToolTip="{local:Loc Key=tip.setup.doh}" />
                     </Grid>
                 </StackPanel>
             </Expander>
@@ -253,7 +253,7 @@
                                   VerticalAlignment="Center"
                                   TabIndex="12"
                                   AutomationProperties.Name="Time Manipulation Guarding"
-                                  ToolTipService.ToolTip="Time Manipulation Guarding" />
+                                  ToolTipService.ToolTip="{local:Loc Key=tip.setup.timeguard}" />
                 </Grid>
             </Expander>
 

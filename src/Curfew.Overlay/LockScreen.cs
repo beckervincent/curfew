@@ -27,6 +27,14 @@ internal static class LockScreen
     /// <summary>seconds until logoff; counts down once a second while locked</summary>
     private static int _shutdownCountdown = -1;
 
+    private const int ReloadEverySeconds = 30;
+    private static int _reloadCounter;
+    private static string _activeReason = string.Empty;
+
+    private static string LockReason() =>
+        OverlayState.NewUserBlocked ? "newuser"
+        : OverlayState.BudgetBlocked || OverlayState.WeeklyBlocked ? "budget" : "schedule";
+
 
     public static void Register(IntPtr hInstance)
     {
@@ -52,6 +60,7 @@ internal static class LockScreen
     {
         if (_hwnd == IntPtr.Zero || OverlayState.Locked) return;
         OverlayState.Locked = true;
+        _reloadCounter = 0;
         OverlayLog.Write("lock screen shown");
 
         if (OverlayState.MiniHwnd != IntPtr.Zero) ShowWindow(OverlayState.MiniHwnd, SW_HIDE);
@@ -60,17 +69,15 @@ internal static class LockScreen
 
         // publish lock state for WinUI surface, launch on top. this stays black cover underneath as hard floor: slow/relaunched surface still black-locked + hook active, nothing leaks
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        OverlayState.Settings.Set("lock_reason",
-            OverlayState.NewUserBlocked ? "newuser"
-            : OverlayState.BudgetBlocked || OverlayState.WeeklyBlocked ? "budget" : "schedule");
+        _activeReason = LockReason();
+        OverlayState.Settings.Set("lock_reason", _activeReason);
         OverlayState.Settings.Set("lock_deadline_unix", (now + Math.Max(0, _shutdownCountdown)).ToString());
         ReportLockState(true);
         PublishBreakOffer();
         OverlayState.Settings.Set("lock_active", "1");
         LockAppHost.Launch();
 
-        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked,
-            OverlayState.BudgetBlocked ? "budget" : "schedule");
+        EventLog.Append(CurfewPaths.EventLogFile, CurfewEventKind.Locked, _activeReason);
 
         CoverAllDisplays(_hwnd, SWP_SHOWWINDOW);
         ShowWindow(_hwnd, SW_SHOW);
@@ -118,6 +125,24 @@ internal static class LockScreen
     public static void WhileLockedTick()
     {
         if (!OverlayState.Locked) return;
+
+        if (++_reloadCounter >= ReloadEverySeconds)
+        {
+            _reloadCounter = 0;
+            OverlayState.LoadEnforcement();
+        }
+
+        if (OverlayState.ScheduleAllows()) OverlayState.ScheduleOverride = false;
+        HideIfUnblocked();
+        if (!OverlayState.Locked) return;
+
+        var reason = LockReason();
+        if (reason != _activeReason)
+        {
+            _activeReason = reason;
+            OverlayState.Settings.Set("lock_reason", reason);
+            LockAppHost.Kill();
+        }
 
         // keep the lock's break offer current as the budget/cooldown change while it sits up
         PublishBreakOffer();

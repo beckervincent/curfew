@@ -1,4 +1,5 @@
 using Curfew.Core;
+using Curfew.Core.Localization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -21,7 +22,12 @@ public sealed partial class ScheduleGrid : UserControl
     /// <summary>paintable cells per day (48 thirty-min cells over 24h)</summary>
     private static readonly int CellsPerDay = Schedule.SlotsPerDay / SlotsPerCell;
 
-    private static readonly string[] Days = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+    /// <summary>two-letter weekday label in the active language (Mo, Di, ... / Mo, Tu, ...)</summary>
+    private static string DayLabel(int day)
+    {
+        var name = Loc.T($"day.{day}");
+        return name.Length > 2 ? name[..2] : name;
+    }
 
     /// <summary><c>_slots[day][slot]</c> — <c>true</c> = usage allowed</summary>
     private readonly bool[][] _slots = NewGrid();
@@ -131,7 +137,7 @@ public sealed partial class ScheduleGrid : UserControl
             var y = d * rowH;
             AddRect(0, y, w, rowH, BlockedBrush, 0);
             RenderAllowedRuns(d, y, rowH, slotW);
-            AddLabel(Days[d], y, rowH);
+            AddLabel(DayLabel(d), y, rowH);
         }
 
         RenderGridlines(slotW, rowH, h);

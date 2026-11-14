@@ -17,6 +17,7 @@
     <Company>Curfew</Company>
     <!-- embed app icon so tray icon (ExtractIcon on our exe) is the real one -->
     <ApplicationIcon>..\..\resources\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

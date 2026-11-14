@@ -50,6 +50,8 @@ internal static class Native
     // owner-draw + control-colour msgs: give lock child controls (buttons, passcode field) same dark rounded look as WinUI app
     public const uint WM_DRAWITEM = 0x002B;
     public const uint WM_CTLCOLOREDIT = 0x0133;
+    public const uint WM_DISPLAYCHANGE = 0x007E;
+    public const uint WM_DPICHANGED = 0x02E0;
 
     // ── GetSystemMetrics indices (SM_*) ─────────────────────────────────────
     public const int SM_CXSCREEN = 0;
@@ -197,6 +199,9 @@ internal static class Native
 
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     public static extern IntPtr SetTimer(IntPtr hwnd, IntPtr id, uint elapseMs, IntPtr func);
